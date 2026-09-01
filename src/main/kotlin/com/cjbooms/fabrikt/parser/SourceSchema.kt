@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import com.fasterxml.jackson.databind.JsonNode
+import java.math.BigDecimal
 
 internal sealed interface SourceSchema {
     val location: String
@@ -20,6 +21,11 @@ internal data class SourceObjectSchema(
     val anchor: String?,
     val types: Set<SourceSchemaType>,
     val reference: String?,
+    val metadata: SourceSchemaMetadata,
+    val constraints: SourceSchemaConstraints,
+    val requiredProperties: Set<String>,
+    val dependentRequired: Map<String, Set<String>>,
+    val discriminator: SourceSchemaDiscriminator?,
     val definitions: Map<String, SourceSchema>,
     val properties: Map<String, SourceSchema>,
     val patternProperties: Map<String, SourceSchema>,
@@ -40,6 +46,47 @@ internal data class SourceObjectSchema(
     val unevaluatedProperties: SourceSchema?,
     val contentSchema: SourceSchema?,
 ) : SourceSchema
+
+internal data class SourceSchemaMetadata(
+    val title: String?,
+    val description: String?,
+    val format: String?,
+    val defaultValue: JsonNode?,
+    val examples: List<JsonNode>,
+    val enumValues: List<JsonNode>,
+    val constValue: JsonNode?,
+    val readOnly: Boolean,
+    val writeOnly: Boolean,
+    val deprecated: Boolean,
+    val contentEncoding: String?,
+    val contentMediaType: String?,
+)
+
+internal data class SourceSchemaConstraints(
+    val multipleOf: BigDecimal?,
+    val minimum: SourceSchemaBound?,
+    val maximum: SourceSchemaBound?,
+    val minLength: Int?,
+    val maxLength: Int?,
+    val pattern: String?,
+    val minItems: Int?,
+    val maxItems: Int?,
+    val uniqueItems: Boolean,
+    val minContains: Int?,
+    val maxContains: Int?,
+    val minProperties: Int?,
+    val maxProperties: Int?,
+)
+
+internal data class SourceSchemaBound(
+    val value: BigDecimal,
+    val exclusive: Boolean,
+)
+
+internal data class SourceSchemaDiscriminator(
+    val propertyName: String,
+    val mapping: Map<String, String>,
+)
 
 internal fun SourceSchema.childSchemas(): Sequence<SourceSchema> =
     when (this) {

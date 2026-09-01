@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import com.fasterxml.jackson.databind.JsonNode
+import java.math.BigDecimal
 
 internal object SourceSchemaParser {
     fun parse(
@@ -18,6 +19,11 @@ internal object SourceSchemaParser {
                 anchor = node["\$anchor"]?.takeIf(JsonNode::isTextual)?.textValue(),
                 types = readTypes(node, version),
                 reference = node["\$ref"]?.takeIf(JsonNode::isTextual)?.textValue(),
+                metadata = readMetadata(node),
+                constraints = readConstraints(node, version),
+                requiredProperties = readStringSet(node["required"]),
+                dependentRequired = readDependentRequired(node["dependentRequired"]),
+                discriminator = readDiscriminator(node["discriminator"]),
                 definitions = readNamedSchemas(node["\$defs"], "$location/\$defs", version),
                 properties = readNamedSchemas(node["properties"], "$location/properties", version),
                 patternProperties =
@@ -114,6 +120,126 @@ internal object SourceSchemaParser {
 
         return declaredTypes
     }
+
+    private fun readMetadata(node: JsonNode): SourceSchemaMetadata =
+        SourceSchemaMetadata(
+            title = node.textValue("title"),
+            description = node.textValue("description"),
+            format = node.textValue("format"),
+            defaultValue = node["default"],
+            examples = readExamples(node),
+            enumValues = node["enum"]?.takeIf(JsonNode::isArray)?.toList().orEmpty(),
+            constValue = node["const"],
+            readOnly = node["readOnly"]?.asBoolean() == true,
+            writeOnly = node["writeOnly"]?.asBoolean() == true,
+            deprecated = node["deprecated"]?.asBoolean() == true,
+            contentEncoding = node.textValue("contentEncoding"),
+            contentMediaType = node.textValue("contentMediaType"),
+        )
+
+    private fun readExamples(node: JsonNode): List<JsonNode> =
+        node["examples"]?.takeIf(JsonNode::isArray)?.toList()
+            ?: node["example"]?.let(::listOf)
+            ?: emptyList()
+
+    private fun readConstraints(
+        node: JsonNode,
+        version: OpenApiVersion?,
+    ): SourceSchemaConstraints =
+        SourceSchemaConstraints(
+            multipleOf = node.decimalValue("multipleOf"),
+            minimum = readMinimum(node, version),
+            maximum = readMaximum(node, version),
+            minLength = node.intValue("minLength"),
+            maxLength = node.intValue("maxLength"),
+            pattern = node.textValue("pattern"),
+            minItems = node.intValue("minItems"),
+            maxItems = node.intValue("maxItems"),
+            uniqueItems = node["uniqueItems"]?.asBoolean() == true,
+            minContains = node.intValue("minContains"),
+            maxContains = node.intValue("maxContains"),
+            minProperties = node.intValue("minProperties"),
+            maxProperties = node.intValue("maxProperties"),
+        )
+
+    private fun readMinimum(
+        node: JsonNode,
+        version: OpenApiVersion?,
+    ): SourceSchemaBound? =
+        if (version.isOpenApi30()) {
+            node.decimalValue("minimum")?.let { SourceSchemaBound(it, node["exclusiveMinimum"]?.asBoolean() == true) }
+        } else {
+            strongestLowerBound(
+                node.decimalValue("minimum")?.let { SourceSchemaBound(it, false) },
+                node.decimalValue("exclusiveMinimum")?.let { SourceSchemaBound(it, true) },
+            )
+        }
+
+    private fun readMaximum(
+        node: JsonNode,
+        version: OpenApiVersion?,
+    ): SourceSchemaBound? =
+        if (version.isOpenApi30()) {
+            node.decimalValue("maximum")?.let { SourceSchemaBound(it, node["exclusiveMaximum"]?.asBoolean() == true) }
+        } else {
+            strongestUpperBound(
+                node.decimalValue("maximum")?.let { SourceSchemaBound(it, false) },
+                node.decimalValue("exclusiveMaximum")?.let { SourceSchemaBound(it, true) },
+            )
+        }
+
+    private fun strongestLowerBound(
+        inclusive: SourceSchemaBound?,
+        exclusive: SourceSchemaBound?,
+    ): SourceSchemaBound? =
+        listOfNotNull(inclusive, exclusive).maxWithOrNull(compareBy<SourceSchemaBound> { it.value }.thenBy { it.exclusive })
+
+    private fun strongestUpperBound(
+        inclusive: SourceSchemaBound?,
+        exclusive: SourceSchemaBound?,
+    ): SourceSchemaBound? =
+        listOfNotNull(inclusive, exclusive).minWithOrNull(compareBy<SourceSchemaBound> { it.value }.thenByDescending { it.exclusive })
+
+    private fun readDependentRequired(node: JsonNode?): Map<String, Set<String>> =
+        node
+            ?.takeIf(JsonNode::isObject)
+            ?.properties()
+            ?.asSequence()
+            ?.associate { (name, required) ->
+                name to readStringSet(required)
+            }.orEmpty()
+
+    private fun readDiscriminator(node: JsonNode?): SourceSchemaDiscriminator? {
+        val propertyName = node?.textValue("propertyName") ?: return null
+        val mapping =
+            node["mapping"]
+                ?.takeIf(JsonNode::isObject)
+                ?.properties()
+                ?.asSequence()
+                ?.mapNotNull { (name, target) ->
+                    target.takeIf(JsonNode::isTextual)?.textValue()?.let { name to it }
+                }?.toMap()
+                .orEmpty()
+        return SourceSchemaDiscriminator(propertyName, mapping)
+    }
+
+    private fun readStringSet(node: JsonNode?): Set<String> =
+        node
+            ?.takeIf(JsonNode::isArray)
+            ?.asSequence()
+            ?.filter(JsonNode::isTextual)
+            ?.map(JsonNode::textValue)
+            ?.toCollection(linkedSetOf())
+            ?: emptySet()
+
+    private fun JsonNode.textValue(fieldName: String): String? = get(fieldName)?.takeIf(JsonNode::isTextual)?.textValue()
+
+    private fun JsonNode.decimalValue(fieldName: String): BigDecimal? = get(fieldName)?.takeIf(JsonNode::isNumber)?.decimalValue()
+
+    private fun JsonNode.intValue(fieldName: String): Int? =
+        get(fieldName)?.takeIf(JsonNode::isIntegralNumber)?.takeIf(JsonNode::canConvertToInt)?.intValue()
+
+    private fun OpenApiVersion?.isOpenApi30(): Boolean = this?.major == 3 && minor == 0
 
     private fun String.toJsonPointerToken(): String = replace("~", "~0").replace("/", "~1")
 }
