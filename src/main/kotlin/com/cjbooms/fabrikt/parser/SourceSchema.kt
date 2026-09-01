@@ -53,6 +53,7 @@ internal data class SourceObjectSchema(
 ) : SourceSchema,
     GeneratorObjectSchema {
     override val identity = GeneratorSchemaIdentity()
+    override val canonicalReference: String = location
 }
 
 internal data class SourceSchemaMetadata(
@@ -68,6 +69,7 @@ internal data class SourceSchemaMetadata(
     val deprecated: Boolean,
     val contentEncoding: String?,
     val contentMediaType: String?,
+    val extensions: Map<String, JsonNode>,
 )
 
 internal data class SourceSchemaConstraints(

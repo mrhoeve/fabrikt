@@ -135,6 +135,10 @@ internal object SourceSchemaParser {
             deprecated = node["deprecated"]?.asBoolean() == true,
             contentEncoding = node.textValue("contentEncoding"),
             contentMediaType = node.textValue("contentMediaType"),
+            extensions =
+                node.properties().asSequence().filter { (name, _) -> name.startsWith("x-") }.associate { (name, value) ->
+                    name to value
+                },
         )
 
     private fun readExamples(node: JsonNode): List<JsonNode> =

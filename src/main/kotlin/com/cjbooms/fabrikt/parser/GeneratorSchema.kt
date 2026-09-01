@@ -16,6 +16,7 @@ internal interface GeneratorObjectSchema : GeneratorSchema {
     val anchor: String?
     val types: Set<SourceSchemaType>
     val reference: String?
+    val canonicalReference: String
     val metadata: SourceSchemaMetadata
     val constraints: SourceSchemaConstraints
     val requiredProperties: Set<String>

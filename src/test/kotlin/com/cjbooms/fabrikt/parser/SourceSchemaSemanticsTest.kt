@@ -53,6 +53,10 @@ class SourceSchemaSemanticsTest {
         assertThat(schema.metadata.readOnly).isTrue()
         assertThat(schema.metadata.writeOnly).isTrue()
         assertThat(schema.metadata.deprecated).isTrue()
+        assertThat(schema.metadata.extensions).containsEntry(
+            "x-generator-hint",
+            JsonNodeFactory.instance.textNode("preserved"),
+        )
         assertThat(schema.requiredProperties).containsExactly("first", "second")
         assertThat(schema.discriminator).isEqualTo(
             SourceSchemaDiscriminator("kind", mapOf("cat" to "#/components/schemas/Cat")),
@@ -97,6 +101,7 @@ class SourceSchemaSemanticsTest {
         readOnly: true
         writeOnly: true
         deprecated: true
+        x-generator-hint: preserved
         required: [first, second]
         discriminator:
           propertyName: kind
