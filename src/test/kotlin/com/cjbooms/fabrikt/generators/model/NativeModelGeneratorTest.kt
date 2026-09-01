@@ -96,16 +96,25 @@ class NativeModelGeneratorTest {
             .contains("public val pets: List<SubjectPetsItem>? = null")
     }
 
-    private fun generate(version: String) =
-        NativeModelGenerator("com.example")
-            .generate(
-                GeneratorModelDescriptorBuilder.build(
-                    OpenApiDocumentParser
-                        .parse(openApi.replace("VERSION", version))
-                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
-                ),
-            ).files
-            .associateBy { it.name }
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `native source and legacy adapters produce identical shared model output`(version: String) {
+        assertThat(generate(version, SchemaGenerationMode.NATIVE))
+            .isEqualTo(generate(version, SchemaGenerationMode.LEGACY))
+    }
+
+    private fun generate(
+        version: String,
+        mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
+    ) = NativeModelGenerator("com.example")
+        .generate(
+            GeneratorModelDescriptorBuilder.build(
+                OpenApiDocumentParser
+                    .parse(openApi.replace("VERSION", version))
+                    .toGeneratorSchemaDocument(mode),
+            ),
+        ).files
+        .associateBy { it.name }
 
     private val openApi =
         """
