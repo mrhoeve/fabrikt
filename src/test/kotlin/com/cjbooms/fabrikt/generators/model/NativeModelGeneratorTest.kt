@@ -67,6 +67,23 @@ class NativeModelGeneratorTest {
             .contains("public val childName: String")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates sealed unions and connects their members`(version: String) {
+        val generated = generate(version)
+
+        assertThat(generated.getValue("Pet").toString())
+            .contains("public sealed interface Pet")
+            .contains("@JsonTypeInfo(")
+            .contains("property = \"kind\"")
+            .contains("name = \"cat\"")
+            .contains("name = \"dog\"")
+        assertThat(generated.getValue("PossiblePet").toString())
+            .contains("public sealed interface PossiblePet")
+        assertThat(generated.getValue("Cat").toString()).contains(") : Pet, PossiblePet")
+        assertThat(generated.getValue("Dog").toString()).contains(") : Pet, PossiblePet")
+    }
+
     private fun generate(version: String) =
         NativeModelGenerator("com.example")
             .generate(
@@ -127,5 +144,28 @@ class NativeModelGeneratorTest {
                   required: [childName]
                   properties:
                     childName: { type: string }
+            Cat:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
+            Dog:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
+            Pet:
+              oneOf:
+                - ${'$'}ref: '#/components/schemas/Cat'
+                - ${'$'}ref: '#/components/schemas/Dog'
+              discriminator:
+                propertyName: kind
+                mapping:
+                  cat: '#/components/schemas/Cat'
+                  dog: '#/components/schemas/Dog'
+            PossiblePet:
+              anyOf:
+                - ${'$'}ref: '#/components/schemas/Cat'
+                - ${'$'}ref: '#/components/schemas/Dog'
         """.trimIndent()
 }

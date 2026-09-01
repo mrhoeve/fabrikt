@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
 import com.cjbooms.fabrikt.parser.SourceSchemaConstraints
+import com.cjbooms.fabrikt.parser.SourceSchemaDiscriminator
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class GeneratorModelDescriptor(
@@ -16,6 +17,15 @@ internal data class GeneratorModelDescriptor(
     val kotlinType: GeneratorKotlinTypeResolution,
     val description: String?,
     val properties: List<GeneratorPropertyDescriptor>,
+    val oneOfMembers: List<GeneratorUnionMemberDescriptor>,
+    val anyOfMembers: List<GeneratorUnionMemberDescriptor>,
+    val discriminator: SourceSchemaDiscriminator?,
+)
+
+internal data class GeneratorUnionMemberDescriptor(
+    val schemaIdentity: GeneratorSchemaIdentity,
+    val kotlinType: GeneratorKotlinTypeResolution.Resolved,
+    val canonicalReference: String?,
 )
 
 internal data class GeneratorPropertyDescriptor(
@@ -51,8 +61,28 @@ internal object GeneratorModelDescriptorBuilder {
                 kotlinType = typeResolver.resolve(resolvedSchema),
                 description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
                 properties = resolvedSchema.properties(document, typeResolver),
+                oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
+                anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
+                discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
             )
         }
+
+    private fun GeneratorSchema.unionMembers(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+        selector: (GeneratorObjectSchema) -> List<GeneratorSchema>,
+    ): List<GeneratorUnionMemberDescriptor> {
+        val objectSchema = this as? GeneratorObjectSchema ?: return emptyList()
+        return selector(objectSchema).mapNotNull { member ->
+            val resolvedMember = document.resolve(member)
+            val type = typeResolver.resolve(resolvedMember) as? GeneratorKotlinTypeResolution.Resolved ?: return@mapNotNull null
+            GeneratorUnionMemberDescriptor(
+                schemaIdentity = resolvedMember.identity,
+                kotlinType = type,
+                canonicalReference = (resolvedMember as? GeneratorObjectSchema)?.canonicalReference,
+            )
+        }
+    }
 
     private fun GeneratorSchema.properties(
         document: GeneratorSchemaDocument,
