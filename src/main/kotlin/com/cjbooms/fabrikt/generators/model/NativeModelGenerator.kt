@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.generators.ValidationAnnotations
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptor
 import com.cjbooms.fabrikt.model.GeneratorPropertyDescriptor
+import com.cjbooms.fabrikt.model.GeneratorUnionMemberDescriptor
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.ModelType
 import com.cjbooms.fabrikt.model.Models
@@ -19,6 +20,7 @@ import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
 import com.squareup.kotlinpoet.PropertySpec
+import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.TypeSpec
 
 internal class NativeModelGenerator(
@@ -27,25 +29,33 @@ internal class NativeModelGenerator(
     private val serializationAnnotations = MutableSettings.effectiveSerializationAnnotations
     private val validationAnnotations = MutableSettings.validationLibrary.annotations
 
-    fun generate(descriptors: Collection<GeneratorModelDescriptor>): Models =
-        Models(
+    fun generate(descriptors: Collection<GeneratorModelDescriptor>): Models {
+        val interfacesByMember =
+            descriptors
+                .flatMap { descriptor ->
+                    descriptor.unionMembers().map { member -> member.schemaIdentity to modelType(descriptor.name) }
+                }.groupBy({ it.first }, { it.second })
+        return Models(
             descriptors.mapNotNull { descriptor ->
                 val type = descriptor.resolvedType() ?: return@mapNotNull null
                 val typeSpec =
-                    when (type) {
-                        OasType.Object -> descriptor.toDataClass()
-                        OasType.Enum -> descriptor.toEnum()
+                    when {
+                        descriptor.unionMembers().isNotEmpty() -> descriptor.toUnionInterface()
+                        type == OasType.Object -> descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
+                        type == OasType.Enum -> descriptor.toEnum()
                         else -> null
                     }
                 typeSpec?.let { ModelType(it, basePackage) }
             },
         )
+    }
 
-    private fun GeneratorModelDescriptor.toDataClass(): TypeSpec {
+    private fun GeneratorModelDescriptor.toDataClass(superInterfaces: List<TypeName>): TypeSpec {
         val constructor = FunSpec.constructorBuilder()
         val type = TypeSpec.classBuilder(name)
         description?.let { type.addKdoc("%L", it) }
         serializationAnnotations.addClassAnnotation(type)
+        superInterfaces.forEach(type::addSuperinterface)
 
         properties.forEach { property ->
             val resolvedType = property.kotlinType as? GeneratorKotlinTypeResolution.Resolved ?: return@forEach
@@ -70,6 +80,37 @@ internal class NativeModelGenerator(
 
         if (constructor.parameters.isNotEmpty()) type.addModifiers(KModifier.DATA)
         return type.primaryConstructor(constructor.build()).build()
+    }
+
+    private fun GeneratorModelDescriptor.toUnionInterface(): TypeSpec {
+        val members = unionMembers()
+        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
+        description?.let { type.addKdoc("%L", it) }
+        serializationAnnotations.addClassAnnotation(type)
+        if (discriminator != null) {
+            serializationAnnotations.addBasePolymorphicTypeAnnotation(type, discriminator.propertyName)
+            serializationAnnotations.addPolymorphicSubTypesAnnotation(type, discriminatorMappings(members))
+        } else {
+            serializationAnnotations.addPolymorphicSubTypeDeductionAnnotation(type, members.map { it.typeName() })
+        }
+        return type.build()
+    }
+
+    private fun GeneratorModelDescriptor.discriminatorMappings(members: List<GeneratorUnionMemberDescriptor>): Map<String, TypeName> {
+        val mappings = discriminator?.mapping.orEmpty()
+        return if (mappings.isEmpty()) {
+            members.associate { it.modelName() to it.typeName() }
+        } else {
+            mappings
+                .mapNotNull { (key, reference) ->
+                    members
+                        .firstOrNull { member ->
+                            member.canonicalReference == reference ||
+                                member.canonicalReference?.endsWith(reference.substringAfterLast('/')) == true ||
+                                member.modelName() == reference.substringAfterLast('/')
+                        }?.let { key to it.typeName() }
+                }.toMap()
+        }
     }
 
     private fun GeneratorModelDescriptor.toEnum(): TypeSpec {
@@ -132,6 +173,14 @@ internal class NativeModelGenerator(
     }
 
     private fun GeneratorModelDescriptor.resolvedType(): OasType? = (classification as? GeneratorSchemaTypeClassification.Resolved)?.type
+
+    private fun GeneratorModelDescriptor.unionMembers(): List<GeneratorUnionMemberDescriptor> = oneOfMembers + anyOfMembers
+
+    private fun GeneratorUnionMemberDescriptor.typeName(): TypeName = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
+
+    private fun GeneratorUnionMemberDescriptor.modelName(): String = requireNotNull(kotlinType.typeInfo.generatedModelClassName)
+
+    private fun modelType(name: String): TypeName = ModelGenerator.generatedType(basePackage, name)
 
     private fun GeneratorPropertyDescriptor.defaultCode(type: GeneratorKotlinTypeResolution.Resolved) =
         defaultValue
