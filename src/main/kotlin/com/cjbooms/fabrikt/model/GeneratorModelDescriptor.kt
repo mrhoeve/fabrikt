@@ -8,6 +8,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
 import com.cjbooms.fabrikt.parser.SourceSchemaConstraints
 import com.cjbooms.fabrikt.parser.SourceSchemaDiscriminator
+import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class GeneratorModelDescriptor(
@@ -44,28 +45,73 @@ internal data class GeneratorPropertyDescriptor(
 
 internal object GeneratorModelDescriptorBuilder {
     fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> {
-        val typeResolver = GeneratorKotlinTypeResolver(document)
-        return build(document, typeResolver)
+        val modelSchemas = collectModelSchemas(document)
+        val typeResolver = GeneratorKotlinTypeResolver(document, modelSchemas.mapValues { it.value.first })
+        return modelSchemas.values.map { (name, schema) -> schema.toDescriptor(name, document, typeResolver) }
     }
 
-    private fun build(
+    private fun GeneratorSchema.toDescriptor(
+        name: String,
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
-    ): List<GeneratorModelDescriptor> =
-        document.componentSchemas.map { (name, schema) ->
-            val resolvedSchema = document.resolve(schema)
-            GeneratorModelDescriptor(
-                name = name,
-                schemaIdentity = resolvedSchema.identity,
-                classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema),
-                kotlinType = typeResolver.resolve(resolvedSchema),
-                description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
-                properties = resolvedSchema.properties(document, typeResolver),
-                oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
-                anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
-                discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
-            )
+    ): GeneratorModelDescriptor {
+        val resolvedSchema = document.resolve(this)
+        return GeneratorModelDescriptor(
+            name = name,
+            schemaIdentity = resolvedSchema.identity,
+            classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema),
+            kotlinType = typeResolver.resolve(resolvedSchema),
+            description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
+            properties = resolvedSchema.properties(document, typeResolver),
+            oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
+            anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
+            discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
+        )
+    }
+
+    private fun collectModelSchemas(document: GeneratorSchemaDocument): Map<GeneratorSchemaIdentity, Pair<String, GeneratorSchema>> {
+        val models = linkedMapOf<GeneratorSchemaIdentity, Pair<String, GeneratorSchema>>()
+        val visited = mutableSetOf<GeneratorSchemaIdentity>()
+
+        fun visit(
+            schema: GeneratorSchema,
+            suggestedName: String,
+        ) {
+            val resolved = document.resolve(schema)
+            val objectSchema = resolved as? GeneratorObjectSchema ?: return
+            val name =
+                if ((schema as? GeneratorObjectSchema)?.reference != null) {
+                    objectSchema.canonicalReference.substringAfterLast('/').toModelClassName()
+                } else {
+                    suggestedName
+                }
+            if (objectSchema.requiresGeneratedModel()) models.putIfAbsent(resolved.identity, name to resolved)
+            if (!visited.add(resolved.identity)) return
+
+            val parentName = models[resolved.identity]?.first ?: suggestedName
+            objectSchema.properties.forEach { (propertyName, property) ->
+                visit(property, parentName + propertyName.toModelClassName())
+            }
+            objectSchema.items?.let { visit(it, parentName + "Item") }
+            objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}") }
+            listOf(objectSchema.allOf, objectSchema.oneOf, objectSchema.anyOf).forEach { members ->
+                members.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}") }
+            }
+            objectSchema.additionalProperties?.let { visit(it, parentName + "Value") }
         }
+
+        document.componentSchemas.forEach { (name, schema) ->
+            val resolved = document.resolve(schema)
+            if ((resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true) {
+                models.putIfAbsent(resolved.identity, name to resolved)
+            }
+        }
+        document.componentSchemas.forEach { (name, schema) -> visit(schema, name) }
+        return models
+    }
+
+    private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean =
+        metadata.enumValues.isNotEmpty() || properties.isNotEmpty() || allOf.isNotEmpty() || oneOf.isNotEmpty() || anyOf.isNotEmpty()
 
     private fun GeneratorSchema.unionMembers(
         document: GeneratorSchemaDocument,

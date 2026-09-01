@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
+import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
@@ -24,9 +25,11 @@ internal sealed interface GeneratorKotlinTypeResolution {
 
 internal class GeneratorKotlinTypeResolver(
     private val document: GeneratorSchemaDocument,
+    registeredModelNames: Map<GeneratorSchemaIdentity, String> = emptyMap(),
 ) {
     private val componentNames =
         buildMap {
+            putAll(registeredModelNames)
             document.componentSchemas.forEach { (name, schema) ->
                 putIfAbsent(document.resolve(schema).identity, name)
             }
