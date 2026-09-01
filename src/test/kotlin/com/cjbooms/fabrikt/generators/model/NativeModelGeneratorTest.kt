@@ -84,6 +84,18 @@ class NativeModelGeneratorTest {
         assertThat(generated.getValue("Dog").toString()).contains(") : Pet, PossiblePet")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates deterministically named inline models`(version: String) {
+        val generated = generate(version)
+
+        assertThat(generated).containsKeys("SubjectDetail", "SubjectState", "SubjectPetsItem")
+        assertThat(generated.getValue("Subject").toString())
+            .contains("public val detail: SubjectDetail? = null")
+            .contains("public val state: SubjectState? = null")
+            .contains("public val pets: List<SubjectPetsItem>? = null")
+    }
+
     private fun generate(version: String) =
         NativeModelGenerator("com.example")
             .generate(
@@ -132,6 +144,19 @@ class NativeModelGeneratorTest {
                 attributes:
                   type: object
                   additionalProperties: { type: integer }
+                detail:
+                  type: object
+                  properties:
+                    note: { type: string }
+                state:
+                  type: string
+                  enum: [new, old]
+                pets:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
             Base:
               type: object
               required: [baseId]
