@@ -14,22 +14,34 @@ import com.cjbooms.fabrikt.generators.controller.KtorControllerInterfaceGenerato
 import com.cjbooms.fabrikt.generators.controller.MicronautControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.controller.SpringControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.model.ModelGenerator
+import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
 import com.cjbooms.fabrikt.generators.model.QuarkusReflectionModelGenerator
 import com.cjbooms.fabrikt.model.GeneratedFile
+import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.model.KotlinSourceSet
 import com.cjbooms.fabrikt.model.Models
 import com.cjbooms.fabrikt.model.ResourceFile
 import com.cjbooms.fabrikt.model.ResourceSourceSet
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.SchemaGenerationMode
+import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.squareup.kotlinpoet.FileSpec
 import java.nio.file.Path
 
-class CodeGenerator(
+class CodeGenerator internal constructor(
     private val packages: Packages,
     private val sourceApi: SourceApi,
     private val srcPath: Path,
     private val resourcesPath: Path,
+    private val schemaGenerationMode: SchemaGenerationMode,
 ) {
+    constructor(
+        packages: Packages,
+        sourceApi: SourceApi,
+        srcPath: Path,
+        resourcesPath: Path,
+    ) : this(packages, sourceApi, srcPath, resourcesPath, SchemaGenerationMode.LEGACY)
+
     fun generate(): Collection<GeneratedFile> = MutableSettings.generationTypes.map(::generateCode).flatten()
 
     private fun generateCode(generationType: CodeGenerationType): Collection<GeneratedFile> =
@@ -64,7 +76,16 @@ class CodeGenerator(
 
     private fun resourceSet(resFiles: Collection<ResourceFile>) = setOf(ResourceSourceSet(resFiles, resourcesPath))
 
-    private fun models(): Models = ModelGenerator(packages, sourceApi).generate()
+    private fun models(): Models =
+        when (schemaGenerationMode) {
+            SchemaGenerationMode.LEGACY -> ModelGenerator(packages, sourceApi).generate()
+            SchemaGenerationMode.NATIVE ->
+                NativeModelGenerator(packages.base).generate(
+                    GeneratorModelDescriptorBuilder.build(
+                        sourceApi.parsedDocument.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                    ),
+                )
+        }
 
     private fun resources(models: Models): List<ResourceFile> = listOfNotNull(QuarkusReflectionModelGenerator(models).generate())
 
