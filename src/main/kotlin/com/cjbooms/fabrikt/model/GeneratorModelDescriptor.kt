@@ -57,9 +57,29 @@ internal object GeneratorModelDescriptorBuilder {
     private fun GeneratorSchema.properties(
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
+    ): List<GeneratorPropertyDescriptor> = properties(document, typeResolver, mutableSetOf())
+
+    private fun GeneratorSchema.properties(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+        visited: MutableSet<GeneratorSchemaIdentity>,
     ): List<GeneratorPropertyDescriptor> {
-        val objectSchema = this as? GeneratorObjectSchema ?: return emptyList()
-        return objectSchema.properties.map { (name, propertySchema) ->
+        val resolvedSchema = document.resolve(this)
+        if (!visited.add(resolvedSchema.identity)) return emptyList()
+        val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return emptyList()
+        val properties = linkedMapOf<String, GeneratorPropertyDescriptor>()
+        objectSchema.allOf.forEach { member ->
+            member.properties(document, typeResolver, visited).forEach { properties[it.name] = it }
+        }
+        objectSchema.ownProperties(document, typeResolver).forEach { properties[it.name] = it }
+        return properties.values.toList()
+    }
+
+    private fun GeneratorObjectSchema.ownProperties(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+    ): List<GeneratorPropertyDescriptor> =
+        properties.map { (name, propertySchema) ->
             val resolvedProperty = document.resolve(propertySchema)
             val property = resolvedProperty as? GeneratorObjectSchema
             GeneratorPropertyDescriptor(
@@ -67,7 +87,7 @@ internal object GeneratorModelDescriptorBuilder {
                 schemaIdentity = resolvedProperty.identity,
                 classification = GeneratorSchemaTypeClassifier.classify(resolvedProperty),
                 kotlinType = typeResolver.resolve(resolvedProperty),
-                required = name in objectSchema.requiredProperties,
+                required = name in requiredProperties,
                 readOnly = property?.metadata?.readOnly == true,
                 writeOnly = property?.metadata?.writeOnly == true,
                 deprecated = property?.metadata?.deprecated == true,
@@ -76,5 +96,4 @@ internal object GeneratorModelDescriptorBuilder {
                 constraints = property?.constraints,
             )
         }
-    }
 }

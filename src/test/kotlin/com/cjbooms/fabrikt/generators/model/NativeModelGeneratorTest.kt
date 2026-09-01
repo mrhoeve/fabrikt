@@ -57,6 +57,16 @@ class NativeModelGeneratorTest {
             .contains("@get:DecimalMax(", "value = \"10\"")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `flattens referenced and inline allOf properties`(version: String) {
+        val child = generate(version).getValue("Child").toString()
+
+        assertThat(child)
+            .contains("public val baseId: String")
+            .contains("public val childName: String")
+    }
+
     private fun generate(version: String) =
         NativeModelGenerator("com.example")
             .generate(
@@ -105,5 +115,17 @@ class NativeModelGeneratorTest {
                 attributes:
                   type: object
                   additionalProperties: { type: integer }
+            Base:
+              type: object
+              required: [baseId]
+              properties:
+                baseId: { type: string }
+            Child:
+              allOf:
+                - ${'$'}ref: '#/components/schemas/Base'
+                - type: object
+                  required: [childName]
+                  properties:
+                    childName: { type: string }
         """.trimIndent()
 }
