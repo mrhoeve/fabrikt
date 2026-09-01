@@ -13,6 +13,7 @@ internal data class GeneratorModelDescriptor(
     val name: String,
     val schemaIdentity: GeneratorSchemaIdentity,
     val classification: GeneratorSchemaTypeClassification,
+    val kotlinType: GeneratorKotlinTypeResolution,
     val description: String?,
     val properties: List<GeneratorPropertyDescriptor>,
 )
@@ -21,6 +22,7 @@ internal data class GeneratorPropertyDescriptor(
     val name: String,
     val schemaIdentity: GeneratorSchemaIdentity,
     val classification: GeneratorSchemaTypeClassification,
+    val kotlinType: GeneratorKotlinTypeResolution,
     val required: Boolean,
     val readOnly: Boolean,
     val writeOnly: Boolean,
@@ -31,19 +33,31 @@ internal data class GeneratorPropertyDescriptor(
 )
 
 internal object GeneratorModelDescriptorBuilder {
-    fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> =
+    fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> {
+        val typeResolver = GeneratorKotlinTypeResolver(document)
+        return build(document, typeResolver)
+    }
+
+    private fun build(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+    ): List<GeneratorModelDescriptor> =
         document.componentSchemas.map { (name, schema) ->
             val resolvedSchema = document.resolve(schema)
             GeneratorModelDescriptor(
                 name = name,
                 schemaIdentity = resolvedSchema.identity,
                 classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema),
+                kotlinType = typeResolver.resolve(resolvedSchema),
                 description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
-                properties = resolvedSchema.properties(document),
+                properties = resolvedSchema.properties(document, typeResolver),
             )
         }
 
-    private fun GeneratorSchema.properties(document: GeneratorSchemaDocument): List<GeneratorPropertyDescriptor> {
+    private fun GeneratorSchema.properties(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+    ): List<GeneratorPropertyDescriptor> {
         val objectSchema = this as? GeneratorObjectSchema ?: return emptyList()
         return objectSchema.properties.map { (name, propertySchema) ->
             val resolvedProperty = document.resolve(propertySchema)
@@ -52,6 +66,7 @@ internal object GeneratorModelDescriptorBuilder {
                 name = name,
                 schemaIdentity = resolvedProperty.identity,
                 classification = GeneratorSchemaTypeClassifier.classify(resolvedProperty),
+                kotlinType = typeResolver.resolve(resolvedProperty),
                 required = name in objectSchema.requiredProperties,
                 readOnly = property?.metadata?.readOnly == true,
                 writeOnly = property?.metadata?.writeOnly == true,
