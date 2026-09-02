@@ -69,7 +69,7 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
-    fun `generates sealed unions and connects their members`(version: String) {
+    fun `generates oneOf sealed unions and flattens anyOf models`(version: String) {
         val generated = generate(version)
 
         assertThat(generated.getValue("Pet").toString())
@@ -79,9 +79,10 @@ class NativeModelGeneratorTest {
             .contains("name = \"cat\"")
             .contains("name = \"dog\"")
         assertThat(generated.getValue("PossiblePet").toString())
-            .contains("public sealed interface PossiblePet")
-        assertThat(generated.getValue("Cat").toString()).contains(") : Pet, PossiblePet")
-        assertThat(generated.getValue("Dog").toString()).contains(") : Pet, PossiblePet")
+            .contains("public data class PossiblePet(")
+            .contains("public val kind: String")
+        assertThat(generated.getValue("Cat").toString()).contains(") : Pet").doesNotContain("PossiblePet")
+        assertThat(generated.getValue("Dog").toString()).contains(") : Pet").doesNotContain("PossiblePet")
     }
 
     @ParameterizedTest

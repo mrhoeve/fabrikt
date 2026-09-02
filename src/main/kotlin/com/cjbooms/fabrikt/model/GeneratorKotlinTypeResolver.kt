@@ -10,6 +10,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
 import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
+import com.cjbooms.fabrikt.parser.SourceSchemaType
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 
 internal sealed interface GeneratorKotlinTypeResolution {
@@ -37,7 +38,7 @@ internal class GeneratorKotlinTypeResolver(
 
     fun resolve(schema: GeneratorSchema): GeneratorKotlinTypeResolution {
         val resolvedSchema = document.resolve(schema)
-        val classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema)
+        val classification = classify(resolvedSchema)
         if (classification is GeneratorSchemaTypeClassification.Unsupported) {
             return GeneratorKotlinTypeResolution.Unsupported(classification.reason)
         }
@@ -79,21 +80,24 @@ internal class GeneratorKotlinTypeResolver(
         return GeneratorKotlinTypeResolution.Resolved(typeInfo, classification.nullable)
     }
 
+    fun classify(schema: GeneratorSchema): GeneratorSchemaTypeClassification =
+        GeneratorSchemaTypeClassifier.classify(document.resolve(schema), document::resolve)
+
     fun resolveProperty(
         schema: GeneratorSchema,
         enclosingModelName: String,
     ): GeneratorKotlinTypeResolution {
         val resolvedSchema = document.resolve(schema)
-        val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return resolve(schema)
-        val reference = (schema as? GeneratorObjectSchema)?.reference ?: return resolve(schema)
+        val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return resolvePropertyFallback(schema)
+        val reference = (schema as? GeneratorObjectSchema)?.reference ?: return resolvePropertyFallback(schema)
         val classification =
-            GeneratorSchemaTypeClassifier.classify(objectSchema) as? GeneratorSchemaTypeClassification.Resolved
-                ?: return resolve(schema)
-        if (classification.type != OasType.Array && classification.type != OasType.Set) return resolve(schema)
+            classify(objectSchema) as? GeneratorSchemaTypeClassification.Resolved
+                ?: return resolvePropertyFallback(schema)
+        if (classification.type != OasType.Array && classification.type != OasType.Set) return resolvePropertyFallback(schema)
 
-        val itemSchema = objectSchema.items ?: return resolve(schema)
-        val itemType = resolve(itemSchema) as? GeneratorKotlinTypeResolution.Resolved ?: return resolve(schema)
-        val itemEnum = itemType.typeInfo as? KotlinTypeInfo.Enum ?: return resolve(schema)
+        val itemSchema = objectSchema.items ?: return resolvePropertyFallback(schema)
+        val itemType = resolve(itemSchema) as? GeneratorKotlinTypeResolution.Resolved ?: return resolvePropertyFallback(schema)
+        val itemEnum = itemType.typeInfo as? KotlinTypeInfo.Enum ?: return resolvePropertyFallback(schema)
         val referencedName = reference.substringAfterLast('/').toModelClassName()
         return GeneratorKotlinTypeResolution.Resolved(
             KotlinTypeInfo.Array(
@@ -104,6 +108,16 @@ internal class GeneratorKotlinTypeResolver(
             classification.nullable,
         )
     }
+
+    private fun resolvePropertyFallback(schema: GeneratorSchema): GeneratorKotlinTypeResolution =
+        when (val resolution = resolve(schema)) {
+            is GeneratorKotlinTypeResolution.Resolved -> resolution
+            is GeneratorKotlinTypeResolution.Unsupported -> {
+                val nullable =
+                    (document.resolve(schema) as? GeneratorObjectSchema)?.types?.contains(SourceSchemaType.NULL) == true
+                GeneratorKotlinTypeResolution.Resolved(anyType(), nullable)
+            }
+        }
 
     private fun resolveArray(
         schema: GeneratorObjectSchema,

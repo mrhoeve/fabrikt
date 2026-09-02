@@ -104,8 +104,8 @@ class NativeModelGoldenParityTest {
                 RepresentativeExample.parity("defaultValues"),
                 RepresentativeExample.parity("enumExamples"),
                 RepresentativeExample.parity("inLinedObject"),
-                RepresentativeExample.gap("singleAllOf", "single-reference allOf aliases"),
-                RepresentativeExample.gap("anyOfOneOfAllOf", "advanced composition model shapes"),
+                RepresentativeExample.parity("singleAllOf"),
+                RepresentativeExample.parity("anyOfOneOfAllOf"),
             )
     }
 
