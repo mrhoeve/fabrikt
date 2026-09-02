@@ -19,6 +19,21 @@ class SourceSchemaSemanticsTest {
         assertThat(schema.constraints.maximum).isEqualTo(SourceSchemaBound(BigDecimal("9.5"), false))
     }
 
+    @Test
+    fun `preserves OpenAPI 3_0 nullable for an inferred object type`() {
+        val schema =
+            parseSchema(
+                "3.0.4",
+                """
+                nullable: true
+                additionalProperties:
+                  type: string
+                """.trimIndent(),
+            ) as SourceObjectSchema
+
+        assertThat(schema.types).containsExactly(SourceSchemaType.NULL)
+    }
+
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `normalizes JSON Schema 2020-12 semantics`(version: String) {

@@ -114,7 +114,7 @@ internal object SourceSchemaParser {
             }.map(SourceSchemaType::from)
                 .toCollection(linkedSetOf())
 
-        if (version?.major == 3 && version.minor == 0 && declaredTypes.isNotEmpty() && node["nullable"]?.asBoolean() == true) {
+        if (version?.major == 3 && version.minor == 0 && node["nullable"]?.asBoolean() == true) {
             declaredTypes.add(SourceSchemaType.NULL)
         }
 

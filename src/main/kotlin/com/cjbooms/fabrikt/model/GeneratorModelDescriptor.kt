@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.parser.GeneratorBooleanSchema
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
@@ -21,6 +22,7 @@ internal data class GeneratorModelDescriptor(
     val oneOfMembers: List<GeneratorUnionMemberDescriptor>,
     val anyOfMembers: List<GeneratorUnionMemberDescriptor>,
     val discriminator: SourceSchemaDiscriminator?,
+    val additionalPropertiesType: GeneratorKotlinTypeResolution.Resolved?,
 )
 
 internal data class GeneratorUnionMemberDescriptor(
@@ -66,6 +68,19 @@ internal object GeneratorModelDescriptorBuilder {
             oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
             anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
             discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
+            additionalPropertiesType =
+                (resolvedSchema as? GeneratorObjectSchema)
+                    ?.additionalProperties
+                    ?.takeUnless { it is GeneratorBooleanSchema && !it.allowsAnyValue }
+                    ?.let(typeResolver::resolve)
+                    ?.let { it as? GeneratorKotlinTypeResolution.Resolved }
+                    ?.let { resolution ->
+                        if (resolution.typeInfo is KotlinTypeInfo.UntypedObject) {
+                            resolution.copy(typeInfo = KotlinTypeInfo.AnyType)
+                        } else {
+                            resolution
+                        }
+                    },
         )
     }
 
@@ -92,12 +107,21 @@ internal object GeneratorModelDescriptorBuilder {
             objectSchema.properties.forEach { (propertyName, property) ->
                 visit(property, parentName + propertyName.toModelClassName())
             }
-            objectSchema.items?.let { visit(it, parentName + "Item") }
+            objectSchema.items?.let { visit(it, parentName) }
             objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}") }
             listOf(objectSchema.allOf, objectSchema.oneOf, objectSchema.anyOf).forEach { members ->
                 members.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}") }
             }
-            objectSchema.additionalProperties?.let { visit(it, parentName + "Value") }
+            objectSchema.additionalProperties?.let { additionalProperties ->
+                val containerName =
+                    objectSchema.location
+                        .substringBeforeLast("/additionalProperties")
+                        .substringAfterLast('/')
+                        .replace("~1", "-")
+                        .replace("~0", "~")
+                        .toModelClassName()
+                visit(additionalProperties, containerName + "Value")
+            }
         }
 
         document.componentSchemas.forEach { (name, schema) ->

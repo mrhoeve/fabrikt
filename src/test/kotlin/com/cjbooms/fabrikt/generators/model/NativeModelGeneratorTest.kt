@@ -89,11 +89,11 @@ class NativeModelGeneratorTest {
     fun `generates deterministically named inline models`(version: String) {
         val generated = generate(version)
 
-        assertThat(generated).containsKeys("SubjectDetail", "SubjectState", "SubjectPetsItem")
+        assertThat(generated).containsKeys("SubjectDetail", "SubjectState", "SubjectPets")
         assertThat(generated.getValue("Subject").toString())
             .contains("public val detail: SubjectDetail? = null")
             .contains("public val state: SubjectState? = null")
-            .contains("public val pets: List<SubjectPetsItem>? = null")
+            .contains("public val pets: List<SubjectPets>? = null")
     }
 
     @ParameterizedTest
