@@ -55,6 +55,7 @@ internal class GeneratorKotlinTypeResolver(
                             ?.metadata
                             ?.enumValues
                             .orEmpty()
+                            .filterNot { it.isNull }
                             .map { it.asText() },
                         modelName(resolvedSchema),
                     )
@@ -76,6 +77,32 @@ internal class GeneratorKotlinTypeResolver(
                 else -> anyType()
             }
         return GeneratorKotlinTypeResolution.Resolved(typeInfo, classification.nullable)
+    }
+
+    fun resolveProperty(
+        schema: GeneratorSchema,
+        enclosingModelName: String,
+    ): GeneratorKotlinTypeResolution {
+        val resolvedSchema = document.resolve(schema)
+        val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return resolve(schema)
+        val reference = (schema as? GeneratorObjectSchema)?.reference ?: return resolve(schema)
+        val classification =
+            GeneratorSchemaTypeClassifier.classify(objectSchema) as? GeneratorSchemaTypeClassification.Resolved
+                ?: return resolve(schema)
+        if (classification.type != OasType.Array && classification.type != OasType.Set) return resolve(schema)
+
+        val itemSchema = objectSchema.items ?: return resolve(schema)
+        val itemType = resolve(itemSchema) as? GeneratorKotlinTypeResolution.Resolved ?: return resolve(schema)
+        val itemEnum = itemType.typeInfo as? KotlinTypeInfo.Enum ?: return resolve(schema)
+        val referencedName = reference.substringAfterLast('/').toModelClassName()
+        return GeneratorKotlinTypeResolution.Resolved(
+            KotlinTypeInfo.Array(
+                parameterizedType = itemEnum.copy(enumClassName = enclosingModelName + referencedName),
+                isParameterizedTypeNullable = itemType.nullable,
+                hasUniqueItems = classification.type == OasType.Set,
+            ),
+            classification.nullable,
+        )
     }
 
     private fun resolveArray(

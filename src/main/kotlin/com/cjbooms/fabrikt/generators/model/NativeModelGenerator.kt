@@ -61,12 +61,13 @@ internal class NativeModelGenerator(
 
         properties.forEach { property ->
             val resolvedType = property.kotlinType as? GeneratorKotlinTypeResolution.Resolved ?: return@forEach
-            val nullable = resolvedType.nullable || (!property.required && property.defaultValue == null)
+            val defaultCode = property.defaultCode(resolvedType)
+            val nullable = resolvedType.nullable || (!property.required && defaultCode == null)
             val propertyName = property.name.toKotlinParameterName()
             val typeName = ModelGenerator.toModelType(basePackage, resolvedType.typeInfo, nullable)
             val parameter = ParameterSpec.builder(propertyName, typeName)
             if (!property.required) {
-                property.defaultCode(resolvedType)?.let(parameter::defaultValue) ?: parameter.defaultValue("null")
+                defaultCode?.let(parameter::defaultValue) ?: parameter.defaultValue("null")
             }
             constructor.addParameter(parameter.build())
             val generatedProperty =
