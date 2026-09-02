@@ -99,7 +99,7 @@ internal object GeneratorSchemaTypeClassifier {
 
     private fun GeneratorObjectSchema.classifyObject(): OasType =
         when {
-            properties.isEmpty() && additionalProperties is GeneratorObjectSchema -> OasType.Map
+            properties.isEmpty() && hasAdditionalProperties() -> OasType.Map
             properties.isEmpty() && additionalProperties == null && compositionSchemas().none() -> OasType.UntypedObject
             else -> OasType.Object
         }

@@ -71,7 +71,8 @@ internal class GeneratorKotlinTypeResolver(
                 OasType.Array, OasType.Set -> resolveArray(requireNotNull(objectSchema), classification.type == OasType.Set)
                 OasType.Map -> resolveMap(requireNotNull(objectSchema))
                 OasType.Object -> KotlinTypeInfo.Object(modelName(resolvedSchema))
-                OasType.UntypedObject, OasType.Any -> anyType()
+                OasType.UntypedObject -> KotlinTypeInfo.UntypedObject
+                OasType.Any -> anyType()
                 else -> anyType()
             }
         return GeneratorKotlinTypeResolution.Resolved(typeInfo, classification.nullable)

@@ -3,6 +3,8 @@ package com.cjbooms.fabrikt.generators.model
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.OasDefault
 import com.cjbooms.fabrikt.generators.TypeFactory.createMapOfStringToNonNullType
+import com.cjbooms.fabrikt.generators.TypeFactory.createMutableMapOfStringToType
+import com.cjbooms.fabrikt.generators.TypeFactory.maybeMakeMapValueNullable
 import com.cjbooms.fabrikt.generators.ValidationAnnotations
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptor
@@ -76,6 +78,39 @@ internal class NativeModelGenerator(
             serializationAnnotations.addProperty(generatedProperty, property.name, resolvedType.typeInfo)
             property.addValidationAnnotations(generatedProperty, resolvedType, nullable, validationAnnotations)
             type.addProperty(generatedProperty.build())
+        }
+        additionalPropertiesType?.let { additionalProperties ->
+            if (!serializationAnnotations.supportsAdditionalProperties) {
+                throw UnsupportedOperationException("Additional properties not supported by selected serialization library")
+            }
+            val valueType = ModelGenerator.toModelType(basePackage, additionalProperties.typeInfo).maybeMakeMapValueNullable()
+            val mapType = createMutableMapOfStringToType(ModelGenerator.toModelType(basePackage, additionalProperties.typeInfo))
+            constructor.addParameter(
+                ParameterSpec
+                    .builder("properties", mapType)
+                    .defaultValue("mutableMapOf()")
+                    .build(),
+            )
+            val additionalPropertiesProperty = PropertySpec.builder("properties", mapType).initializer("properties")
+            serializationAnnotations.addIgnore(additionalPropertiesProperty)
+            type.addProperty(additionalPropertiesProperty.build())
+
+            val getter =
+                FunSpec
+                    .builder("get")
+                    .returns(createMapOfStringToNonNullType(valueType))
+                    .addStatement("return properties")
+            serializationAnnotations.addGetter(getter)
+            type.addFunction(getter.build())
+
+            val setter =
+                FunSpec
+                    .builder("set")
+                    .addParameter("name", String::class)
+                    .addParameter("value", valueType)
+                    .addStatement("properties[name] = value")
+            serializationAnnotations.addSetter(setter)
+            type.addFunction(setter.build())
         }
 
         if (constructor.parameters.isNotEmpty()) type.addModifiers(KModifier.DATA)
@@ -212,8 +247,14 @@ internal class NativeModelGenerator(
         restrictions.minimum?.let { annotations.minRestriction(it.value, it.exclusive)?.let(property::addAnnotation) }
         restrictions.maximum?.let { annotations.maxRestriction(it.value, it.exclusive)?.let(property::addAnnotation) }
         if (restrictions.minItems != null || restrictions.maxItems != null) {
-            annotations.size(restrictions.minItems, restrictions.maxItems)?.let(property::addAnnotation)
+            annotations.lengthRestriction(restrictions.minItems, restrictions.maxItems)?.let(property::addAnnotation)
         }
-        if (type.typeInfo.isComplexType) annotations.fieldValid()?.let(property::addAnnotation)
+        val validatesNestedValues =
+            when (val typeInfo = type.typeInfo) {
+                is KotlinTypeInfo.Array -> typeInfo.parameterizedType.isComplexType
+                is KotlinTypeInfo.Map -> typeInfo.parameterizedType.isComplexType
+                else -> typeInfo.isComplexType
+            }
+        if (validatesNestedValues) annotations.fieldValid()?.let(property::addAnnotation)
     }
 }
