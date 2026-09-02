@@ -25,8 +25,8 @@ class NativeModelGoldenParityTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("representativeExamples")
-    fun `tracks native parity for representative existing examples`(example: RepresentativeExample) {
-        val sourceApi = SourceApi(readTextResource("/examples/${example.name}/api.yaml"))
+    fun `enforces native parity for representative existing examples`(example: String) {
+        val sourceApi = SourceApi(readTextResource("/examples/$example/api.yaml"))
         val packages = Packages("parity")
         val legacy = ModelGenerator(packages, sourceApi).generate().asComparableFiles()
         ModelNameRegistry.clear()
@@ -38,15 +38,9 @@ class NativeModelGoldenParityTest {
                     ),
                 ).asComparableFiles()
 
-        if (example.hasParity) {
-            assertThat(native)
-                .describedAs("Expected native output parity for ${example.name}")
-                .isEqualTo(legacy)
-        } else {
-            assertThat(native)
-                .describedAs("Expected the documented native parity gap for ${example.name}: ${example.gap}")
-                .isNotEqualTo(legacy)
-        }
+        assertThat(native)
+            .describedAs("Expected native output parity for $example")
+            .isEqualTo(legacy)
     }
 
     @Test
@@ -92,37 +86,20 @@ class NativeModelGoldenParityTest {
             """.trimIndent()
 
         @JvmStatic
-        fun representativeExamples(): Stream<RepresentativeExample> =
+        fun representativeExamples(): Stream<String> =
             Stream.of(
-                RepresentativeExample.parity("leadingUnderscoreProperty"),
-                RepresentativeExample.parity("mixingCamelSnakeLispCase"),
-                RepresentativeExample.parity("binary"),
-                RepresentativeExample.parity("optionalVsRequired"),
-                RepresentativeExample.parity("validationAnnotations"),
-                RepresentativeExample.parity("arrays"),
-                RepresentativeExample.parity("mapExamples"),
-                RepresentativeExample.parity("defaultValues"),
-                RepresentativeExample.parity("enumExamples"),
-                RepresentativeExample.parity("inLinedObject"),
-                RepresentativeExample.parity("singleAllOf"),
-                RepresentativeExample.parity("anyOfOneOfAllOf"),
+                "leadingUnderscoreProperty",
+                "mixingCamelSnakeLispCase",
+                "binary",
+                "optionalVsRequired",
+                "validationAnnotations",
+                "arrays",
+                "mapExamples",
+                "defaultValues",
+                "enumExamples",
+                "inLinedObject",
+                "singleAllOf",
+                "anyOfOneOfAllOf",
             )
-    }
-
-    data class RepresentativeExample(
-        val name: String,
-        val hasParity: Boolean,
-        val gap: String? = null,
-    ) {
-        override fun toString(): String = name
-
-        companion object {
-            fun parity(name: String) = RepresentativeExample(name, true)
-
-            fun gap(
-                name: String,
-                reason: String,
-            ) = RepresentativeExample(name, false, reason)
-        }
     }
 }
