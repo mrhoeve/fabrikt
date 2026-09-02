@@ -75,7 +75,7 @@ internal object GeneratorModelDescriptorBuilder {
         return GeneratorModelDescriptor(
             name = name,
             schemaIdentity = resolvedSchema.identity,
-            classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema),
+            classification = typeResolver.classify(resolvedSchema),
             kotlinType = kotlinType,
             description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
             properties = resolvedSchema.properties(name, document, typeResolver),
@@ -86,9 +86,18 @@ internal object GeneratorModelDescriptorBuilder {
                 (resolvedSchema as? GeneratorObjectSchema)
                     ?.additionalProperties
                     ?.takeUnless { it is GeneratorBooleanSchema && !it.allowsAnyValue }
-                    ?.let(typeResolver::resolve)
-                    ?.let { it as? GeneratorKotlinTypeResolution.Resolved }
-                    ?.let { resolution ->
+                    ?.let { additionalProperties ->
+                        val objectSchema = document.resolve(additionalProperties) as? GeneratorObjectSchema
+                        if (
+                            objectSchema != null &&
+                            objectSchema.properties.isEmpty() &&
+                            (objectSchema.oneOf.isNotEmpty() || objectSchema.anyOf.isNotEmpty())
+                        ) {
+                            GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, false)
+                        } else {
+                            typeResolver.resolve(additionalProperties) as? GeneratorKotlinTypeResolution.Resolved
+                        }
+                    }?.let { resolution ->
                         if (resolution.typeInfo is KotlinTypeInfo.UntypedObject) {
                             resolution.copy(typeInfo = KotlinTypeInfo.AnyType)
                         } else {
@@ -154,9 +163,7 @@ internal object GeneratorModelDescriptorBuilder {
                 visit(items, itemName, rootName)
             }
             objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}", rootName) }
-            listOf(objectSchema.allOf, objectSchema.oneOf, objectSchema.anyOf).forEach { members ->
-                members.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", rootName) }
-            }
+            objectSchema.oneOf.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", rootName) }
             objectSchema.additionalProperties?.let { additionalProperties ->
                 val containerName =
                     objectSchema.location
@@ -191,7 +198,17 @@ internal object GeneratorModelDescriptorBuilder {
     )
 
     private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean =
-        metadata.enumValues.isNotEmpty() || properties.isNotEmpty() || allOf.isNotEmpty() || oneOf.isNotEmpty() || anyOf.isNotEmpty()
+        when {
+            location.contains("/additionalProperties") &&
+                properties.isEmpty() &&
+                (oneOf.isNotEmpty() || anyOf.isNotEmpty()) -> false
+            else ->
+                metadata.enumValues.isNotEmpty() ||
+                    properties.isNotEmpty() ||
+                    allOf.isNotEmpty() ||
+                    oneOf.isNotEmpty() ||
+                    anyOf.isNotEmpty()
+        }
 
     private fun GeneratorSchema.unionMembers(
         document: GeneratorSchemaDocument,
@@ -227,10 +244,36 @@ internal object GeneratorModelDescriptorBuilder {
         val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return emptyList()
         val properties = linkedMapOf<String, GeneratorPropertyDescriptor>()
         objectSchema.allOf.forEach { member ->
+            val resolvedMember = document.resolve(member) as? GeneratorObjectSchema
+            if (
+                resolvedMember != null &&
+                resolvedMember.oneOf.isNotEmpty() &&
+                typeResolver.classify(resolvedMember) is GeneratorSchemaTypeClassification.Unsupported
+            ) {
+                properties["oneOf"] =
+                    GeneratorPropertyDescriptor(
+                        name = "oneOf",
+                        schemaIdentity = resolvedMember.identity,
+                        classification = typeResolver.classify(resolvedMember),
+                        kotlinType = typeResolver.resolveProperty(member, modelName),
+                        required = false,
+                        readOnly = false,
+                        writeOnly = false,
+                        deprecated = false,
+                        description = resolvedMember.metadata.description,
+                        defaultValue = resolvedMember.metadata.defaultValue,
+                        constraints = resolvedMember.constraints,
+                    )
+            }
+            member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it }
+        }
+        objectSchema.anyOf.forEach { member ->
             member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it }
         }
         objectSchema.ownProperties(modelName, document, typeResolver).forEach { properties[it.name] = it }
-        return properties.values.toList()
+        return properties.values.map { property ->
+            if (property.required || property.name !in objectSchema.requiredProperties) property else property.copy(required = true)
+        }
     }
 
     private fun GeneratorObjectSchema.ownProperties(

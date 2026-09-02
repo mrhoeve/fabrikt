@@ -34,15 +34,16 @@ internal class NativeModelGenerator(
     fun generate(descriptors: Collection<GeneratorModelDescriptor>): Models {
         val interfacesByMember =
             descriptors
+                .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
                 .flatMap { descriptor ->
-                    descriptor.unionMembers().map { member -> member.schemaIdentity to modelType(descriptor.name) }
+                    descriptor.oneOfMembers.map { member -> member.schemaIdentity to modelType(descriptor.name) }
                 }.groupBy({ it.first }, { it.second })
         return Models(
             descriptors.mapNotNull { descriptor ->
                 val type = descriptor.resolvedType() ?: return@mapNotNull null
                 val typeSpec =
                     when {
-                        descriptor.unionMembers().isNotEmpty() -> descriptor.toUnionInterface()
+                        descriptor.oneOfMembers.isNotEmpty() -> descriptor.toUnionInterface()
                         type == OasType.Object -> descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
                         type == OasType.Enum -> descriptor.toEnum()
                         else -> null
@@ -119,7 +120,7 @@ internal class NativeModelGenerator(
     }
 
     private fun GeneratorModelDescriptor.toUnionInterface(): TypeSpec {
-        val members = unionMembers()
+        val members = oneOfMembers
         val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
         description?.let { type.addKdoc("%L", it) }
         serializationAnnotations.addClassAnnotation(type)
@@ -209,8 +210,6 @@ internal class NativeModelGenerator(
     }
 
     private fun GeneratorModelDescriptor.resolvedType(): OasType? = (classification as? GeneratorSchemaTypeClassification.Resolved)?.type
-
-    private fun GeneratorModelDescriptor.unionMembers(): List<GeneratorUnionMemberDescriptor> = oneOfMembers + anyOfMembers
 
     private fun GeneratorUnionMemberDescriptor.typeName(): TypeName = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
 
