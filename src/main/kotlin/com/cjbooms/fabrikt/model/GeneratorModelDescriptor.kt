@@ -48,8 +48,12 @@ internal data class GeneratorPropertyDescriptor(
 internal object GeneratorModelDescriptorBuilder {
     fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> {
         val modelSchemas = collectModelSchemas(document)
-        val typeResolver = GeneratorKotlinTypeResolver(document, modelSchemas.mapValues { it.value.first })
-        return modelSchemas.values.map { (name, schema) -> schema.toDescriptor(name, document, typeResolver) }
+        val registeredModelNames =
+            buildMap {
+                modelSchemas.forEach { model -> putIfAbsent(model.schema.identity, model.name) }
+            }
+        val typeResolver = GeneratorKotlinTypeResolver(document, registeredModelNames)
+        return modelSchemas.map { model -> model.schema.toDescriptor(model.name, document, typeResolver) }
     }
 
     private fun GeneratorSchema.toDescriptor(
@@ -58,13 +62,23 @@ internal object GeneratorModelDescriptorBuilder {
         typeResolver: GeneratorKotlinTypeResolver,
     ): GeneratorModelDescriptor {
         val resolvedSchema = document.resolve(this)
+        val kotlinType =
+            when (val resolution = typeResolver.resolve(resolvedSchema)) {
+                is GeneratorKotlinTypeResolution.Resolved ->
+                    if (resolution.typeInfo is KotlinTypeInfo.Enum) {
+                        resolution.copy(typeInfo = resolution.typeInfo.copy(enumClassName = name))
+                    } else {
+                        resolution
+                    }
+                is GeneratorKotlinTypeResolution.Unsupported -> resolution
+            }
         return GeneratorModelDescriptor(
             name = name,
             schemaIdentity = resolvedSchema.identity,
             classification = GeneratorSchemaTypeClassifier.classify(resolvedSchema),
-            kotlinType = typeResolver.resolve(resolvedSchema),
+            kotlinType = kotlinType,
             description = (resolvedSchema as? GeneratorObjectSchema)?.metadata?.description,
-            properties = resolvedSchema.properties(document, typeResolver),
+            properties = resolvedSchema.properties(name, document, typeResolver),
             oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
             anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
             discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
@@ -84,33 +98,64 @@ internal object GeneratorModelDescriptorBuilder {
         )
     }
 
-    private fun collectModelSchemas(document: GeneratorSchemaDocument): Map<GeneratorSchemaIdentity, Pair<String, GeneratorSchema>> {
-        val models = linkedMapOf<GeneratorSchemaIdentity, Pair<String, GeneratorSchema>>()
-        val visited = mutableSetOf<GeneratorSchemaIdentity>()
+    private fun collectModelSchemas(document: GeneratorSchemaDocument): List<RegisteredModel> {
+        val models = mutableListOf<RegisteredModel>()
+        val visited = mutableSetOf<VisitKey>()
+
+        fun register(
+            name: String,
+            schema: GeneratorSchema,
+        ) {
+            if (models.none { it.name == name && it.schema.identity == schema.identity }) {
+                models.add(RegisteredModel(name, schema))
+            }
+        }
 
         fun visit(
             schema: GeneratorSchema,
             suggestedName: String,
+            rootName: String,
         ) {
             val resolved = document.resolve(schema)
             val objectSchema = resolved as? GeneratorObjectSchema ?: return
+            val componentName =
+                objectSchema.canonicalReference
+                    .substringAfter("#/components/schemas/", missingDelimiterValue = "")
+                    .takeIf { it.isNotEmpty() && '/' !in it }
             val name =
-                if ((schema as? GeneratorObjectSchema)?.reference != null) {
-                    objectSchema.canonicalReference.substringAfterLast('/').toModelClassName()
+                if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
+                    (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
                 } else {
                     suggestedName
                 }
-            if (objectSchema.requiresGeneratedModel()) models.putIfAbsent(resolved.identity, name to resolved)
-            if (!visited.add(resolved.identity)) return
+            if (objectSchema.requiresGeneratedModel()) register(name, resolved)
+            if (!visited.add(VisitKey(resolved.identity, name, rootName))) return
 
-            val parentName = models[resolved.identity]?.first ?: suggestedName
+            val parentName =
+                if ((schema as? GeneratorObjectSchema)?.reference != null) {
+                    name
+                } else {
+                    models.firstOrNull { it.schema.identity == resolved.identity && it.name == name }?.name ?: suggestedName
+                }
             objectSchema.properties.forEach { (propertyName, property) ->
-                visit(property, parentName + propertyName.toModelClassName())
+                visit(property, rootName + propertyName.toModelClassName(), rootName)
             }
-            objectSchema.items?.let { visit(it, parentName) }
-            objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}") }
+            objectSchema.items?.let { items ->
+                val itemType =
+                    GeneratorSchemaTypeClassifier.classify(
+                        document.resolve(items),
+                    ) as? GeneratorSchemaTypeClassification.Resolved
+                val itemName =
+                    if ((schema as? GeneratorObjectSchema)?.reference != null && itemType?.type == OasType.Enum && name != rootName) {
+                        rootName + name
+                    } else {
+                        parentName
+                    }
+                visit(items, itemName, rootName)
+            }
+            objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}", rootName) }
             listOf(objectSchema.allOf, objectSchema.oneOf, objectSchema.anyOf).forEach { members ->
-                members.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}") }
+                members.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", rootName) }
             }
             objectSchema.additionalProperties?.let { additionalProperties ->
                 val containerName =
@@ -120,19 +165,30 @@ internal object GeneratorModelDescriptorBuilder {
                         .replace("~1", "-")
                         .replace("~0", "~")
                         .toModelClassName()
-                visit(additionalProperties, containerName + "Value")
+                visit(additionalProperties, containerName + "Value", rootName)
             }
         }
 
         document.componentSchemas.forEach { (name, schema) ->
             val resolved = document.resolve(schema)
             if ((resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true) {
-                models.putIfAbsent(resolved.identity, name to resolved)
+                register(name, resolved)
             }
         }
-        document.componentSchemas.forEach { (name, schema) -> visit(schema, name) }
+        document.componentSchemas.forEach { (name, schema) -> visit(schema, name, name) }
         return models
     }
+
+    private data class RegisteredModel(
+        val name: String,
+        val schema: GeneratorSchema,
+    )
+
+    private data class VisitKey(
+        val identity: GeneratorSchemaIdentity,
+        val name: String,
+        val rootName: String,
+    )
 
     private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean =
         metadata.enumValues.isNotEmpty() || properties.isNotEmpty() || allOf.isNotEmpty() || oneOf.isNotEmpty() || anyOf.isNotEmpty()
@@ -155,11 +211,13 @@ internal object GeneratorModelDescriptorBuilder {
     }
 
     private fun GeneratorSchema.properties(
+        modelName: String,
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
-    ): List<GeneratorPropertyDescriptor> = properties(document, typeResolver, mutableSetOf())
+    ): List<GeneratorPropertyDescriptor> = properties(modelName, document, typeResolver, mutableSetOf())
 
     private fun GeneratorSchema.properties(
+        modelName: String,
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
         visited: MutableSet<GeneratorSchemaIdentity>,
@@ -169,13 +227,14 @@ internal object GeneratorModelDescriptorBuilder {
         val objectSchema = resolvedSchema as? GeneratorObjectSchema ?: return emptyList()
         val properties = linkedMapOf<String, GeneratorPropertyDescriptor>()
         objectSchema.allOf.forEach { member ->
-            member.properties(document, typeResolver, visited).forEach { properties[it.name] = it }
+            member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it }
         }
-        objectSchema.ownProperties(document, typeResolver).forEach { properties[it.name] = it }
+        objectSchema.ownProperties(modelName, document, typeResolver).forEach { properties[it.name] = it }
         return properties.values.toList()
     }
 
     private fun GeneratorObjectSchema.ownProperties(
+        modelName: String,
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
     ): List<GeneratorPropertyDescriptor> =
@@ -186,7 +245,7 @@ internal object GeneratorModelDescriptorBuilder {
                 name = name,
                 schemaIdentity = resolvedProperty.identity,
                 classification = GeneratorSchemaTypeClassifier.classify(resolvedProperty),
-                kotlinType = typeResolver.resolve(resolvedProperty),
+                kotlinType = typeResolver.resolveProperty(propertySchema, modelName),
                 required = name in requiredProperties,
                 readOnly = property?.metadata?.readOnly == true,
                 writeOnly = property?.metadata?.writeOnly == true,

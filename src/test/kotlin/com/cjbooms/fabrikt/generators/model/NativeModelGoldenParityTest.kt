@@ -101,9 +101,9 @@ class NativeModelGoldenParityTest {
                 RepresentativeExample.parity("validationAnnotations"),
                 RepresentativeExample.parity("arrays"),
                 RepresentativeExample.parity("mapExamples"),
-                RepresentativeExample.gap("defaultValues", "complex and inline enum defaults"),
-                RepresentativeExample.gap("enumExamples", "extensible and collection enum handling"),
-                RepresentativeExample.gap("inLinedObject", "legacy-compatible nested model naming"),
+                RepresentativeExample.parity("defaultValues"),
+                RepresentativeExample.parity("enumExamples"),
+                RepresentativeExample.parity("inLinedObject"),
                 RepresentativeExample.gap("singleAllOf", "single-reference allOf aliases"),
                 RepresentativeExample.gap("anyOfOneOfAllOf", "advanced composition model shapes"),
             )
