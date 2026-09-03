@@ -110,6 +110,53 @@ class GeneratorSchemaTypeClassifierTest {
             )
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `infers native types from enum value constraints`(version: String) {
+        val schemas = parseSchemas(version, enumValueSchemas)
+
+        assertResolved(schemas, "StringEnum", OasType.Enum)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("NullableStringEnum")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Enum, nullable = true))
+        assertResolved(schemas, "IntegerEnum", OasType.Integer)
+        assertResolved(schemas, "NumberEnum", OasType.Number)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("MixedEnum")))
+            .isEqualTo(
+                GeneratorSchemaTypeClassification.ValueUnion(
+                    linkedSetOf(OasType.Text, OasType.Integer),
+                    nullable = true,
+                ),
+            )
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `infers native types from const value constraints`(version: String) {
+        val schemas = parseSchemas(version, constValueSchemas)
+
+        assertResolved(schemas, "StringConst", OasType.Enum)
+        assertResolved(schemas, "BooleanConst", OasType.Boolean)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("NullConst")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Any, nullable = true))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `intersects value constraints and declared types`(version: String) {
+        val schemas = parseSchemas(version, constraintIntersectionSchemas)
+
+        assertResolved(schemas, "NarrowedUnion", OasType.Enum)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("DeclaredNullableWithoutNullValue")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Enum, nullable = false))
+        assertResolved(schemas, "EquivalentNumericConst", OasType.Number)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("ImpossibleConst")))
+            .isEqualTo(
+                GeneratorSchemaTypeClassification.Unsupported(
+                    GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA,
+                ),
+            )
+    }
+
     private fun assertResolved(
         schemas: Map<String, SourceSchema>,
         name: String,
@@ -182,5 +229,39 @@ class GeneratorSchemaTypeClassifierTest {
           allOf:
             - { type: string }
             - { type: integer }
+        """.trimIndent()
+
+    private val enumValueSchemas =
+        """
+        StringEnum: { enum: [one, two] }
+        NullableStringEnum: { enum: [one, two, null] }
+        IntegerEnum: { enum: [1, 2] }
+        NumberEnum: { enum: [1, 2.5] }
+        MixedEnum: { enum: [one, 2, null] }
+        """.trimIndent()
+
+    private val constValueSchemas =
+        """
+        StringConst: { const: fixed }
+        BooleanConst: { const: true }
+        NullConst: { const: null }
+        """.trimIndent()
+
+    private val constraintIntersectionSchemas =
+        """
+        NarrowedUnion:
+          type: [string, integer]
+          enum: [one]
+        DeclaredNullableWithoutNullValue:
+          type: [string, 'null']
+          enum: [one]
+        EquivalentNumericConst:
+          type: number
+          enum: [1]
+          const: 1.0
+        ImpossibleConst:
+          type: string
+          enum: [one, two]
+          const: three
         """.trimIndent()
 }

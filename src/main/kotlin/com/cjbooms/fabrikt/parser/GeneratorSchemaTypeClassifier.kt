@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import com.cjbooms.fabrikt.model.OasType
+import com.fasterxml.jackson.databind.JsonNode
 
 internal sealed interface GeneratorSchemaTypeClassification {
     sealed interface Fallback : GeneratorSchemaTypeClassification {
@@ -19,6 +20,11 @@ internal sealed interface GeneratorSchemaTypeClassification {
     ) : Fallback
 
     data class CompositionUnion(
+        override val types: Set<OasType>,
+        override val nullable: Boolean,
+    ) : Fallback
+
+    data class ValueUnion(
         override val types: Set<OasType>,
         override val nullable: Boolean,
     ) : Fallback
@@ -53,13 +59,29 @@ internal object GeneratorSchemaTypeClassifier {
         schema: GeneratorObjectSchema,
         resolve: (GeneratorSchema) -> GeneratorSchema,
     ): GeneratorSchemaTypeClassification {
-        val nullable = SourceSchemaType.NULL in schema.types
-        val nonNullTypes = schema.types - SourceSchemaType.NULL
+        val valueConstraint = schema.valueConstraint()
+        if (valueConstraint is GeneratorSchemaValueConstraint.Impossible) {
+            return GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
+        }
+        val allowedValues = (valueConstraint as? GeneratorSchemaValueConstraint.Allowed)?.values
+        val constrainedTypes = allowedValues?.mapTo(linkedSetOf(), JsonNode::sourceSchemaType)?.normaliseNumericTypes()
+        val effectiveTypes =
+            if (allowedValues != null && schema.types.isNotEmpty()) {
+                schema.types
+                    .filterTo(linkedSetOf()) { type -> allowedValues.any { it.matchesSourceSchemaType(type) } }
+                    .normaliseNumericTypes()
+            } else {
+                constrainedTypes ?: schema.types
+            }
+        val nullable = SourceSchemaType.NULL in effectiveTypes
+        val nonNullTypes = effectiveTypes - SourceSchemaType.NULL
         if (nonNullTypes.size > 1) {
-            return GeneratorSchemaTypeClassification.MultiType(
-                types = nonNullTypes.mapTo(linkedSetOf()) { schema.toOasType(it) },
-                nullable = nullable,
-            )
+            val types = nonNullTypes.mapTo(linkedSetOf()) { schema.toOasType(it, constrainedStringAsEnum = false) }
+            return if (constrainedTypes == null) {
+                GeneratorSchemaTypeClassification.MultiType(types, nullable)
+            } else {
+                GeneratorSchemaTypeClassification.ValueUnion(types, nullable)
+            }
         }
 
         if (nonNullTypes.isEmpty()) {
@@ -126,9 +148,12 @@ internal object GeneratorSchemaTypeClassifier {
             ?.let(SourceSchemaType::from)
     }
 
-    private fun GeneratorObjectSchema.toOasType(type: SourceSchemaType?): OasType =
+    private fun GeneratorObjectSchema.toOasType(
+        type: SourceSchemaType?,
+        constrainedStringAsEnum: Boolean = true,
+    ): OasType =
         when (type) {
-            SourceSchemaType.STRING -> classifyString()
+            SourceSchemaType.STRING -> if (constrainedStringAsEnum) classifyString() else OasType.Text
             SourceSchemaType.NUMBER ->
                 when (metadata.format?.lowercase()) {
                     "float" -> OasType.Float
@@ -150,7 +175,7 @@ internal object GeneratorSchemaTypeClassifier {
 
     private fun GeneratorObjectSchema.classifyString(): OasType =
         when {
-            metadata.enumValues.isNotEmpty() -> OasType.Enum
+            valueConstraint() is GeneratorSchemaValueConstraint.Allowed -> OasType.Enum
             metadata.format.equals("date", ignoreCase = true) -> OasType.Date
             metadata.format.equals("date-time", ignoreCase = true) -> OasType.DateTime
             metadata.format.equals("uuid", ignoreCase = true) -> OasType.Uuid
@@ -189,5 +214,12 @@ internal object GeneratorSchemaTypeClassifier {
             yieldAll(allOf)
             yieldAll(anyOf)
             yieldAll(oneOf)
+        }
+
+    private fun Set<SourceSchemaType>.normaliseNumericTypes(): Set<SourceSchemaType> =
+        if (SourceSchemaType.NUMBER in this) {
+            this - SourceSchemaType.INTEGER
+        } else {
+            this
         }
 }
