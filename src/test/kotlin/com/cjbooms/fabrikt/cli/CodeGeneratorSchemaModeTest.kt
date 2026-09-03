@@ -26,6 +26,7 @@ class CodeGeneratorSchemaModeTest {
         assertThat(generate(SchemaGenerationMode.NATIVE).single())
             .contains("public data class Subject(")
             .contains("public val id: String")
+            .contains("public val choice: Any? = null")
     }
 
     private fun generate(mode: SchemaGenerationMode? = null): List<String> {
@@ -60,5 +61,10 @@ class CodeGeneratorSchemaModeTest {
               required: [id]
               properties:
                 id: { type: string }
+                choice:
+                  oneOf:
+                    - { type: string }
+                    - { type: integer }
+                    - { type: 'null' }
         """.trimIndent()
 }
