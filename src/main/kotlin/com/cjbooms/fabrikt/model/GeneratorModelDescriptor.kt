@@ -246,16 +246,17 @@ internal object GeneratorModelDescriptorBuilder {
         val properties = linkedMapOf<String, GeneratorPropertyDescriptor>()
         objectSchema.allOf.forEach { member ->
             val resolvedMember = document.resolve(member) as? GeneratorObjectSchema
+            val memberClassification = resolvedMember?.let(typeResolver::classify)
             if (
                 resolvedMember != null &&
                 resolvedMember.oneOf.isNotEmpty() &&
-                typeResolver.classify(resolvedMember) is GeneratorSchemaTypeClassification.Unsupported
+                memberClassification !is GeneratorSchemaTypeClassification.Resolved
             ) {
                 properties["oneOf"] =
                     GeneratorPropertyDescriptor(
                         name = "oneOf",
                         schemaIdentity = resolvedMember.identity,
-                        classification = typeResolver.classify(resolvedMember),
+                        classification = requireNotNull(memberClassification),
                         kotlinType = typeResolver.resolveProperty(member, modelName),
                         required = false,
                         readOnly = false,

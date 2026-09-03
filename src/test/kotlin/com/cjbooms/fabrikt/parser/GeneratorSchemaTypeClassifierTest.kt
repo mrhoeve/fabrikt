@@ -95,6 +95,15 @@ class GeneratorSchemaTypeClassifierTest {
             .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Any, false))
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("MixedComposition")))
             .isEqualTo(
+                GeneratorSchemaTypeClassification.CompositionUnion(
+                    linkedSetOf(OasType.Text, OasType.Integer),
+                    nullable = false,
+                ),
+            )
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("NullableComposition")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Text, nullable = true))
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("ImpossibleComposition")))
+            .isEqualTo(
                 GeneratorSchemaTypeClassification.Unsupported(
                     GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
                 ),
@@ -163,6 +172,14 @@ class GeneratorSchemaTypeClassifierTest {
         Any: true
         MixedComposition:
           oneOf:
+            - { type: string }
+            - { type: integer }
+        NullableComposition:
+          anyOf:
+            - { type: string }
+            - { type: 'null' }
+        ImpossibleComposition:
+          allOf:
             - { type: string }
             - { type: integer }
         """.trimIndent()

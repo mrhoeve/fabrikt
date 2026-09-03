@@ -3,15 +3,25 @@ package com.cjbooms.fabrikt.parser
 import com.cjbooms.fabrikt.model.OasType
 
 internal sealed interface GeneratorSchemaTypeClassification {
+    sealed interface Fallback : GeneratorSchemaTypeClassification {
+        val types: Set<OasType>
+        val nullable: Boolean
+    }
+
     data class Resolved(
         val type: OasType,
         val nullable: Boolean,
     ) : GeneratorSchemaTypeClassification
 
     data class MultiType(
-        val types: Set<OasType>,
-        val nullable: Boolean,
-    ) : GeneratorSchemaTypeClassification
+        override val types: Set<OasType>,
+        override val nullable: Boolean,
+    ) : Fallback
+
+    data class CompositionUnion(
+        override val types: Set<OasType>,
+        override val nullable: Boolean,
+    ) : Fallback
 
     data class Unsupported(
         val reason: Reason,
@@ -52,6 +62,10 @@ internal object GeneratorSchemaTypeClassifier {
             )
         }
 
+        if (nonNullTypes.isEmpty()) {
+            schema.classifyCompositionUnion(resolve)?.let { return it }
+        }
+
         val type = nonNullTypes.singleOrNull() ?: inferType(schema, resolve)
         if (type == null && schema.hasInconsistentCompositionTypes(resolve)) {
             return GeneratorSchemaTypeClassification.Unsupported(
@@ -60,6 +74,41 @@ internal object GeneratorSchemaTypeClassifier {
         }
 
         return GeneratorSchemaTypeClassification.Resolved(schema.toOasType(type), nullable)
+    }
+
+    private fun GeneratorObjectSchema.classifyCompositionUnion(
+        resolve: (GeneratorSchema) -> GeneratorSchema,
+    ): GeneratorSchemaTypeClassification? {
+        if (allOf.isNotEmpty() || properties.isNotEmpty() || items != null || prefixItems.isNotEmpty()) return null
+        val members =
+            when {
+                oneOf.isNotEmpty() && anyOf.isEmpty() -> oneOf
+                anyOf.isNotEmpty() && oneOf.isEmpty() -> anyOf
+                else -> return null
+            }
+        val types = linkedSetOf<OasType>()
+        var nullable = false
+        members.forEach { member ->
+            when (val memberClassification = classify(resolve(member), resolve)) {
+                is GeneratorSchemaTypeClassification.Resolved -> {
+                    if (memberClassification.type != OasType.Any || !memberClassification.nullable) {
+                        types.add(memberClassification.type)
+                    }
+                    nullable = nullable || memberClassification.nullable
+                }
+                is GeneratorSchemaTypeClassification.Fallback -> {
+                    types.addAll(memberClassification.types)
+                    nullable = nullable || memberClassification.nullable
+                }
+                is GeneratorSchemaTypeClassification.Unsupported ->
+                    if (memberClassification.reason != GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA) return null
+            }
+        }
+        return when (types.size) {
+            0 -> GeneratorSchemaTypeClassification.Resolved(OasType.Any, nullable)
+            1 -> GeneratorSchemaTypeClassification.Resolved(types.single(), nullable)
+            else -> GeneratorSchemaTypeClassification.CompositionUnion(types, nullable)
+        }
     }
 
     private fun inferType(

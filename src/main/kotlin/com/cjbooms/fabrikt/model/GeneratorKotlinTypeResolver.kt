@@ -51,6 +51,10 @@ internal class GeneratorKotlinTypeResolver(
                 GeneratorKotlinTypeResolution.Unsupported(classification.reason)
             is GeneratorSchemaTypeClassification.MultiType ->
                 GeneratorKotlinTypeResolution.Fallback(multiTypeFallback(), classification.nullable, classification)
+            is GeneratorSchemaTypeClassification.CompositionUnion ->
+                GeneratorKotlinTypeResolution.Unsupported(
+                    GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+                )
             is GeneratorSchemaTypeClassification.Resolved ->
                 GeneratorKotlinTypeResolution.Resolved(
                     typeInfo = resolveTypeInfo(classification.type, objectSchema, resolvedSchema),
