@@ -204,7 +204,7 @@ internal object GeneratorModelDescriptorBuilder {
                 properties.isEmpty() &&
                 (oneOf.isNotEmpty() || anyOf.isNotEmpty()) -> false
             else ->
-                metadata.enumValues.isNotEmpty() ||
+                (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
                     allOf.isNotEmpty() ||
                     oneOf.isNotEmpty() ||

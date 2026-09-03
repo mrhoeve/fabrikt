@@ -180,6 +180,52 @@ class NativeModelGeneratorTest {
             .contains("public val typedTail: List<JsonElement>? = null")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates native models from enum values without declared types`(version: String) {
+        val generated = generateValueConstraints(enumValueOpenApi.replace("VERSION", version))
+
+        assertThat(generated.getValue("Status"))
+            .contains("public enum class Status(")
+            .contains("READY(\"ready\")")
+            .contains("DONE(\"done\")")
+        assertThat(generated.getValue("Subject"))
+            .contains("public val status: Status")
+            .contains("public val attempts: Int = 1")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates native models from const and heterogeneous value constraints`(version: String) {
+        val generated = generateValueConstraints(constValueOpenApi.replace("VERSION", version))
+
+        assertThat(generated.getValue("Fixed"))
+            .contains("public enum class Fixed(")
+            .contains("FIXED_VALUE(\"fixed-value\")")
+        assertThat(generated.getValue("SubjectMode"))
+            .contains("public enum class SubjectMode(")
+            .contains("MANUAL(\"manual\")")
+        assertThat(generated.getValue("Subject"))
+            .contains("public val fixed: Fixed")
+            .contains("public val mode: SubjectMode = SubjectMode.MANUAL")
+            .contains("public val enabled: Boolean = true")
+            .contains("public val ratio: BigDecimal")
+            .contains("public val choice: Any?")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates serializable Kotlinx value constraint fallbacks`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val subject = generateValueConstraints(constValueOpenApi.replace("VERSION", version)).getValue("Subject")
+
+        assertThat(subject)
+            .contains("public val fixed: Fixed")
+            .contains("public val mode: SubjectMode = SubjectMode.MANUAL")
+            .contains("public val choice: JsonElement?")
+    }
+
     private fun generate(
         version: String,
         mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
@@ -228,6 +274,15 @@ class NativeModelGeneratorTest {
             ).files
             .single { it.name == "Subject" }
             .toString()
+
+    private fun generateValueConstraints(openApi: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser.parse(openApi).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
 
     private val openApi =
         """
@@ -406,5 +461,56 @@ class NativeModelGeneratorTest {
                   prefixItems:
                     - { type: string }
                   items: { type: integer }
+        """.trimIndent()
+
+    private val enumValueOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Status:
+              enum: [ready, done]
+            Subject:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  ${'$'}ref: '#/components/schemas/Status'
+                attempts:
+                  enum: [1, 2]
+                  default: 1
+        """.trimIndent()
+
+    private val constValueOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Fixed:
+              const: fixed-value
+            Subject:
+              type: object
+              required: [fixed, ratio, choice]
+              properties:
+                fixed:
+                  ${'$'}ref: '#/components/schemas/Fixed'
+                mode:
+                  const: manual
+                  default: manual
+                enabled:
+                  const: true
+                  default: true
+                ratio:
+                  const: 1.5
+                choice:
+                  enum: [text, 1, null]
         """.trimIndent()
 }
