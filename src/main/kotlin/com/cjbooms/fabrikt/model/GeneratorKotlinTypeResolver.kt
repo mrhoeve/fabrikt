@@ -53,7 +53,7 @@ internal class GeneratorKotlinTypeResolver(
             is GeneratorSchemaTypeClassification.Unsupported ->
                 GeneratorKotlinTypeResolution.Unsupported(classification.reason)
             is GeneratorSchemaTypeClassification.MultiType ->
-                GeneratorKotlinTypeResolution.Fallback(anyType(), classification.nullable, classification)
+                GeneratorKotlinTypeResolution.Fallback(multiTypeFallback(), classification.nullable, classification)
             is GeneratorSchemaTypeClassification.Resolved ->
                 GeneratorKotlinTypeResolution.Resolved(
                     typeInfo = resolveTypeInfo(classification.type, objectSchema, resolvedSchema),
@@ -145,7 +145,7 @@ internal class GeneratorKotlinTypeResolver(
         unique: Boolean,
     ): KotlinTypeInfo {
         val items = schema.items ?: schema.prefixItems.singleOrNull()
-        val resolvedItems = items?.let(::resolve) as? GeneratorKotlinTypeResolution.Resolved
+        val resolvedItems = items?.let(::resolve)?.asResolvedFallback()
         return KotlinTypeInfo.Array(
             parameterizedType = resolvedItems?.typeInfo ?: anyType(),
             isParameterizedTypeNullable = resolvedItems?.nullable == true,
@@ -155,7 +155,7 @@ internal class GeneratorKotlinTypeResolver(
 
     private fun resolveMap(schema: GeneratorObjectSchema): KotlinTypeInfo {
         val valueSchema = schema.additionalProperties
-        val valueType = valueSchema?.let(::resolve) as? GeneratorKotlinTypeResolution.Resolved
+        val valueType = valueSchema?.let(::resolve)?.asResolvedFallback()
         return KotlinTypeInfo.Map(valueType?.typeInfo ?: anyType())
     }
 
@@ -198,4 +198,19 @@ internal class GeneratorKotlinTypeResolver(
         } else {
             KotlinTypeInfo.AnyType
         }
+
+    private fun multiTypeFallback(): KotlinTypeInfo =
+        if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+            KotlinTypeInfo.JsonElement
+        } else {
+            KotlinTypeInfo.AnyType
+        }
 }
+
+internal fun GeneratorKotlinTypeResolution.asResolvedFallback(): GeneratorKotlinTypeResolution.Resolved? =
+    when (this) {
+        is GeneratorKotlinTypeResolution.Resolved -> this
+        is GeneratorKotlinTypeResolution.Fallback -> GeneratorKotlinTypeResolution.Resolved(typeInfo, nullable)
+        is GeneratorKotlinTypeResolution.Uninhabitable -> null
+        is GeneratorKotlinTypeResolution.Unsupported -> null
+    }

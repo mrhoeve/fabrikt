@@ -1,5 +1,7 @@
 package com.cjbooms.fabrikt.generators.model
 
+import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
@@ -104,6 +106,30 @@ class NativeModelGeneratorTest {
             .isEqualTo(generate(version, SchemaGenerationMode.LEGACY))
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates safe fallback properties for native multi-type schemas`(version: String) {
+        val subject = generateMultiTypes(version)
+
+        assertThat(subject)
+            .contains("public val `value`: Any?")
+            .contains("public val values: List<Any?>? = null")
+            .contains("public val valuesByKey: Map<String, Any?>? = null")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates serializable Kotlinx fallbacks for native multi-type schemas`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val subject = generateMultiTypes(version)
+
+        assertThat(subject)
+            .contains("public val `value`: JsonElement?")
+            .contains("public val values: List<JsonElement?>? = null")
+            .contains("public val valuesByKey: Map<String, JsonElement?>? = null")
+    }
+
     private fun generate(
         version: String,
         mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
@@ -116,6 +142,18 @@ class NativeModelGeneratorTest {
             ),
         ).files
         .associateBy { it.name }
+
+    private fun generateMultiTypes(version: String): String =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(multiTypeOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .single { it.name == "Subject" }
+            .toString()
 
     private val openApi =
         """
@@ -202,5 +240,30 @@ class NativeModelGeneratorTest {
               anyOf:
                 - ${'$'}ref: '#/components/schemas/Cat'
                 - ${'$'}ref: '#/components/schemas/Dog'
+        """.trimIndent()
+
+    private val multiTypeOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: [string, integer, 'null']
+                values:
+                  type: array
+                  items:
+                    type: [string, integer, 'null']
+                valuesByKey:
+                  type: object
+                  additionalProperties:
+                    type: [string, integer, 'null']
         """.trimIndent()
 }
