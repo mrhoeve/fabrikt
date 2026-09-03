@@ -154,6 +154,32 @@ class NativeModelGeneratorTest {
             .contains("public val choices: List<JsonElement?>? = null")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates native closed open and typed-tail tuple properties`(version: String) {
+        val subject = generateTuples(version)
+
+        assertThat(subject)
+            .contains("public val closedTuple: List<Any?>? = null")
+            .contains("public val homogeneousTuple: List<String>? = null")
+            .contains("public val openTuple: List<Any?>? = null")
+            .contains("public val typedTail: List<Any>? = null")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates serializable Kotlinx tuple properties`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val subject = generateTuples(version)
+
+        assertThat(subject)
+            .contains("public val closedTuple: List<JsonElement?>? = null")
+            .contains("public val homogeneousTuple: List<String>? = null")
+            .contains("public val openTuple: List<JsonElement?>? = null")
+            .contains("public val typedTail: List<JsonElement>? = null")
+    }
+
     private fun generate(
         version: String,
         mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
@@ -185,6 +211,18 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(compositionUnionOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .single { it.name == "Subject" }
+            .toString()
+
+    private fun generateTuples(version: String): String =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(tupleOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -332,5 +370,41 @@ class NativeModelGeneratorTest {
                       - { type: string }
                       - { type: integer }
                       - { type: 'null' }
+        """.trimIndent()
+
+    private val tupleOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                closedTuple:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                    - { type: integer }
+                    - { type: 'null' }
+                  items: false
+                homogeneousTuple:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                    - { type: string }
+                  items: false
+                openTuple:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                typedTail:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                  items: { type: integer }
         """.trimIndent()
 }

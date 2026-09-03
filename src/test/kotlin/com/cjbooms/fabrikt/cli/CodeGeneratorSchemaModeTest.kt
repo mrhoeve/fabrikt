@@ -27,6 +27,7 @@ class CodeGeneratorSchemaModeTest {
             .contains("public data class Subject(")
             .contains("public val id: String")
             .contains("public val choice: Any? = null")
+            .contains("public val tuple: List<Any?>? = null")
     }
 
     private fun generate(mode: SchemaGenerationMode? = null): List<String> {
@@ -66,5 +67,12 @@ class CodeGeneratorSchemaModeTest {
                     - { type: string }
                     - { type: integer }
                     - { type: 'null' }
+                tuple:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                    - { type: integer }
+                    - { type: 'null' }
+                  items: false
         """.trimIndent()
 }
