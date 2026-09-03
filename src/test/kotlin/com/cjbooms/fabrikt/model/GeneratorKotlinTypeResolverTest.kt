@@ -1,5 +1,7 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
@@ -47,12 +49,47 @@ class GeneratorKotlinTypeResolverTest {
                 GeneratorKotlinTypeResolution.Fallback(
                     typeInfo = KotlinTypeInfo.AnyType,
                     nullable = true,
-                    classification = GeneratorSchemaTypeClassification.MultiType(
-                        linkedSetOf(OasType.Text, OasType.Integer),
-                        nullable = true,
-                    ),
+                    classification =
+                        GeneratorSchemaTypeClassification.MultiType(
+                            linkedSetOf(OasType.Text, OasType.Integer),
+                            nullable = true,
+                        ),
                 ),
             )
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `uses serializable JSON fallbacks for nested Kotlinx multi-types`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+        val parsed = OpenApiDocumentParser.parse(multiTypeOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertThat(resolver.resolve(document.componentSchemas.getValue("Value")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Fallback(
+                    typeInfo = KotlinTypeInfo.JsonElement,
+                    nullable = true,
+                    classification =
+                        GeneratorSchemaTypeClassification.MultiType(
+                            linkedSetOf(OasType.Text, OasType.Integer),
+                            nullable = true,
+                        ),
+                ),
+            )
+        assertResolved(
+            resolver,
+            document,
+            "Values",
+            KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement, isParameterizedTypeNullable = true),
+        )
+        assertResolved(
+            resolver,
+            document,
+            "ValuesByKey",
+            KotlinTypeInfo.Map(KotlinTypeInfo.JsonElement),
+        )
     }
 
     private fun assertResolved(
@@ -104,5 +141,13 @@ class GeneratorKotlinTypeResolverTest {
           schemas:
             Value:
               type: [string, integer, 'null']
+            Values:
+              type: array
+              items:
+                type: [string, integer, 'null']
+            ValuesByKey:
+              type: object
+              additionalProperties:
+                type: [string, integer, 'null']
         """.trimIndent()
 }

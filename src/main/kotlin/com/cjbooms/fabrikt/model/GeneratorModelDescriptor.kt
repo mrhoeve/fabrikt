@@ -96,7 +96,7 @@ internal object GeneratorModelDescriptorBuilder {
                         ) {
                             GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, false)
                         } else {
-                            typeResolver.resolve(additionalProperties) as? GeneratorKotlinTypeResolution.Resolved
+                            typeResolver.resolve(additionalProperties).asResolvedFallback()
                         }
                     }?.let { resolution ->
                         if (resolution.typeInfo is KotlinTypeInfo.UntypedObject) {

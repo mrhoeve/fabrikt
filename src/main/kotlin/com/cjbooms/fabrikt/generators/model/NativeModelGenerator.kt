@@ -14,6 +14,7 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.ModelType
 import com.cjbooms.fabrikt.model.Models
 import com.cjbooms.fabrikt.model.OasType
+import com.cjbooms.fabrikt.model.asResolvedFallback
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.util.NormalisedString.toEnumName
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
@@ -61,7 +62,7 @@ internal class NativeModelGenerator(
         superInterfaces.forEach(type::addSuperinterface)
 
         properties.forEach { property ->
-            val resolvedType = property.kotlinType as? GeneratorKotlinTypeResolution.Resolved ?: return@forEach
+            val resolvedType = property.kotlinType.asResolvedFallback() ?: return@forEach
             val defaultCode = property.defaultCode(resolvedType)
             val nullable = resolvedType.nullable || (!property.required && defaultCode == null)
             val propertyName = property.name.toKotlinParameterName()
