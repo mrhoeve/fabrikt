@@ -12,9 +12,12 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
 import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
+import com.cjbooms.fabrikt.parser.GeneratorSchemaValueConstraint
 import com.cjbooms.fabrikt.parser.SourceSchemaType
 import com.cjbooms.fabrikt.parser.arrayItems
+import com.cjbooms.fabrikt.parser.valueConstraint
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
+import com.fasterxml.jackson.databind.JsonNode
 
 internal sealed interface GeneratorKotlinTypeResolution {
     data class Resolved(
@@ -73,12 +76,7 @@ internal class GeneratorKotlinTypeResolver(
             OasType.Text -> KotlinTypeInfo.Text
             OasType.Enum ->
                 KotlinTypeInfo.Enum(
-                    objectSchema
-                        ?.metadata
-                        ?.enumValues
-                        .orEmpty()
-                        .filterNot { it.isNull }
-                        .map { it.asText() },
+                    objectSchema?.enumEntries().orEmpty(),
                     modelName(resolvedSchema),
                 )
             OasType.Uuid -> overridable(CodeGenTypeOverride.UUID_AS_STRING, KotlinTypeInfo.Uuid)
@@ -193,6 +191,16 @@ internal class GeneratorKotlinTypeResolver(
                 .replace("~1", "-")
                 .replace("~0", "~")
         ).toModelClassName() + MutableSettings.modelSuffix
+
+    private fun GeneratorObjectSchema.enumEntries(): List<String> {
+        val values =
+            if (metadata.constValue == null && SourceSchemaType.STRING in types) {
+                metadata.enumValues
+            } else {
+                (valueConstraint() as? GeneratorSchemaValueConstraint.Allowed)?.values.orEmpty()
+            }
+        return values.filterNot(JsonNode::isNull).map(JsonNode::asText)
+    }
 
     private fun dateType(): KotlinTypeInfo =
         when {

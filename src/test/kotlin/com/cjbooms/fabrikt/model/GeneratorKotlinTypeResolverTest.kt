@@ -32,6 +32,12 @@ class GeneratorKotlinTypeResolverTest {
         assertResolved(resolver, document, "Object", KotlinTypeInfo.Object("Object"))
         assertResolved(resolver, document, "Reference", KotlinTypeInfo.Object("Object"))
         assertResolved(resolver, document, "Enum", KotlinTypeInfo.Enum(listOf("one", "two"), "Enum"))
+        assertResolved(
+            resolver,
+            document,
+            "StringifiedEnum",
+            KotlinTypeInfo.Enum(listOf("one", "2"), "StringifiedEnum"),
+        )
         assertResolved(resolver, document, "Array", KotlinTypeInfo.Array(KotlinTypeInfo.Uuid))
         assertResolved(resolver, document, "Set", KotlinTypeInfo.Array(KotlinTypeInfo.Text, hasUniqueItems = true))
         assertResolved(resolver, document, "Map", KotlinTypeInfo.Map(KotlinTypeInfo.Integer))
@@ -159,6 +165,61 @@ class GeneratorKotlinTypeResolverTest {
         assertResolved(resolver, document, "TypedTail", KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement))
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves const and enum value constraints to native Kotlin types`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(valueConstrainedOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertResolved(resolver, document, "StringEnum", KotlinTypeInfo.Enum(listOf("one", "two"), "StringEnum"))
+        assertResolved(resolver, document, "StringConst", KotlinTypeInfo.Enum(listOf("fixed"), "StringConst"))
+        assertResolved(resolver, document, "IntegerEnum", KotlinTypeInfo.Integer)
+        assertResolved(resolver, document, "NumberEnum", KotlinTypeInfo.Numeric)
+        assertResolved(resolver, document, "BooleanConst", KotlinTypeInfo.Boolean)
+        assertThat(resolver.resolve(document.componentSchemas.getValue("NullableStringEnum")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Resolved(
+                    KotlinTypeInfo.Enum(listOf("one", "two"), "NullableStringEnum"),
+                    nullable = true,
+                ),
+            )
+        assertThat(resolver.resolve(document.componentSchemas.getValue("NullConst")))
+            .isEqualTo(GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, nullable = true))
+        assertThat(resolver.resolve(document.componentSchemas.getValue("MixedEnum")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Fallback(
+                    KotlinTypeInfo.AnyType,
+                    nullable = true,
+                    GeneratorSchemaTypeClassification.ValueUnion(
+                        linkedSetOf(OasType.Text, OasType.Integer),
+                        nullable = true,
+                    ),
+                ),
+            )
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `uses serializable JSON fallbacks for heterogeneous Kotlinx enums`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+        val parsed = OpenApiDocumentParser.parse(valueConstrainedOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertThat(resolver.resolve(document.componentSchemas.getValue("MixedEnum")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Fallback(
+                    KotlinTypeInfo.JsonElement,
+                    nullable = true,
+                    GeneratorSchemaTypeClassification.ValueUnion(
+                        linkedSetOf(OasType.Text, OasType.Integer),
+                        nullable = true,
+                    ),
+                ),
+            )
+    }
+
     private fun assertResolved(
         resolver: GeneratorKotlinTypeResolver,
         document: com.cjbooms.fabrikt.parser.GeneratorSchemaDocument,
@@ -189,6 +250,7 @@ class GeneratorKotlinTypeResolverTest {
             Reference:
               ${'$'}ref: '#/components/schemas/Object'
             Enum: { type: string, enum: [one, two] }
+            StringifiedEnum: { type: string, enum: [one, 2] }
             Array:
               type: array
               items:
@@ -265,5 +327,24 @@ class GeneratorKotlinTypeResolverTest {
               prefixItems:
                 - { type: string }
               items: { type: integer }
+        """.trimIndent()
+
+    private val valueConstrainedOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            StringEnum: { enum: [one, two] }
+            NullableStringEnum: { enum: [one, two, null] }
+            StringConst: { const: fixed }
+            IntegerEnum: { enum: [1, 2] }
+            NumberEnum: { enum: [1, 2.5] }
+            BooleanConst: { const: true }
+            NullConst: { const: null }
+            MixedEnum: { enum: [one, 2, null] }
         """.trimIndent()
 }
