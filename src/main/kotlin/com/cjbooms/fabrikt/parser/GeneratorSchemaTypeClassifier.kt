@@ -8,13 +8,17 @@ internal sealed interface GeneratorSchemaTypeClassification {
         val nullable: Boolean,
     ) : GeneratorSchemaTypeClassification
 
+    data class MultiType(
+        val types: Set<OasType>,
+        val nullable: Boolean,
+    ) : GeneratorSchemaTypeClassification
+
     data class Unsupported(
         val reason: Reason,
     ) : GeneratorSchemaTypeClassification
 
     enum class Reason {
         NEVER_SCHEMA,
-        MULTIPLE_NON_NULL_TYPES,
         INCONSISTENT_COMPOSITION_TYPES,
     }
 }
@@ -42,8 +46,9 @@ internal object GeneratorSchemaTypeClassifier {
         val nullable = SourceSchemaType.NULL in schema.types
         val nonNullTypes = schema.types - SourceSchemaType.NULL
         if (nonNullTypes.size > 1) {
-            return GeneratorSchemaTypeClassification.Unsupported(
-                GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+            return GeneratorSchemaTypeClassification.MultiType(
+                types = nonNullTypes.mapTo(linkedSetOf()) { schema.toOasType(it) },
+                nullable = nullable,
             )
         }
 

@@ -80,8 +80,9 @@ class GeneratorSchemaTypeClassifierTest {
             .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Text, true))
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("Union")))
             .isEqualTo(
-                GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+                GeneratorSchemaTypeClassification.MultiType(
+                    linkedSetOf(OasType.Text, OasType.Integer),
+                    nullable = true,
                 ),
             )
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("Never")))

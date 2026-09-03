@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.parser
 
+import com.cjbooms.fabrikt.model.OasType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -25,8 +26,9 @@ class SchemaGenerationModeTest {
         assertThat(value.types).containsExactly(SourceSchemaType.STRING, SourceSchemaType.INTEGER, SourceSchemaType.NULL)
         assertThat(GeneratorSchemaTypeClassifier.classify(value))
             .isEqualTo(
-                GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+                GeneratorSchemaTypeClassification.MultiType(
+                    linkedSetOf(OasType.Text, OasType.Integer),
+                    nullable = true,
                 ),
             )
 
