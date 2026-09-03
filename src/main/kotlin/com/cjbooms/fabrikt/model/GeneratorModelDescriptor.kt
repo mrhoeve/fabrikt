@@ -72,6 +72,7 @@ internal object GeneratorModelDescriptorBuilder {
                     }
                 is GeneratorKotlinTypeResolution.Uninhabitable ->
                     throw IllegalArgumentException("Cannot generate model '$name' because its schema cannot accept any value")
+                is GeneratorKotlinTypeResolution.Fallback -> resolution
                 is GeneratorKotlinTypeResolution.Unsupported -> resolution
             }
         return GeneratorModelDescriptor(

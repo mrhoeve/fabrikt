@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.model
 
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
@@ -42,6 +43,26 @@ class GeneratorKotlinTypeResolverTest {
 
         assertThat(GeneratorKotlinTypeResolver(document).resolve(document.componentSchemas.getValue("Never")))
             .isEqualTo(GeneratorKotlinTypeResolution.Uninhabitable)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves multi-type schemas to an explicit safe fallback`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(multiTypeOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertThat(resolver.resolve(document.componentSchemas.getValue("Value")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Fallback(
+                    typeInfo = KotlinTypeInfo.AnyType,
+                    nullable = true,
+                    classification = GeneratorSchemaTypeClassification.MultiType(
+                        linkedSetOf(OasType.Text, OasType.Integer),
+                        nullable = true,
+                    ),
+                ),
+            )
     }
 
     private fun assertResolved(
@@ -92,5 +113,18 @@ class GeneratorKotlinTypeResolverTest {
         components:
           schemas:
             Never: false
+        """.trimIndent()
+
+    private val multiTypeOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Value:
+              type: [string, integer, 'null']
         """.trimIndent()
 }
