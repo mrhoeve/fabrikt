@@ -92,6 +92,27 @@ class GeneratorKotlinTypeResolverTest {
         )
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves composition unions to explicit safe fallbacks`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(compositionUnionOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertThat(resolver.resolve(document.componentSchemas.getValue("Choice")))
+            .isEqualTo(
+                GeneratorKotlinTypeResolution.Fallback(
+                    typeInfo = KotlinTypeInfo.AnyType,
+                    nullable = true,
+                    classification =
+                        GeneratorSchemaTypeClassification.CompositionUnion(
+                            linkedSetOf(OasType.Text, OasType.Integer),
+                            nullable = true,
+                        ),
+                ),
+            )
+    }
+
     private fun assertResolved(
         resolver: GeneratorKotlinTypeResolver,
         document: com.cjbooms.fabrikt.parser.GeneratorSchemaDocument,
@@ -149,5 +170,21 @@ class GeneratorKotlinTypeResolverTest {
               type: object
               additionalProperties:
                 type: [string, integer, 'null']
+        """.trimIndent()
+
+    private val compositionUnionOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Choice:
+              oneOf:
+                - { type: string }
+                - { type: integer }
+                - { type: 'null' }
         """.trimIndent()
 }

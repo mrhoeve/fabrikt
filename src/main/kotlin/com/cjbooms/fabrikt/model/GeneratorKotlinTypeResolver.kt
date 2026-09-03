@@ -26,7 +26,7 @@ internal sealed interface GeneratorKotlinTypeResolution {
     data class Fallback(
         val typeInfo: KotlinTypeInfo,
         val nullable: Boolean,
-        val classification: GeneratorSchemaTypeClassification.MultiType,
+        val classification: GeneratorSchemaTypeClassification.Fallback,
     ) : GeneratorKotlinTypeResolution
 }
 
@@ -49,12 +49,8 @@ internal class GeneratorKotlinTypeResolver(
         return when (classification) {
             is GeneratorSchemaTypeClassification.Unsupported ->
                 GeneratorKotlinTypeResolution.Unsupported(classification.reason)
-            is GeneratorSchemaTypeClassification.MultiType ->
-                GeneratorKotlinTypeResolution.Fallback(multiTypeFallback(), classification.nullable, classification)
-            is GeneratorSchemaTypeClassification.CompositionUnion ->
-                GeneratorKotlinTypeResolution.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
-                )
+            is GeneratorSchemaTypeClassification.Fallback ->
+                GeneratorKotlinTypeResolution.Fallback(unionFallback(), classification.nullable, classification)
             is GeneratorSchemaTypeClassification.Resolved ->
                 GeneratorKotlinTypeResolution.Resolved(
                     typeInfo = resolveTypeInfo(classification.type, objectSchema, resolvedSchema),
@@ -199,7 +195,7 @@ internal class GeneratorKotlinTypeResolver(
             KotlinTypeInfo.AnyType
         }
 
-    private fun multiTypeFallback(): KotlinTypeInfo =
+    private fun unionFallback(): KotlinTypeInfo =
         if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
             KotlinTypeInfo.JsonElement
         } else {
