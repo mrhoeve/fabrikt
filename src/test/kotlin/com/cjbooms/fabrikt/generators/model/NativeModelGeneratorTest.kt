@@ -130,6 +130,30 @@ class NativeModelGeneratorTest {
             .contains("public val valuesByKey: Map<String, JsonElement?>? = null")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates safe fallback properties for native composition unions`(version: String) {
+        val subject = generateCompositionUnions(version)
+
+        assertThat(subject)
+            .contains("public val choice: Any?")
+            .contains("public val alternative: Any? = null")
+            .contains("public val choices: List<Any?>? = null")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates serializable Kotlinx fallbacks for native composition unions`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val subject = generateCompositionUnions(version)
+
+        assertThat(subject)
+            .contains("public val choice: JsonElement?")
+            .contains("public val alternative: JsonElement? = null")
+            .contains("public val choices: List<JsonElement?>? = null")
+    }
+
     private fun generate(
         version: String,
         mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
@@ -149,6 +173,18 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(multiTypeOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .single { it.name == "Subject" }
+            .toString()
+
+    private fun generateCompositionUnions(version: String): String =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(compositionUnionOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -265,5 +301,36 @@ class NativeModelGeneratorTest {
                   type: object
                   additionalProperties:
                     type: [string, integer, 'null']
+        """.trimIndent()
+
+    private val compositionUnionOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [choice]
+              properties:
+                choice:
+                  oneOf:
+                    - { type: string }
+                    - { type: integer }
+                    - { type: 'null' }
+                alternative:
+                  anyOf:
+                    - { type: boolean }
+                    - { type: number }
+                choices:
+                  type: array
+                  items:
+                    oneOf:
+                      - { type: string }
+                      - { type: integer }
+                      - { type: 'null' }
         """.trimIndent()
 }
