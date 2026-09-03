@@ -4,6 +4,8 @@ import com.cjbooms.fabrikt.cli.CodeGenTypeOverride
 import com.cjbooms.fabrikt.cli.InstantLibrary
 import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.parser.GeneratorArrayItems
+import com.cjbooms.fabrikt.parser.GeneratorBooleanSchema
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
@@ -11,6 +13,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
 import com.cjbooms.fabrikt.parser.SourceSchemaType
+import com.cjbooms.fabrikt.parser.arrayItems
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 
 internal sealed interface GeneratorKotlinTypeResolution {
@@ -140,14 +143,42 @@ internal class GeneratorKotlinTypeResolver(
         schema: GeneratorObjectSchema,
         unique: Boolean,
     ): KotlinTypeInfo {
-        val items = schema.items ?: schema.prefixItems.singleOrNull()
-        val resolvedItems = items?.let(::resolve)?.asResolvedFallback()
+        val resolvedItems =
+            when (val items = schema.arrayItems()) {
+                GeneratorArrayItems.Unconstrained -> GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = false)
+                is GeneratorArrayItems.Homogeneous ->
+                    resolveArrayItem(items.items) ?: GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = true)
+                is GeneratorArrayItems.Tuple -> resolveTupleItems(items)
+            }
         return KotlinTypeInfo.Array(
-            parameterizedType = resolvedItems?.typeInfo ?: anyType(),
-            isParameterizedTypeNullable = resolvedItems?.nullable == true,
+            parameterizedType = resolvedItems.typeInfo,
+            isParameterizedTypeNullable = resolvedItems.nullable,
             hasUniqueItems = unique,
         )
     }
+
+    private fun resolveTupleItems(items: GeneratorArrayItems.Tuple): GeneratorKotlinTypeResolution.Resolved {
+        val candidates = items.prefixItems.mapNotNull(::resolveArrayItem).toMutableList()
+        when (val additionalItems = items.additionalItems) {
+            null -> candidates.add(GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = true))
+            else -> resolveArrayItem(additionalItems)?.let(candidates::add)
+        }
+        if (candidates.isEmpty()) return GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = true)
+        val types = candidates.map { it.typeInfo }.distinct()
+        return GeneratorKotlinTypeResolution.Resolved(
+            typeInfo = types.singleOrNull() ?: unionFallback(),
+            nullable = candidates.any { it.nullable },
+        )
+    }
+
+    private fun resolveArrayItem(schema: GeneratorSchema): GeneratorKotlinTypeResolution.Resolved? =
+        when (val resolvedSchema = document.resolve(schema)) {
+            is GeneratorBooleanSchema ->
+                resolvedSchema
+                    .takeIf { it.allowsAnyValue }
+                    ?.let { GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = true) }
+            else -> resolve(resolvedSchema).asResolvedFallback()
+        }
 
     private fun resolveMap(schema: GeneratorObjectSchema): KotlinTypeInfo {
         val valueSchema = schema.additionalProperties

@@ -113,6 +113,52 @@ class GeneratorKotlinTypeResolverTest {
             )
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves closed open and typed-tail tuples`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(tupleOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertResolved(
+            resolver,
+            document,
+            "ClosedTuple",
+            KotlinTypeInfo.Array(KotlinTypeInfo.AnyType, isParameterizedTypeNullable = true),
+        )
+        assertResolved(resolver, document, "HomogeneousTuple", KotlinTypeInfo.Array(KotlinTypeInfo.Text))
+        assertResolved(
+            resolver,
+            document,
+            "OpenTuple",
+            KotlinTypeInfo.Array(KotlinTypeInfo.AnyType, isParameterizedTypeNullable = true),
+        )
+        assertResolved(resolver, document, "TypedTail", KotlinTypeInfo.Array(KotlinTypeInfo.AnyType))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `uses serializable JSON elements for Kotlinx tuple fallbacks`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+        val parsed = OpenApiDocumentParser.parse(tupleOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertResolved(
+            resolver,
+            document,
+            "ClosedTuple",
+            KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement, isParameterizedTypeNullable = true),
+        )
+        assertResolved(
+            resolver,
+            document,
+            "OpenTuple",
+            KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement, isParameterizedTypeNullable = true),
+        )
+        assertResolved(resolver, document, "TypedTail", KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement))
+    }
+
     private fun assertResolved(
         resolver: GeneratorKotlinTypeResolver,
         document: com.cjbooms.fabrikt.parser.GeneratorSchemaDocument,
@@ -186,5 +232,38 @@ class GeneratorKotlinTypeResolverTest {
                 - { type: string }
                 - { type: integer }
                 - { type: 'null' }
+        """.trimIndent()
+
+    private val tupleOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            ClosedTuple:
+              type: array
+              prefixItems:
+                - { type: string }
+                - { type: integer }
+                - { type: 'null' }
+              items: false
+            HomogeneousTuple:
+              type: array
+              prefixItems:
+                - { type: string }
+                - { type: string }
+              items: false
+            OpenTuple:
+              type: array
+              prefixItems:
+                - { type: string }
+            TypedTail:
+              type: array
+              prefixItems:
+                - { type: string }
+              items: { type: integer }
         """.trimIndent()
 }
