@@ -70,6 +70,7 @@ internal object GeneratorModelDescriptorBuilder {
                     } else {
                         resolution
                     }
+                is GeneratorKotlinTypeResolution.Fallback -> resolution
                 is GeneratorKotlinTypeResolution.Unsupported -> resolution
             }
         return GeneratorModelDescriptor(

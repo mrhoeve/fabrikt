@@ -22,6 +22,12 @@ internal sealed interface GeneratorKotlinTypeResolution {
     data class Unsupported(
         val reason: GeneratorSchemaTypeClassification.Reason,
     ) : GeneratorKotlinTypeResolution
+
+    data class Fallback(
+        val typeInfo: KotlinTypeInfo,
+        val nullable: Boolean,
+        val classification: GeneratorSchemaTypeClassification.MultiType,
+    ) : GeneratorKotlinTypeResolution
 }
 
 internal class GeneratorKotlinTypeResolver(
@@ -39,46 +45,56 @@ internal class GeneratorKotlinTypeResolver(
     fun resolve(schema: GeneratorSchema): GeneratorKotlinTypeResolution {
         val resolvedSchema = document.resolve(schema)
         val classification = classify(resolvedSchema)
-        if (classification is GeneratorSchemaTypeClassification.Unsupported) {
-            return GeneratorKotlinTypeResolution.Unsupported(classification.reason)
-        }
-
-        classification as GeneratorSchemaTypeClassification.Resolved
         val objectSchema = resolvedSchema as? GeneratorObjectSchema
-        val typeInfo =
-            when (classification.type) {
-                OasType.Date -> dateType()
-                OasType.DateTime -> dateTimeType()
-                OasType.Text -> KotlinTypeInfo.Text
-                OasType.Enum ->
-                    KotlinTypeInfo.Enum(
-                        objectSchema
-                            ?.metadata
-                            ?.enumValues
-                            .orEmpty()
-                            .filterNot { it.isNull }
-                            .map { it.asText() },
-                        modelName(resolvedSchema),
-                    )
-                OasType.Uuid -> overridable(CodeGenTypeOverride.UUID_AS_STRING, KotlinTypeInfo.Uuid)
-                OasType.Uri -> overridable(CodeGenTypeOverride.URI_AS_STRING, KotlinTypeInfo.Uri)
-                OasType.Base64String -> overridable(CodeGenTypeOverride.BYTE_AS_STRING, KotlinTypeInfo.ByteArray)
-                OasType.Binary -> overridable(CodeGenTypeOverride.BINARY_AS_STRING, KotlinTypeInfo.ByteArray)
-                OasType.Double -> KotlinTypeInfo.Double
-                OasType.Float -> KotlinTypeInfo.Float
-                OasType.Number -> KotlinTypeInfo.Numeric
-                OasType.Int32, OasType.Integer -> KotlinTypeInfo.Integer
-                OasType.Int64 -> KotlinTypeInfo.BigInt
-                OasType.Boolean -> KotlinTypeInfo.Boolean
-                OasType.Array, OasType.Set -> resolveArray(requireNotNull(objectSchema), classification.type == OasType.Set)
-                OasType.Map -> resolveMap(requireNotNull(objectSchema))
-                OasType.Object -> KotlinTypeInfo.Object(modelName(resolvedSchema))
-                OasType.UntypedObject -> KotlinTypeInfo.UntypedObject
-                OasType.Any -> anyType()
-                else -> anyType()
-            }
-        return GeneratorKotlinTypeResolution.Resolved(typeInfo, classification.nullable)
+        return when (classification) {
+            is GeneratorSchemaTypeClassification.Unsupported ->
+                GeneratorKotlinTypeResolution.Unsupported(classification.reason)
+            is GeneratorSchemaTypeClassification.MultiType ->
+                GeneratorKotlinTypeResolution.Fallback(anyType(), classification.nullable, classification)
+            is GeneratorSchemaTypeClassification.Resolved ->
+                GeneratorKotlinTypeResolution.Resolved(
+                    typeInfo = resolveTypeInfo(classification.type, objectSchema, resolvedSchema),
+                    nullable = classification.nullable,
+                )
+        }
     }
+
+    private fun resolveTypeInfo(
+        type: OasType,
+        objectSchema: GeneratorObjectSchema?,
+        resolvedSchema: GeneratorSchema,
+    ): KotlinTypeInfo =
+        when (type) {
+            OasType.Date -> dateType()
+            OasType.DateTime -> dateTimeType()
+            OasType.Text -> KotlinTypeInfo.Text
+            OasType.Enum ->
+                KotlinTypeInfo.Enum(
+                    objectSchema
+                        ?.metadata
+                        ?.enumValues
+                        .orEmpty()
+                        .filterNot { it.isNull }
+                        .map { it.asText() },
+                    modelName(resolvedSchema),
+                )
+            OasType.Uuid -> overridable(CodeGenTypeOverride.UUID_AS_STRING, KotlinTypeInfo.Uuid)
+            OasType.Uri -> overridable(CodeGenTypeOverride.URI_AS_STRING, KotlinTypeInfo.Uri)
+            OasType.Base64String -> overridable(CodeGenTypeOverride.BYTE_AS_STRING, KotlinTypeInfo.ByteArray)
+            OasType.Binary -> overridable(CodeGenTypeOverride.BINARY_AS_STRING, KotlinTypeInfo.ByteArray)
+            OasType.Double -> KotlinTypeInfo.Double
+            OasType.Float -> KotlinTypeInfo.Float
+            OasType.Number -> KotlinTypeInfo.Numeric
+            OasType.Int32, OasType.Integer -> KotlinTypeInfo.Integer
+            OasType.Int64 -> KotlinTypeInfo.BigInt
+            OasType.Boolean -> KotlinTypeInfo.Boolean
+            OasType.Array, OasType.Set -> resolveArray(requireNotNull(objectSchema), type == OasType.Set)
+            OasType.Map -> resolveMap(requireNotNull(objectSchema))
+            OasType.Object -> KotlinTypeInfo.Object(modelName(resolvedSchema))
+            OasType.UntypedObject -> KotlinTypeInfo.UntypedObject
+            OasType.Any -> anyType()
+            else -> anyType()
+        }
 
     fun classify(schema: GeneratorSchema): GeneratorSchemaTypeClassification =
         GeneratorSchemaTypeClassifier.classify(document.resolve(schema), document::resolve)
@@ -112,6 +128,7 @@ internal class GeneratorKotlinTypeResolver(
     private fun resolvePropertyFallback(schema: GeneratorSchema): GeneratorKotlinTypeResolution =
         when (val resolution = resolve(schema)) {
             is GeneratorKotlinTypeResolution.Resolved -> resolution
+            is GeneratorKotlinTypeResolution.Fallback -> resolution
             is GeneratorKotlinTypeResolution.Unsupported -> {
                 val nullable =
                     (document.resolve(schema) as? GeneratorObjectSchema)?.types?.contains(SourceSchemaType.NULL) == true
