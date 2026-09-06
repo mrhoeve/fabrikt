@@ -207,6 +207,7 @@ class CodeGeneratorSchemaModeTest {
               properties:
                 code:
                   ${'$'}ref: '#/components/schemas/Code'
+                  type: string
                   enum: [READY, RETRY]
                 identifier:
                   ${'$'}ref: '#/components/schemas/Identifier'
