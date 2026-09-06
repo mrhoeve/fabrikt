@@ -1,0 +1,82 @@
+package com.cjbooms.fabrikt.generators.model
+
+import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
+import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
+import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+
+class NativeComponentSchemaModelGeneratorTest {
+    @BeforeEach
+    fun resetSettings() {
+        MutableSettings.updateSettings()
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates native models from named component containers`(version: String) {
+        val generated = generate(openApi(version))
+
+        assertThat(generated).containsOnlyKeys("Subject", "Filter", "CreateSubject", "SubjectResponse")
+        assertThat(generated.getValue("Filter")).contains("public val query: String")
+        assertThat(generated.getValue("CreateSubject")).contains("public val name: String")
+        assertThat(generated.getValue("SubjectResponse")).contains("public val id: String")
+    }
+
+    private fun generate(input: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser.parse(input).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun openApi(version: String) =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                value: { type: string }
+          parameters:
+            Filter:
+              name: filter
+              in: query
+              required: true
+              schema:
+                type: object
+                required: [query]
+                properties:
+                  query: { type: string }
+          requestBodies:
+            CreateSubject:
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [name]
+                    properties:
+                      name: { type: string }
+          responses:
+            SubjectResponse:
+              description: Subject
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [id]
+                    properties:
+                      id: { type: string }
+        """.trimIndent()
+}
