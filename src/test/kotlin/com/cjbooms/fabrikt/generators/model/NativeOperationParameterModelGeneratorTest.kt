@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
@@ -78,6 +79,21 @@ class NativeOperationParameterModelGeneratorTest {
 
         assertThat(generated).containsOnlyKeys("ExternalFilter")
         assertThat(generated.getValue("ExternalFilter")).contains("public val query: String")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `keeps operation parameter models portable across serializers`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generate(openApi(version))
+
+            assertThat(generated.getValue("Filter"))
+                .contains("public val `value`: String? = null")
+                .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
+            assertThat(generated.getValue("SharedState")).contains("ACTIVE(\"active\")")
+        }
     }
 
     private fun generate(input: String): Map<String, String> =
