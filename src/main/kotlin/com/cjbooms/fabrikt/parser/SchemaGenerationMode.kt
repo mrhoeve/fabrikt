@@ -8,6 +8,7 @@ internal enum class SchemaGenerationMode {
 internal class GeneratorSchemaDocument(
     val version: OpenApiVersion?,
     val componentSchemas: Map<String, GeneratorSchema>,
+    val modelSchemas: Map<String, GeneratorSchema> = componentSchemas,
     private val referencedSchemas: Map<GeneratorSchemaIdentity, GeneratorSchema>,
     schemaEntryPoints: Collection<GeneratorSchema> = componentSchemas.values,
     private val externalSchemaIdentities: Set<GeneratorSchemaIdentity> = emptySet(),
@@ -33,6 +34,7 @@ internal fun ParsedOpenApiDocument.toGeneratorSchemaDocument(mode: SchemaGenerat
             GeneratorSchemaDocument(
                 version = version,
                 componentSchemas = source.componentSchemas,
+                modelSchemas = source.modelSchemas,
                 referencedSchemas =
                     sourceGraph.schemaReferenceResolutions
                         .mapNotNull { (location, resolution) ->

@@ -184,13 +184,13 @@ internal object GeneratorModelDescriptorBuilder {
             }
         }
 
-        document.componentSchemas.forEach { (name, schema) ->
+        document.modelSchemas.forEach { (name, schema) ->
             val resolved = document.resolve(schema)
             if ((resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true) {
                 register(name, resolved)
             }
         }
-        document.componentSchemas.forEach { (name, schema) -> visit(schema, name, name, isRoot = true) }
+        document.modelSchemas.forEach { (name, schema) -> visit(schema, name, name, isRoot = true) }
         return models
     }
 
