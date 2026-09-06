@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
@@ -37,6 +38,21 @@ class NativeComponentSchemaModelGeneratorTest {
         val legacy = ModelGenerator(Packages("com.example"), sourceApi).generate().files.associate { it.name to it.toString() }
 
         assertThat(generate(input)).isEqualTo(legacy)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `keeps component container models portable across serializers`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generate(openApi(version))
+
+            assertThat(generated).containsOnlyKeys("Subject", "Filter", "CreateSubject", "SubjectResponse")
+            assertThat(generated.getValue("CreateSubject"))
+                .contains("public val name: String")
+                .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
+        }
     }
 
     private fun generate(input: String): Map<String, String> =
