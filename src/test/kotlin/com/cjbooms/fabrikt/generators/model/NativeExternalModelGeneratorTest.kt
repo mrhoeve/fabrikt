@@ -8,6 +8,7 @@ import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -55,6 +56,61 @@ class NativeExternalModelGeneratorTest {
                 .contains("public val address: ExternalSubjectAddress")
                 .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
         }
+    }
+
+    @Test
+    fun `keeps component names for identical pointers in different external documents`() {
+        writeExternalDefinition("first.yaml", "left")
+        writeExternalDefinition("second.yaml", "right")
+
+        val generated =
+            generate(
+                """
+                openapi: 3.2.0
+                info:
+                  title: Test
+                  version: "1.0"
+                paths: {}
+                components:
+                  schemas:
+                    First:
+                      ${'$'}ref: './first.yaml#/${'$'}defs/Detail'
+                    Second:
+                      ${'$'}ref: './second.yaml#/${'$'}defs/Detail'
+                    Holder:
+                      type: object
+                      required: [first, second]
+                      properties:
+                        first:
+                          ${'$'}ref: '#/components/schemas/First'
+                        second:
+                          ${'$'}ref: '#/components/schemas/Second'
+                """.trimIndent(),
+            )
+
+        assertThat(generated).containsOnlyKeys("First", "Second", "Holder")
+        assertThat(generated.getValue("First")).contains("public val left: String")
+        assertThat(generated.getValue("Second")).contains("public val right: String")
+        assertThat(generated.getValue("Holder"))
+            .contains("public val first: First")
+            .contains("public val second: Second")
+    }
+
+    private fun writeExternalDefinition(
+        fileName: String,
+        propertyName: String,
+    ) {
+        Files.writeString(
+            tempDir.resolve(fileName),
+            """
+            ${'$'}defs:
+              Detail:
+                type: object
+                required: [$propertyName]
+                properties:
+                  $propertyName: { type: string }
+            """.trimIndent(),
+        )
     }
 
     private fun writeExternalSchemas() {
