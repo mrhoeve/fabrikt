@@ -53,6 +53,88 @@ class SchemaGenerationModeTest {
             .isSameAs(legacySubject.properties.getValue("value"))
     }
 
+    @Test
+    fun `native OpenAPI 3_0 resolution ignores reference siblings`() {
+        val document = OpenApiDocumentParser.parse(referenceSiblingOpenApi("3.0.4")).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val subject = document.componentSchemas.getValue("Subject") as GeneratorObjectSchema
+        val value = document.componentSchemas.getValue("Value")
+
+        assertThat(document.resolve(subject.properties.getValue("value"))).isSameAs(value)
+    }
+
+    @Test
+    fun `native OpenAPI 3_1 resolution composes reference siblings with their target`() {
+        val document = OpenApiDocumentParser.parse(referenceSiblingOpenApi("3.1.2")).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val subject = document.componentSchemas.getValue("Subject") as GeneratorObjectSchema
+        val value = document.componentSchemas.getValue("Value")
+        val resolved = document.resolve(subject.properties.getValue("value")) as GeneratorReferenceSiblingSchema
+
+        assertThat(resolved.referencedSchema).isSameAs(value)
+        assertThat(resolved.allOf).startsWith(value)
+        assertThat(resolved.metadata.description).isEqualTo("A narrowed value")
+        assertThat(resolved.constraints.minLength).isEqualTo(3)
+        assertThat(resolved.constraints.maxLength).isEqualTo(8)
+        assertThat(resolved.changesGeneratedShape).isFalse()
+    }
+
+    @Test
+    fun `native reference sibling classification intersects rather than overrides target types`() {
+        val document =
+            OpenApiDocumentParser
+                .parse(
+                    """
+                    openapi: 3.2.0
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths: {}
+                    components:
+                      schemas:
+                        Text:
+                          type: string
+                        NullableText:
+                          ${'$'}ref: '#/components/schemas/Text'
+                          type: [string, 'null']
+                        ImpossibleText:
+                          ${'$'}ref: '#/components/schemas/Text'
+                          type: integer
+                    """.trimIndent(),
+                ).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+
+        assertThat(GeneratorSchemaTypeClassifier.classify(document.resolve(document.componentSchemas.getValue("NullableText"))))
+            .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Text, nullable = false))
+        assertThat(GeneratorSchemaTypeClassifier.classify(document.resolve(document.componentSchemas.getValue("ImpossibleText"))))
+            .isEqualTo(
+                GeneratorSchemaTypeClassification.Unsupported(
+                    GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+                ),
+            )
+    }
+
+    private fun referenceSiblingOpenApi(version: String) =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                value:
+                  ${'$'}ref: '#/components/schemas/ValueAlias'
+                  description: A narrowed value
+                  minLength: 3
+            ValueAlias:
+              ${'$'}ref: '#/components/schemas/Value'
+            Value:
+              type: string
+              minLength: 2
+              maxLength: 8
+        """.trimIndent()
+
     private val openApi30 =
         """
         openapi: 3.0.4

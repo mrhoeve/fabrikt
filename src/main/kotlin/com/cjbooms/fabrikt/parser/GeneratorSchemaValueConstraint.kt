@@ -13,6 +13,12 @@ internal sealed interface GeneratorSchemaValueConstraint {
 }
 
 internal fun GeneratorObjectSchema.valueConstraint(): GeneratorSchemaValueConstraint {
+    if (this is GeneratorReferenceSiblingSchema) {
+        val referenced =
+            (referencedSchema as? GeneratorObjectSchema)?.valueConstraint()
+                ?: GeneratorSchemaValueConstraint.Unconstrained
+        return referenced.intersect(siblingSchema.valueConstraint())
+    }
     val enumValues = metadata.enumValues.takeIf { it.isNotEmpty() }
     val constrainedValues =
         when (val constValue = metadata.constValue) {
@@ -39,6 +45,19 @@ internal fun GeneratorObjectSchema.valueConstraint(): GeneratorSchemaValueConstr
         GeneratorSchemaValueConstraint.Allowed(compatibleValues)
     }
 }
+
+private fun GeneratorSchemaValueConstraint.intersect(other: GeneratorSchemaValueConstraint): GeneratorSchemaValueConstraint =
+    when {
+        this is GeneratorSchemaValueConstraint.Impossible || other is GeneratorSchemaValueConstraint.Impossible ->
+            GeneratorSchemaValueConstraint.Impossible
+        this is GeneratorSchemaValueConstraint.Unconstrained -> other
+        other is GeneratorSchemaValueConstraint.Unconstrained -> this
+        this is GeneratorSchemaValueConstraint.Allowed && other is GeneratorSchemaValueConstraint.Allowed -> {
+            val intersection = values.filter { value -> other.values.any { it.isJsonValueEqualTo(value) } }
+            if (intersection.isEmpty()) GeneratorSchemaValueConstraint.Impossible else GeneratorSchemaValueConstraint.Allowed(intersection)
+        }
+        else -> GeneratorSchemaValueConstraint.Impossible
+    }
 
 internal fun JsonNode.sourceSchemaType(): SourceSchemaType =
     when {

@@ -63,6 +63,14 @@ internal object GeneratorSchemaTypeClassifier {
         if (valueConstraint is GeneratorSchemaValueConstraint.Impossible) {
             return GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
         }
+        if (schema is GeneratorReferenceSiblingSchema) {
+            val referencedClassification = classify(resolve(schema.referencedSchema), resolve)
+            val siblingClassification = classifyObjectSchema(schema.siblingSchema, resolve)
+            return intersect(
+                referencedClassification,
+                schema.refineUnconstrainedSibling(referencedClassification, siblingClassification),
+            )
+        }
         val allowedValues = (valueConstraint as? GeneratorSchemaValueConstraint.Allowed)?.values
         val constrainedTypes = allowedValues?.mapTo(linkedSetOf(), JsonNode::sourceSchemaType)?.normaliseNumericTypes()
         val effectiveTypes =
@@ -96,6 +104,75 @@ internal object GeneratorSchemaTypeClassifier {
         }
 
         return GeneratorSchemaTypeClassification.Resolved(schema.toOasType(type), nullable)
+    }
+
+    private fun GeneratorReferenceSiblingSchema.refineUnconstrainedSibling(
+        referenced: GeneratorSchemaTypeClassification,
+        sibling: GeneratorSchemaTypeClassification,
+    ): GeneratorSchemaTypeClassification {
+        val referencedType = (referenced as? GeneratorSchemaTypeClassification.Resolved)?.type ?: return sibling
+        if (sibling !is GeneratorSchemaTypeClassification.Resolved || sibling.type != OasType.Any) return sibling
+        val sourceType = referencedType.type?.let(SourceSchemaType::from) ?: return sibling
+        return GeneratorSchemaTypeClassification.Resolved(toOasType(sourceType), referenced.nullable)
+    }
+
+    private fun intersect(
+        referenced: GeneratorSchemaTypeClassification,
+        sibling: GeneratorSchemaTypeClassification,
+    ): GeneratorSchemaTypeClassification {
+        if (referenced is GeneratorSchemaTypeClassification.Unsupported) return referenced
+        if (sibling is GeneratorSchemaTypeClassification.Unsupported) return sibling
+        if (referenced is GeneratorSchemaTypeClassification.Resolved && referenced.type == OasType.Any) return sibling
+        if (sibling is GeneratorSchemaTypeClassification.Resolved && sibling.type == OasType.Any) return referenced
+
+        if (
+            referenced is GeneratorSchemaTypeClassification.Resolved &&
+            sibling is GeneratorSchemaTypeClassification.Resolved
+        ) {
+            val type =
+                intersect(referenced.type, sibling.type)
+                    ?: return GeneratorSchemaTypeClassification.Unsupported(
+                        GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+                    )
+            return GeneratorSchemaTypeClassification.Resolved(type, referenced.nullable && sibling.nullable)
+        }
+
+        val referencedFallback = referenced as? GeneratorSchemaTypeClassification.Fallback ?: return referenced
+        val siblingFallback = sibling as? GeneratorSchemaTypeClassification.Fallback ?: return sibling
+        val types =
+            referencedFallback.types
+                .flatMap { left -> siblingFallback.types.mapNotNull { right -> intersect(left, right) } }
+                .toCollection(linkedSetOf())
+        if (types.isEmpty()) {
+            return GeneratorSchemaTypeClassification.Unsupported(
+                GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+            )
+        }
+        return when (types.size) {
+            1 -> GeneratorSchemaTypeClassification.Resolved(types.single(), referencedFallback.nullable && siblingFallback.nullable)
+            else ->
+                GeneratorSchemaTypeClassification.CompositionUnion(
+                    types,
+                    referencedFallback.nullable && siblingFallback.nullable,
+                )
+        }
+    }
+
+    private fun intersect(
+        referenced: OasType,
+        sibling: OasType,
+    ): OasType? {
+        if (referenced == sibling) return referenced
+        if (referenced == OasType.Number && sibling.type == SourceSchemaType.INTEGER.value) return sibling
+        if (sibling == OasType.Number && referenced.type == SourceSchemaType.INTEGER.value) return referenced
+        if (referenced == OasType.Array && sibling == OasType.Set) return sibling
+        if (sibling == OasType.Array && referenced == OasType.Set) return referenced
+        if (referenced.type != sibling.type) return null
+        return when {
+            referenced.specialization == OasType.Specialization.NONE -> sibling
+            sibling.specialization == OasType.Specialization.NONE -> referenced
+            else -> referenced
+        }
     }
 
     private fun GeneratorObjectSchema.classifyCompositionUnion(
