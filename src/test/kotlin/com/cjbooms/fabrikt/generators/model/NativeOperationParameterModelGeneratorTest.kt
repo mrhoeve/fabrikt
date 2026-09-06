@@ -1,10 +1,13 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
+import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
+import com.cjbooms.fabrikt.util.ModelNameRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.params.ParameterizedTest
@@ -14,6 +17,7 @@ class NativeOperationParameterModelGeneratorTest {
     @BeforeEach
     fun resetSettings() {
         MutableSettings.updateSettings()
+        ModelNameRegistry.clear()
     }
 
     @ParameterizedTest
@@ -29,6 +33,17 @@ class NativeOperationParameterModelGeneratorTest {
         assertThat(generated.getValue("Filter")).contains("public val `value`: String? = null")
         assertThat(generated.getValue("Entries")).contains("public val id: String")
         assertThat(generated.getValue("Payload")).contains("public val query: String")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `preserves legacy output for inline enum parameters`(version: String) {
+        val input = enumParameterOpenApi(version)
+        val sourceApi = SourceApi(input)
+        val legacy = ModelGenerator(Packages("com.example"), sourceApi).generate().files.associate { it.name to it.toString() }
+        ModelNameRegistry.clear()
+
+        assertThat(generate(input)).isEqualTo(legacy)
     }
 
     private fun generate(input: String): Map<String, String> =
@@ -78,6 +93,26 @@ class NativeOperationParameterModelGeneratorTest {
                         type: object
                         properties:
                           query: { type: string }
+              responses:
+                '204':
+                  description: Success
+        """.trimIndent()
+
+    private fun enumParameterOpenApi(version: String) =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              parameters:
+                - name: subject-state
+                  in: query
+                  schema:
+                    type: string
+                    enum: [active, inactive]
               responses:
                 '204':
                   description: Success
