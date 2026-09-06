@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorArrayItems
 import com.cjbooms.fabrikt.parser.GeneratorBooleanSchema
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
+import com.cjbooms.fabrikt.parser.GeneratorReferenceSiblingSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
 import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
@@ -186,11 +187,20 @@ internal class GeneratorKotlinTypeResolver(
 
     private fun modelName(schema: GeneratorSchema): String =
         (
-            componentNames[schema.identity] ?: schema.location
+            componentNames[schema.identity] ?: (schema as? GeneratorReferenceSiblingSchema)
+                ?.takeUnless { it.changesGeneratedShape }
+                ?.referencedSchema
+                ?.let(::modelNameWithoutSuffix) ?: schema.location
                 .substringAfterLast('/')
                 .replace("~1", "-")
                 .replace("~0", "~")
         ).toModelClassName() + MutableSettings.modelSuffix
+
+    private fun modelNameWithoutSuffix(schema: GeneratorSchema): String =
+        componentNames[document.resolve(schema).identity] ?: schema.location
+            .substringAfterLast('/')
+            .replace("~1", "-")
+            .replace("~0", "~")
 
     private fun GeneratorObjectSchema.enumEntries(): List<String> {
         val values =

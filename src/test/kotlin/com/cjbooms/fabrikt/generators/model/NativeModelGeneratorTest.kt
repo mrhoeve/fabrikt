@@ -226,6 +226,62 @@ class NativeModelGeneratorTest {
             .contains("public val choice: JsonElement?")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `applies native reference siblings to generated models`(version: String) {
+        val generated = generateReferenceSiblings(version)
+
+        assertThat(generated.getValue("ExtendedSubject"))
+            .contains("public val id: String")
+            .contains("public val label: String")
+        assertThat(generated.getValue("ContainerCode"))
+            .contains("public enum class ContainerCode(")
+            .contains("READY(\"READY\")")
+            .doesNotContain("DONE(\"DONE\")")
+        assertThat(generated.getValue("Container"))
+            .contains("public val subject: ExtendedSubject")
+            .contains("public val code: ContainerCode")
+            .contains("public val identifier: UUID")
+            .contains("public val tags: List<String>")
+            .contains("max = 4")
+            .contains("A narrowed code")
+            .contains("@get:Pattern(regexp = \"(?=(?:[A-Z]+)\\\\z)(?:R.*)\")")
+            .contains("@get:Size(", "min = 3", "max = 8")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `keeps generated reference sibling models portable across serializers`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generateReferenceSiblings(version)
+
+            assertThat(generated).containsKeys("ExtendedSubject", "ContainerCode", "Container")
+            assertThat(generated.getValue("Container"))
+                .contains("public val subject: ExtendedSubject")
+                .contains("public val code: ContainerCode")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4"])
+    fun `keeps OpenAPI 3_0 reference sibling generation compatible`(version: String) {
+        val generated = generateReferenceSiblings(version)
+
+        assertThat(generated).containsKey("ExtendedSubject").doesNotContainKey("ContainerCode")
+        assertThat(generated.getValue("ExtendedSubject"))
+            .contains("public val id: String")
+            .doesNotContain("public val label: String")
+        assertThat(generated.getValue("Container"))
+            .contains("public val subject: BaseSubject")
+            .contains("public val code: Code")
+            .contains("public val identifier: String")
+            .contains("public val tags: List<String>")
+            .doesNotContain("A narrowed code")
+            .doesNotContain("max = 4")
+    }
+
     private fun generate(
         version: String,
         mode: SchemaGenerationMode = SchemaGenerationMode.NATIVE,
@@ -280,6 +336,17 @@ class NativeModelGeneratorTest {
             .generate(
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser.parse(openApi).toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateReferenceSiblings(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(referenceSiblingOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
             .associate { it.name to it.toString() }
@@ -512,5 +579,55 @@ class NativeModelGeneratorTest {
                   const: 1.5
                 choice:
                   enum: [text, 1, null]
+        """.trimIndent()
+
+    private val referenceSiblingOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            BaseSubject:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+            ExtendedSubject:
+              ${'$'}ref: '#/components/schemas/BaseSubject'
+              required: [label]
+              properties:
+                label: { type: string }
+            Code:
+              type: string
+              enum: [READY, DONE]
+              pattern: '[A-Z]+'
+              minLength: 2
+              maxLength: 8
+            Identifier:
+              type: string
+            Tags:
+              type: array
+              items: { type: string }
+            Container:
+              type: object
+              required: [subject, code, identifier, tags]
+              properties:
+                subject:
+                  ${'$'}ref: '#/components/schemas/ExtendedSubject'
+                code:
+                  ${'$'}ref: '#/components/schemas/Code'
+                  description: A narrowed code
+                  enum: [READY, RETRY]
+                  pattern: 'R.*'
+                  minLength: 3
+                identifier:
+                  ${'$'}ref: '#/components/schemas/Identifier'
+                  format: uuid
+                tags:
+                  ${'$'}ref: '#/components/schemas/Tags'
+                  maxItems: 4
         """.trimIndent()
 }

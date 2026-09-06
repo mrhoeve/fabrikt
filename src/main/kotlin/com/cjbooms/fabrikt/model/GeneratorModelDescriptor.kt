@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.model
 
 import com.cjbooms.fabrikt.parser.GeneratorBooleanSchema
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
+import com.cjbooms.fabrikt.parser.GeneratorReferenceSiblingSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
 import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
@@ -133,7 +134,9 @@ internal object GeneratorModelDescriptorBuilder {
                     .substringAfter("#/components/schemas/", missingDelimiterValue = "")
                     .takeIf { it.isNotEmpty() && '/' !in it }
             val name =
-                if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
+                if (objectSchema is GeneratorReferenceSiblingSchema && objectSchema.changesGeneratedShape && componentName == null) {
+                    suggestedName
+                } else if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
                     (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
                 } else {
                     suggestedName
@@ -200,6 +203,7 @@ internal object GeneratorModelDescriptorBuilder {
 
     private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean =
         when {
+            this is GeneratorReferenceSiblingSchema && !changesGeneratedShape -> false
             location.contains("/additionalProperties") &&
                 properties.isEmpty() &&
                 (oneOf.isNotEmpty() || anyOf.isNotEmpty()) -> false
