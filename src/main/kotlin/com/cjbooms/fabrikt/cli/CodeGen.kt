@@ -63,7 +63,14 @@ object CodeGen {
 
         val jsonLoader = if (resolvedAuth.isNotEmpty()) AuthJsonLoader(resolvedAuth) else null
         val packages = Packages(basePackage)
-        val sourceApi = SourceApi.create(suppliedApi.content, fragments, suppliedApi.baseUri, jsonLoader)
+        val sourceApi =
+            SourceApi.create(
+                baseApi = suppliedApi.content,
+                apiFragments = fragments,
+                baseUri = suppliedApi.baseUri,
+                jsonLoader = jsonLoader,
+                documentUri = suppliedApi.documentUri,
+            )
         val generator = CodeGenerator(packages, sourceApi, srcPath, resourcesPath)
         generator.generate().forEach { it.writeFileTo(outputDir.toFile()) }
     }

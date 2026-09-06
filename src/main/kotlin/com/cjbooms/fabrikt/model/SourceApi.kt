@@ -25,11 +25,12 @@ class SourceApi private constructor(
     private val rawApiSpec: String,
     val baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
     private val jsonLoader: JsonLoader?,
+    private val documentUri: URI,
 ) {
     constructor(
         rawApiSpec: String,
         baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
-    ) : this(rawApiSpec, baseUri, null)
+    ) : this(rawApiSpec, baseUri, null, baseUri)
 
     companion object {
         fun create(
@@ -37,14 +38,15 @@ class SourceApi private constructor(
             apiFragments: Collection<String>,
             baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
             jsonLoader: JsonLoader? = null,
+            documentUri: URI = baseUri,
         ): SourceApi {
             val combinedApi =
                 apiFragments.fold(YamlUtils.expandYamlAliases(baseApi)) { acc: String, fragment -> YamlUtils.mergeYamlTrees(acc, fragment) }
-            return SourceApi(combinedApi, baseUri, jsonLoader)
+            return SourceApi(combinedApi, baseUri, jsonLoader, documentUri)
         }
     }
 
-    internal val parsedDocument = OpenApiDocumentParser.parse(rawApiSpec, baseUri, jsonLoader)
+    internal val parsedDocument = OpenApiDocumentParser.parse(rawApiSpec, baseUri, jsonLoader, documentUri)
     val openApi3: OpenApi3 = parsedDocument.kaizenModel
     val allSchemas: List<SchemaInfo>
 
