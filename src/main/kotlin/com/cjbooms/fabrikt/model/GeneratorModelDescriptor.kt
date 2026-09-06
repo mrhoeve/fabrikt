@@ -126,15 +126,22 @@ internal object GeneratorModelDescriptorBuilder {
             schema: GeneratorSchema,
             suggestedName: String,
             rootName: String,
+            isRoot: Boolean = false,
         ) {
             val resolved = document.resolve(schema)
             val objectSchema = resolved as? GeneratorObjectSchema ?: return
+            if (!isRoot && document.isExternal(resolved) && models.any { it.schema.identity == resolved.identity }) return
             val componentName =
                 objectSchema.canonicalReference
                     .substringAfter("#/components/schemas/", missingDelimiterValue = "")
                     .takeIf { it.isNotEmpty() && '/' !in it }
             val name =
                 if (objectSchema is GeneratorReferenceSiblingSchema && objectSchema.changesGeneratedShape && componentName == null) {
+                    suggestedName
+                } else if (
+                    document.isExternal(objectSchema) &&
+                    objectSchema.canonicalReference == "#"
+                ) {
                     suggestedName
                 } else if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
                     (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
@@ -186,7 +193,7 @@ internal object GeneratorModelDescriptorBuilder {
                 register(name, resolved)
             }
         }
-        document.componentSchemas.forEach { (name, schema) -> visit(schema, name, name) }
+        document.componentSchemas.forEach { (name, schema) -> visit(schema, name, name, isRoot = true) }
         return models
     }
 

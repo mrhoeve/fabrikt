@@ -10,10 +10,13 @@ internal class GeneratorSchemaDocument(
     val componentSchemas: Map<String, GeneratorSchema>,
     private val referencedSchemas: Map<GeneratorSchemaIdentity, GeneratorSchema>,
     schemaEntryPoints: Collection<GeneratorSchema> = componentSchemas.values,
+    private val externalSchemaIdentities: Set<GeneratorSchemaIdentity> = emptySet(),
 ) {
     private val resolvedSchemas = GeneratorSchemaReferenceResolver.resolve(version, schemaEntryPoints, referencedSchemas)
 
     fun resolve(schema: GeneratorSchema): GeneratorSchema = resolvedSchemas[schema.identity] ?: schema
+
+    fun isExternal(schema: GeneratorSchema): Boolean = schema.identity in externalSchemaIdentities
 }
 
 internal fun ParsedOpenApiDocument.toGeneratorSchemaDocument(mode: SchemaGenerationMode): GeneratorSchemaDocument {
@@ -39,6 +42,12 @@ internal fun ParsedOpenApiDocument.toGeneratorSchemaDocument(mode: SchemaGenerat
                             sourceSchema.identity to target
                         }.toMap(),
                 schemaEntryPoints = sourceGraph.documentsByUri.values.flatMap { it.schemaEntryPoints.values },
+                externalSchemaIdentities =
+                    sourceGraph.documentsByUri
+                        .filterKeys { it != source.baseUri }
+                        .values
+                        .flatMap { document -> document.schemasByLocation.values.map { it.identity } }
+                        .toSet(),
             )
     }
 }
