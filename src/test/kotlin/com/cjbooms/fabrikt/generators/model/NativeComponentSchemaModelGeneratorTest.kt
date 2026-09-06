@@ -1,8 +1,10 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
+import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
@@ -25,6 +27,16 @@ class NativeComponentSchemaModelGeneratorTest {
         assertThat(generated.getValue("Filter")).contains("public val query: String")
         assertThat(generated.getValue("CreateSubject")).contains("public val name: String")
         assertThat(generated.getValue("SubjectResponse")).contains("public val id: String")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `preserves legacy output for named component container models`(version: String) {
+        val input = openApi(version)
+        val sourceApi = SourceApi(input)
+        val legacy = ModelGenerator(Packages("com.example"), sourceApi).generate().files.associate { it.name to it.toString() }
+
+        assertThat(generate(input)).isEqualTo(legacy)
     }
 
     private fun generate(input: String): Map<String, String> =
