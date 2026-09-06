@@ -67,6 +67,19 @@ class SourceOperationModelSchemaCollectorTest {
         assertThat(document.modelSchemas.keys).containsExactly("CreateSubjectRequest", "CreateSubjectRequestExtra")
     }
 
+    @Test
+    fun `collects webhook and additional operation body schemas`() {
+        val document = SourceOpenApiDocumentParser.parse(modernOperationsOpenApi)
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly(
+                "CopySubjectRequest",
+                "CopySubject202Response",
+                "SubjectChangedRequest",
+                "SubjectChanged204Response",
+            )
+    }
+
     private fun operationOpenApi(version: String) =
         """
         openapi: $version
@@ -142,5 +155,54 @@ class SourceOperationModelSchemaCollectorTest {
                         type: object
                         properties:
                           xmlResult: { type: string }
+        """.trimIndent()
+
+    private val modernOperationsOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            additionalOperations:
+              copy:
+                operationId: copySubject
+                requestBody:
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          sourceId: { type: string }
+                responses:
+                  '202':
+                    description: Accepted
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          properties:
+                            jobId: { type: string }
+        webhooks:
+          subjectChanged:
+            post:
+              operationId: subjectChanged
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        subjectId: { type: string }
+              responses:
+                '204':
+                  description: Accepted
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          accepted: { type: boolean }
         """.trimIndent()
 }

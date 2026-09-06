@@ -113,6 +113,23 @@ class NativeOperationBodyModelGeneratorTest {
         }
     }
 
+    @Test
+    fun `generates webhook and additional operation body models`() {
+        val generated = generate(modernOperationsOpenApi)
+
+        assertThat(generated)
+            .containsOnlyKeys(
+                "CopySubjectRequest",
+                "CopySubject202Response",
+                "SubjectChangedRequest",
+                "SubjectChanged204Response",
+            )
+        assertThat(generated.getValue("CopySubjectRequest")).contains("public val sourceId: String")
+        assertThat(generated.getValue("CopySubject202Response")).contains("public val jobId: String")
+        assertThat(generated.getValue("SubjectChangedRequest")).contains("public val subjectId: String")
+        assertThat(generated.getValue("SubjectChanged204Response")).contains("public val accepted: Boolean")
+    }
+
     private fun generate(input: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
@@ -229,5 +246,54 @@ class NativeOperationBodyModelGeneratorTest {
                     application/json:
                       schema:
                         ${'$'}ref: './response.yaml'
+        """.trimIndent()
+
+    private val modernOperationsOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            additionalOperations:
+              copy:
+                operationId: copySubject
+                requestBody:
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          sourceId: { type: string }
+                responses:
+                  '202':
+                    description: Accepted
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          properties:
+                            jobId: { type: string }
+        webhooks:
+          subjectChanged:
+            post:
+              operationId: subjectChanged
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        subjectId: { type: string }
+              responses:
+                '204':
+                  description: Accepted
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          accepted: { type: boolean }
         """.trimIndent()
 }

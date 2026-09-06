@@ -27,7 +27,10 @@ internal object SourceModelSchemaCollector {
                     }
                 }
             }
-            collectPathItems(root.path("paths"), "#/paths", version, schemaEntryPoints)
+            collectPathItems(root.path("paths"), "#/paths", version, schemaEntryPoints, pathsOnly = true)
+            if (version?.isAtLeast(3, 1) == true) {
+                collectPathItems(root.path("webhooks"), "#/webhooks", version, schemaEntryPoints, pathsOnly = false)
+            }
         }
 
     private fun MutableMap<String, SourceSchema>.collectPathItems(
@@ -35,9 +38,10 @@ internal object SourceModelSchemaCollector {
         location: String,
         version: OpenApiVersion?,
         schemaEntryPoints: Map<String, SourceSchema>,
+        pathsOnly: Boolean,
     ) {
         if (!pathItems.isObject) return
-        pathItems.properties().filter { (path, _) -> path.startsWith('/') }.forEach { (path, pathItem) ->
+        pathItems.properties().filter { (path, _) -> !pathsOnly || path.startsWith('/') }.forEach { (path, pathItem) ->
             val pathLocation = "$location/${path.toJsonPointerToken()}"
             operationNames(version).forEach { method ->
                 collectOperation(pathItem.path(method), "$pathLocation/$method", method, path, schemaEntryPoints)
