@@ -42,3 +42,9 @@ internal interface GeneratorObjectSchema : GeneratorSchema {
     val unevaluatedProperties: GeneratorSchema?
     val contentSchema: GeneratorSchema?
 }
+
+internal interface GeneratorReferenceSiblingSchema : GeneratorObjectSchema {
+    val referencedSchema: GeneratorSchema
+    val siblingSchema: GeneratorObjectSchema
+    val changesGeneratedShape: Boolean
+}

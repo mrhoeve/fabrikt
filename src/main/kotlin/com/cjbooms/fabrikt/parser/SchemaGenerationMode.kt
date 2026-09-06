@@ -10,7 +10,9 @@ internal class GeneratorSchemaDocument(
     val componentSchemas: Map<String, GeneratorSchema>,
     private val referencedSchemas: Map<GeneratorSchemaIdentity, GeneratorSchema>,
 ) {
-    fun resolve(schema: GeneratorSchema): GeneratorSchema = referencedSchemas[schema.identity] ?: schema
+    private val resolvedSchemas = GeneratorSchemaReferenceResolver.resolve(version, componentSchemas.values, referencedSchemas)
+
+    fun resolve(schema: GeneratorSchema): GeneratorSchema = resolvedSchemas[schema.identity] ?: schema
 }
 
 internal fun ParsedOpenApiDocument.toGeneratorSchemaDocument(mode: SchemaGenerationMode): GeneratorSchemaDocument {
