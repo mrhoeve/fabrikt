@@ -96,6 +96,15 @@ class NativeOperationParameterModelGeneratorTest {
         }
     }
 
+    @Test
+    fun `allocates distinct models for duplicate inline parameter names`() {
+        val generated = generate(duplicateParameterOpenApi)
+
+        assertThat(generated).containsOnlyKeys("State", "StateExtra")
+        assertThat(generated.getValue("State")).contains("ACTIVE(\"active\")")
+        assertThat(generated.getValue("StateExtra")).contains("PENDING(\"pending\")")
+    }
+
     private fun generate(input: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
@@ -182,6 +191,36 @@ class NativeOperationParameterModelGeneratorTest {
                   in: query
                   schema:
                     ${'$'}ref: './filter.yaml'
+              responses:
+                '204':
+                  description: Success
+        """.trimIndent()
+
+    private val duplicateParameterOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              parameters:
+                - name: state
+                  in: query
+                  schema:
+                    type: string
+                    enum: [active]
+              responses:
+                '204':
+                  description: Success
+            post:
+              parameters:
+                - name: state
+                  in: query
+                  schema:
+                    type: string
+                    enum: [pending]
               responses:
                 '204':
                   description: Success
