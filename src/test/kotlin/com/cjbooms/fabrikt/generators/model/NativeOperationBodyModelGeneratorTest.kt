@@ -123,11 +123,15 @@ class NativeOperationBodyModelGeneratorTest {
                 "CopySubject202Response",
                 "SubjectChangedRequest",
                 "SubjectChanged204Response",
+                "NotifySubjectRequest",
+                "NotifySubject200Response",
             )
         assertThat(generated.getValue("CopySubjectRequest")).contains("public val sourceId: String")
         assertThat(generated.getValue("CopySubject202Response")).contains("public val jobId: String")
         assertThat(generated.getValue("SubjectChangedRequest")).contains("public val subjectId: String")
         assertThat(generated.getValue("SubjectChanged204Response")).contains("public val accepted: Boolean")
+        assertThat(generated.getValue("NotifySubjectRequest")).contains("public val notificationId: String")
+        assertThat(generated.getValue("NotifySubject200Response")).contains("public val received: Boolean")
     }
 
     private fun generate(input: String): Map<String, String> =
@@ -275,6 +279,27 @@ class NativeOperationBodyModelGeneratorTest {
                           type: object
                           properties:
                             jobId: { type: string }
+                callbacks:
+                  notify:
+                    '{${'$'}request.body#/callbackUrl}':
+                      post:
+                        operationId: notifySubject
+                        requestBody:
+                          content:
+                            application/json:
+                              schema:
+                                type: object
+                                properties:
+                                  notificationId: { type: string }
+                        responses:
+                          '200':
+                            description: Received
+                            content:
+                              application/json:
+                                schema:
+                                  type: object
+                                  properties:
+                                    received: { type: boolean }
         webhooks:
           subjectChanged:
             post:
