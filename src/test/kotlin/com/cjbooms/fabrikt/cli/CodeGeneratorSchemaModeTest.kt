@@ -62,6 +62,36 @@ class CodeGeneratorSchemaModeTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("nativeValueConstraintConfigurations")
+    fun `routes native reference siblings through supported serialization libraries`(
+        version: String,
+        serializationLibrary: SerializationLibrary,
+    ) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.HTTP_MODELS),
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated = generate(SchemaGenerationMode.NATIVE, referenceSiblingOpenApi.replace("VERSION", version)).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class ExtendedSubject(")
+            .contains("public val id: String")
+            .contains("public val label: String")
+            .contains("public enum class ContainerCode(")
+            .contains("READY(\"READY\")")
+            .doesNotContain("RETRY(\"RETRY\")")
+            .contains("public val code: ContainerCode")
+            .contains("public val identifier: UUID")
+            .contains("public val tags: List<String>")
+        if (serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+            assertThat(generated).contains("import kotlinx.serialization.Serializable")
+        } else {
+            assertThat(generated).contains("JsonProperty")
+        }
+    }
+
     private fun generate(
         mode: SchemaGenerationMode? = null,
         input: String = openApi,
@@ -142,5 +172,47 @@ class CodeGeneratorSchemaModeTest {
                   default: 1
                 choice:
                   enum: [text, 1, null]
+        """.trimIndent()
+
+    private val referenceSiblingOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            BaseSubject:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+            ExtendedSubject:
+              ${'$'}ref: '#/components/schemas/BaseSubject'
+              required: [label]
+              properties:
+                label: { type: string }
+            Code:
+              type: string
+              enum: [READY, DONE]
+            Identifier:
+              type: string
+            Tags:
+              type: array
+              items: { type: string }
+            Container:
+              type: object
+              required: [code, identifier, tags]
+              properties:
+                code:
+                  ${'$'}ref: '#/components/schemas/Code'
+                  enum: [READY, RETRY]
+                identifier:
+                  ${'$'}ref: '#/components/schemas/Identifier'
+                  format: uuid
+                tags:
+                  ${'$'}ref: '#/components/schemas/Tags'
+                  maxItems: 4
         """.trimIndent()
 }
