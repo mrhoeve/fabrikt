@@ -8,10 +8,16 @@ import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.nio.file.Files
+import java.nio.file.Path
 
 class NativeOperationBodyModelGeneratorTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @BeforeEach
     fun resetSettings() {
         MutableSettings.updateSettings()
@@ -52,6 +58,43 @@ class NativeOperationBodyModelGeneratorTest {
         assertThat(generated.getValue("SearchSubjectsApplicationXmlRequest")).contains("public val xmlQuery: String")
         assertThat(generated.getValue("SearchSubjects200ApplicationJsonResponse")).contains("public val jsonResult: String")
         assertThat(generated.getValue("SearchSubjects200ApplicationXmlResponse")).contains("public val xmlResult: String")
+    }
+
+    @Test
+    fun `generates operation body models from external schemas`() {
+        Files.writeString(
+            tempDir.resolve("request.yaml"),
+            """
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+            """.trimIndent(),
+        )
+        Files.writeString(
+            tempDir.resolve("response.yaml"),
+            """
+            type: object
+            required: [id]
+            properties:
+              id: { type: string }
+            """.trimIndent(),
+        )
+        val parsed =
+            OpenApiDocumentParser.parse(
+                input = externalOperationOpenApi,
+                baseUri = tempDir.toUri(),
+                documentUri = tempDir.resolve("openapi.yaml").toUri(),
+            )
+        val generated =
+            NativeModelGenerator("com.example")
+                .generate(GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)))
+                .files
+                .associate { it.name to it.toString() }
+
+        assertThat(generated).containsOnlyKeys("CreateSubjectRequest", "CreateSubject201Response")
+        assertThat(generated.getValue("CreateSubjectRequest")).contains("public val name: String")
+        assertThat(generated.getValue("CreateSubject201Response")).contains("public val id: String")
     }
 
     private fun generate(input: String): Map<String, String> =
@@ -146,5 +189,29 @@ class NativeOperationBodyModelGeneratorTest {
                         type: object
                         properties:
                           xmlResult: { type: string }
+        """.trimIndent()
+
+    private val externalOperationOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              operationId: createSubject
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      ${'$'}ref: './request.yaml'
+              responses:
+                '201':
+                  description: Created
+                  content:
+                    application/json:
+                      schema:
+                        ${'$'}ref: './response.yaml'
         """.trimIndent()
 }
