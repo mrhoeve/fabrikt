@@ -10,10 +10,17 @@ import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.nio.file.Files
+import java.nio.file.Path
 
 class NativeComponentSchemaModelGeneratorTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @BeforeEach
     fun resetSettings() {
         MutableSettings.updateSettings()
@@ -53,6 +60,33 @@ class NativeComponentSchemaModelGeneratorTest {
                 .contains("public val name: String")
                 .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
         }
+    }
+
+    @Test
+    fun `generates named component container models from external schemas`() {
+        Files.writeString(
+            tempDir.resolve("payload.yaml"),
+            """
+            type: object
+            required: [id]
+            properties:
+              id: { type: string }
+            """.trimIndent(),
+        )
+        val parsed =
+            OpenApiDocumentParser.parse(
+                input = externalRequestBodyOpenApi,
+                baseUri = tempDir.toUri(),
+                documentUri = tempDir.resolve("openapi.yaml").toUri(),
+            )
+        val generated =
+            NativeModelGenerator("com.example")
+                .generate(GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)))
+                .files
+                .associate { it.name to it.toString() }
+
+        assertThat(generated).containsOnlyKeys("CreateSubject")
+        assertThat(generated.getValue("CreateSubject")).contains("public val id: String")
     }
 
     private fun generate(input: String): Map<String, String> =
@@ -106,5 +140,21 @@ class NativeComponentSchemaModelGeneratorTest {
                     required: [id]
                     properties:
                       id: { type: string }
+        """.trimIndent()
+
+    private val externalRequestBodyOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          requestBodies:
+            CreateSubject:
+              content:
+                application/json:
+                  schema:
+                    ${'$'}ref: './payload.yaml'
         """.trimIndent()
 }
