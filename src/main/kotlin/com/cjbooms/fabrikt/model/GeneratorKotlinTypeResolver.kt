@@ -204,7 +204,9 @@ internal class GeneratorKotlinTypeResolver(
 
     private fun GeneratorObjectSchema.enumEntries(): List<String> {
         val values =
-            if (metadata.constValue == null && SourceSchemaType.STRING in types) {
+            if (this is GeneratorReferenceSiblingSchema) {
+                (valueConstraint() as? GeneratorSchemaValueConstraint.Allowed)?.values.orEmpty()
+            } else if (metadata.constValue == null && SourceSchemaType.STRING in types) {
                 metadata.enumValues
             } else {
                 (valueConstraint() as? GeneratorSchemaValueConstraint.Allowed)?.values.orEmpty()

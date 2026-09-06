@@ -620,6 +620,7 @@ class NativeModelGeneratorTest {
                 code:
                   ${'$'}ref: '#/components/schemas/Code'
                   description: A narrowed code
+                  type: string
                   enum: [READY, RETRY]
                   pattern: 'R.*'
                   minLength: 3
