@@ -44,7 +44,7 @@ internal object SourceModelSchemaCollector {
         pathItems.properties().filter { (path, _) -> !pathsOnly || path.startsWith('/') }.forEach { (path, pathItem) ->
             val pathLocation = "$location/${path.toJsonPointerToken()}"
             operationNames(version).forEach { method ->
-                collectOperation(pathItem.path(method), "$pathLocation/$method", method, path, schemaEntryPoints)
+                collectOperation(pathItem.path(method), "$pathLocation/$method", method, path, version, schemaEntryPoints)
             }
             if (version?.isAtLeast(3, 2) == true) {
                 val additionalOperations = pathItem.path("additionalOperations")
@@ -55,6 +55,7 @@ internal object SourceModelSchemaCollector {
                             "$pathLocation/additionalOperations/${method.toJsonPointerToken()}",
                             method,
                             path,
+                            version,
                             schemaEntryPoints,
                         )
                     }
@@ -68,6 +69,7 @@ internal object SourceModelSchemaCollector {
         location: String,
         method: String,
         path: String,
+        version: OpenApiVersion?,
         schemaEntryPoints: Map<String, SourceSchema>,
     ) {
         if (!operation.isObject) return
@@ -93,6 +95,21 @@ internal object SourceModelSchemaCollector {
                     listOfNotNull(operationName, status, mediaType.takeIf { hasMultipleMediaTypes }, "Response")
                         .joinToString(" ")
                         .toModelClassName()
+                }
+            }
+        }
+
+        val callbacks = operation.path("callbacks")
+        if (callbacks.isObject) {
+            callbacks.properties().forEach { (callbackName, callback) ->
+                if (callback.isObject && !callback.path("${'$'}ref").isTextual) {
+                    collectPathItems(
+                        pathItems = callback,
+                        location = "$location/callbacks/${callbackName.toJsonPointerToken()}",
+                        version = version,
+                        schemaEntryPoints = schemaEntryPoints,
+                        pathsOnly = false,
+                    )
                 }
             }
         }

@@ -75,6 +75,8 @@ class SourceOperationModelSchemaCollectorTest {
             .containsExactly(
                 "CopySubjectRequest",
                 "CopySubject202Response",
+                "NotifySubjectRequest",
+                "NotifySubject200Response",
                 "SubjectChangedRequest",
                 "SubjectChanged204Response",
             )
@@ -184,6 +186,27 @@ class SourceOperationModelSchemaCollectorTest {
                           type: object
                           properties:
                             jobId: { type: string }
+                callbacks:
+                  notify:
+                    '{${'$'}request.body#/callbackUrl}':
+                      post:
+                        operationId: notifySubject
+                        requestBody:
+                          content:
+                            application/json:
+                              schema:
+                                type: object
+                                properties:
+                                  notificationId: { type: string }
+                        responses:
+                          '200':
+                            description: Received
+                            content:
+                              application/json:
+                                schema:
+                                  type: object
+                                  properties:
+                                    received: { type: boolean }
         webhooks:
           subjectChanged:
             post:
