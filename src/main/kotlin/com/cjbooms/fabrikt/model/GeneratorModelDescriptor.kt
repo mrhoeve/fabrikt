@@ -138,10 +138,7 @@ internal object GeneratorModelDescriptorBuilder {
             val name =
                 if (objectSchema is GeneratorReferenceSiblingSchema && objectSchema.changesGeneratedShape && componentName == null) {
                     suggestedName
-                } else if (
-                    document.isExternal(objectSchema) &&
-                    objectSchema.canonicalReference == "#"
-                ) {
+                } else if (document.isExternal(objectSchema)) {
                     suggestedName
                 } else if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
                     (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
