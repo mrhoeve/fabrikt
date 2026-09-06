@@ -74,7 +74,12 @@ internal object SourceModelSchemaCollector {
     ) {
         if (!operation.isObject) return
         val operationName =
-            operation.path("operationId").takeIf(JsonNode::isTextual)?.textValue()?.takeIf(String::isNotBlank)?.toModelClassName()
+            operation
+                .path("operationId")
+                .takeIf(JsonNode::isTextual)
+                ?.textValue()
+                ?.takeIf(String::isNotBlank)
+                ?.toModelClassName()
                 ?: "$method $path".toModelClassName()
         collectContentSchemas(
             content = operation.path("requestBody").path("content"),
