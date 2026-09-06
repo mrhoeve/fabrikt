@@ -39,7 +39,7 @@ internal object SourceOpenApiDocumentParser {
             baseUri = baseUri,
             version = version,
             componentSchemas = componentSchemas,
-            modelSchemas = readModelSchemas(root, schemaEntryPoints, componentSchemas),
+            modelSchemas = SourceModelSchemaCollector.collect(root, schemaEntryPoints, componentSchemas),
             schemaEntryPoints = schemaEntryPoints,
             schemasByLocation = schemasByLocation,
             schemaReferenceIndex =
@@ -50,30 +50,6 @@ internal object SourceOpenApiDocumentParser {
                 ),
         )
     }
-
-    private fun readModelSchemas(
-        root: JsonNode,
-        schemaEntryPoints: Map<String, SourceSchema>,
-        componentSchemas: Map<String, SourceSchema>,
-    ): Map<String, SourceSchema> =
-        buildMap {
-            putAll(componentSchemas)
-            val components = root.path("components")
-            listOf("parameters", "requestBodies", "responses").forEach { componentType ->
-                val entries = components.path(componentType)
-                if (entries.isObject) {
-                    entries.properties().forEach { (name, _) ->
-                        val prefix = "#/components/$componentType/${name.toJsonPointerToken()}"
-                        schemaEntryPoints.entries
-                            .firstOrNull { (location, _) ->
-                                location == "$prefix/schema" ||
-                                    (location.startsWith("$prefix/content/") && location.endsWith("/schema"))
-                            }?.value
-                            ?.let { putIfAbsent(name, it) }
-                    }
-                }
-            }
-        }
 
     private fun readComponentSchemas(
         root: JsonNode,
