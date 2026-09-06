@@ -56,6 +56,17 @@ class CodeGeneratorSchemaModeTest {
             .contains("public val id: String")
     }
 
+    @Test
+    fun `routes inline operation parameter models through native mode`() {
+        val generated = generate(SchemaGenerationMode.NATIVE, operationParameterOpenApi).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public enum class SubjectState(")
+            .contains("ACTIVE(\"active\")")
+            .contains("public data class Filter(")
+            .contains("public val query: String")
+    }
+
     @ParameterizedTest
     @MethodSource("nativeValueConstraintConfigurations")
     fun `routes native value constraints through supported serialization libraries`(
@@ -253,6 +264,33 @@ class CodeGeneratorSchemaModeTest {
                         required: [id]
                         properties:
                           id: { type: string }
+        """.trimIndent()
+
+    private val operationParameterOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              parameters:
+                - name: subject-state
+                  in: query
+                  schema:
+                    type: string
+                    enum: [active, inactive]
+                - name: filter
+                  in: query
+                  schema:
+                    type: object
+                    required: [query]
+                    properties:
+                      query: { type: string }
+              responses:
+                '204':
+                  description: Success
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
