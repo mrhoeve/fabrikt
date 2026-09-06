@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
@@ -95,6 +96,21 @@ class NativeOperationBodyModelGeneratorTest {
         assertThat(generated).containsOnlyKeys("CreateSubjectRequest", "CreateSubject201Response")
         assertThat(generated.getValue("CreateSubjectRequest")).contains("public val name: String")
         assertThat(generated.getValue("CreateSubject201Response")).contains("public val id: String")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `keeps operation body models portable across serializers`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generate(operationOpenApi(version))
+
+            assertThat(generated.getValue("CreateSubjectRequest"))
+                .contains("public val name: String")
+                .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
+            assertThat(generated.getValue("CreateSubject201Response")).contains("public val id: String")
+        }
     }
 
     private fun generate(input: String): Map<String, String> =
