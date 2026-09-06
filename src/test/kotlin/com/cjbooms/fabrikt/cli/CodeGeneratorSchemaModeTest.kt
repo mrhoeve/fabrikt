@@ -45,6 +45,17 @@ class CodeGeneratorSchemaModeTest {
             .contains("public val id: String")
     }
 
+    @Test
+    fun `routes inline operation body models through native mode`() {
+        val generated = generate(SchemaGenerationMode.NATIVE, operationBodyOpenApi).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class CreateSubjectRequest(")
+            .contains("public val name: String")
+            .contains("public data class CreateSubject201Response(")
+            .contains("public val id: String")
+    }
+
     @ParameterizedTest
     @MethodSource("nativeValueConstraintConfigurations")
     fun `routes native value constraints through supported serialization libraries`(
@@ -212,6 +223,36 @@ class CodeGeneratorSchemaModeTest {
                     required: [id]
                     properties:
                       id: { type: string }
+        """.trimIndent()
+
+    private val operationBodyOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              operationId: createSubject
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [name]
+                      properties:
+                        name: { type: string }
+              responses:
+                '201':
+                  description: Created
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        required: [id]
+                        properties:
+                          id: { type: string }
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
