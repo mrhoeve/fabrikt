@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.SchemaGenerationMode
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
@@ -25,6 +26,38 @@ class NativeExternalModelGeneratorTest {
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates native models from nested external schema documents`(version: String) {
+        writeExternalSchemas()
+
+        val generated = generate(openApi(version))
+
+        assertThat(generated).containsOnlyKeys("ExternalSubject", "ExternalSubjectAddress", "Envelope")
+        assertThat(generated.getValue("ExternalSubject"))
+            .contains("public val id: String")
+            .contains("public val address: ExternalSubjectAddress")
+        assertThat(generated.getValue("ExternalSubjectAddress"))
+            .contains("public val street: String")
+        assertThat(generated.getValue("Envelope"))
+            .contains("public val subject: ExternalSubject")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `keeps native external models portable across serializers`(version: String) {
+        writeExternalSchemas()
+
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generate(openApi(version))
+
+            assertThat(generated).containsOnlyKeys("ExternalSubject", "ExternalSubjectAddress", "Envelope")
+            assertThat(generated.getValue("ExternalSubject"))
+                .contains("public val address: ExternalSubjectAddress")
+                .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "SerialName" else "JsonProperty")
+        }
+    }
+
+    private fun writeExternalSchemas() {
         Files.writeString(
             tempDir.resolve("address.yaml"),
             """
@@ -45,17 +78,6 @@ class NativeExternalModelGeneratorTest {
                 ${'$'}ref: './address.yaml'
             """.trimIndent(),
         )
-
-        val generated = generate(openApi(version))
-
-        assertThat(generated).containsOnlyKeys("ExternalSubject", "ExternalSubjectAddress", "Envelope")
-        assertThat(generated.getValue("ExternalSubject"))
-            .contains("public val id: String")
-            .contains("public val address: ExternalSubjectAddress")
-        assertThat(generated.getValue("ExternalSubjectAddress"))
-            .contains("public val street: String")
-        assertThat(generated.getValue("Envelope"))
-            .contains("public val subject: ExternalSubject")
     }
 
     private fun generate(input: String): Map<String, String> {
