@@ -153,6 +153,53 @@ class SourceOpenApiDocumentParserTest {
             .containsExactly(SourceSchemaType.STRING, SourceSchemaType.Unrecognised("future"))
     }
 
+    @Test
+    fun `collects named model schemas from component containers`() {
+        val document =
+            SourceOpenApiDocumentParser.parse(
+                """
+                openapi: 3.1.2
+                info:
+                  title: Test
+                  version: "1.0"
+                paths: {}
+                components:
+                  schemas:
+                    Subject:
+                      type: object
+                  parameters:
+                    Filter:
+                      name: filter
+                      in: query
+                      schema:
+                        type: object
+                  requestBodies:
+                    CreateSubject:
+                      content:
+                        application/json:
+                          schema:
+                            type: object
+                  responses:
+                    SubjectResponse:
+                      description: Subject
+                      content:
+                        application/json:
+                          schema:
+                            type: object
+                """.trimIndent(),
+            )
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly("Subject", "Filter", "CreateSubject", "SubjectResponse")
+        assertThat(document.modelSchemas.getValue("Subject")).isSameAs(document.componentSchemas.getValue("Subject"))
+        assertThat(document.modelSchemas.getValue("Filter").location)
+            .isEqualTo("#/components/parameters/Filter/schema")
+        assertThat(document.modelSchemas.getValue("CreateSubject").location)
+            .isEqualTo("#/components/requestBodies/CreateSubject/content/application~1json/schema")
+        assertThat(document.modelSchemas.getValue("SubjectResponse").location)
+            .isEqualTo("#/components/responses/SubjectResponse/content/application~1json/schema")
+    }
+
     @Suppress("unused")
     private fun nullableStringDocuments(): Stream<String> =
         Stream.of(
