@@ -2,11 +2,17 @@ package com.cjbooms.fabrikt.parser
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import java.net.URI
+import java.nio.file.Files
+import java.nio.file.Path
 
 class OpenApiDocumentParserTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @Test
     fun `preserves the source document before applying Kaizen compatibility transformations`() {
         val input =
@@ -87,5 +93,40 @@ class OpenApiDocumentParserTest {
         assertThat(resolution.uri)
             .isEqualTo(URI("https://example.test/specs%20with%20spaces/openapi.yaml#/components/schemas/Name"))
         assertThat(resolution.target).isSameAs(source.componentSchemas.getValue("Name"))
+    }
+
+    @Test
+    fun `preserves the complete external source document graph alongside the kaizen model`() {
+        val externalFile = tempDir.resolve("external.yaml")
+        Files.writeString(
+            externalFile,
+            """
+            type: object
+            properties:
+              id: { type: string }
+            """.trimIndent(),
+        )
+        val documentUri = tempDir.resolve("openapi.yaml").toUri()
+        val parsed =
+            OpenApiDocumentParser.parse(
+                input =
+                    """
+                    openapi: 3.1.2
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths: {}
+                    components:
+                      schemas:
+                        External:
+                          ${'$'}ref: './external.yaml'
+                    """.trimIndent(),
+                baseUri = tempDir.toUri(),
+                documentUri = documentUri,
+            )
+
+        assertThat(parsed.sourceGraph.documentsByUri).containsKeys(documentUri, externalFile.toUri())
+        assertThat(parsed.sourceGraph.loadFailures).isEmpty()
+        assertThat(parsed.kaizenModel.schemas).containsKey("External")
     }
 }
