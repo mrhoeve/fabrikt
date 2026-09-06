@@ -10,10 +10,17 @@ import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.cjbooms.fabrikt.util.ModelNameRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.nio.file.Files
+import java.nio.file.Path
 
 class NativeOperationParameterModelGeneratorTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @BeforeEach
     fun resetSettings() {
         MutableSettings.updateSettings()
@@ -44,6 +51,33 @@ class NativeOperationParameterModelGeneratorTest {
         ModelNameRegistry.clear()
 
         assertThat(generate(input)).isEqualTo(legacy)
+    }
+
+    @Test
+    fun `generates operation parameter models from external schemas`() {
+        Files.writeString(
+            tempDir.resolve("filter.yaml"),
+            """
+            type: object
+            required: [query]
+            properties:
+              query: { type: string }
+            """.trimIndent(),
+        )
+        val parsed =
+            OpenApiDocumentParser.parse(
+                input = externalParameterOpenApi,
+                baseUri = tempDir.toUri(),
+                documentUri = tempDir.resolve("openapi.yaml").toUri(),
+            )
+        val generated =
+            NativeModelGenerator("com.example")
+                .generate(GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)))
+                .files
+                .associate { it.name to it.toString() }
+
+        assertThat(generated).containsOnlyKeys("ExternalFilter")
+        assertThat(generated.getValue("ExternalFilter")).contains("public val query: String")
     }
 
     private fun generate(input: String): Map<String, String> =
@@ -113,6 +147,25 @@ class NativeOperationParameterModelGeneratorTest {
                   schema:
                     type: string
                     enum: [active, inactive]
+              responses:
+                '204':
+                  description: Success
+        """.trimIndent()
+
+    private val externalParameterOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              parameters:
+                - name: external-filter
+                  in: query
+                  schema:
+                    ${'$'}ref: './filter.yaml'
               responses:
                 '204':
                   description: Success
