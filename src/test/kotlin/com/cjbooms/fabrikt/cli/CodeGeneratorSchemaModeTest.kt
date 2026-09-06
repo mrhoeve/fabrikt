@@ -34,6 +34,17 @@ class CodeGeneratorSchemaModeTest {
             .contains("public val tuple: List<Any?>? = null")
     }
 
+    @Test
+    fun `routes named component container models through native mode`() {
+        val generated = generate(SchemaGenerationMode.NATIVE, componentContainerOpenApi).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class CreateSubject(")
+            .contains("public val name: String")
+            .contains("public data class SubjectResponse(")
+            .contains("public val id: String")
+    }
+
     @ParameterizedTest
     @MethodSource("nativeValueConstraintConfigurations")
     fun `routes native value constraints through supported serialization libraries`(
@@ -172,6 +183,35 @@ class CodeGeneratorSchemaModeTest {
                   default: 1
                 choice:
                   enum: [text, 1, null]
+        """.trimIndent()
+
+    private val componentContainerOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          requestBodies:
+            CreateSubject:
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [name]
+                    properties:
+                      name: { type: string }
+          responses:
+            SubjectResponse:
+              description: Subject
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required: [id]
+                    properties:
+                      id: { type: string }
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
