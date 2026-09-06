@@ -43,6 +43,7 @@ internal object SourceModelSchemaCollector {
         if (!pathItems.isObject) return
         pathItems.properties().filter { (path, _) -> !pathsOnly || path.startsWith('/') }.forEach { (path, pathItem) ->
             val pathLocation = "$location/${path.toJsonPointerToken()}"
+            collectParameters(pathItem.path("parameters"), "$pathLocation/parameters", schemaEntryPoints)
             operationNames(version).forEach { method ->
                 collectOperation(pathItem.path(method), "$pathLocation/$method", method, path, version, schemaEntryPoints)
             }
@@ -81,6 +82,7 @@ internal object SourceModelSchemaCollector {
                 ?.takeIf(String::isNotBlank)
                 ?.toModelClassName()
                 ?: "$method $path".toModelClassName()
+        collectParameters(operation.path("parameters"), "$location/parameters", schemaEntryPoints)
         collectContentSchemas(
             content = operation.path("requestBody").path("content"),
             location = "$location/requestBody/content",
@@ -115,6 +117,29 @@ internal object SourceModelSchemaCollector {
                         schemaEntryPoints = schemaEntryPoints,
                         pathsOnly = false,
                     )
+                }
+            }
+        }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectParameters(
+        parameters: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!parameters.isArray) return
+        parameters.forEachIndexed { index, parameter ->
+            if (parameter.isObject && !parameter.path("${'$'}ref").isTextual) {
+                val name = parameter.path("name").takeIf(JsonNode::isTextual)?.textValue()?.takeIf(String::isNotBlank)
+                if (name != null) {
+                    val parameterLocation = "$location/$index"
+                    val schema =
+                        schemaEntryPoints["$parameterLocation/schema"]
+                            ?: schemaEntryPoints.entries
+                                .firstOrNull { (schemaLocation, _) ->
+                                    schemaLocation.startsWith("$parameterLocation/content/") && schemaLocation.endsWith("/schema")
+                                }?.value
+                    if (schema != null) register(name.toModelClassName(), schema)
                 }
             }
         }
