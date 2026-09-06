@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -19,6 +20,20 @@ class SourceOperationParameterSchemaCollectorTest {
             .isEqualTo("#/paths/~1subjects/get/parameters/1/schema")
         assertThat(document.modelSchemas.getValue("Payload").location)
             .isEqualTo("#/paths/~1subjects/get/parameters/2/content/application~1json/schema")
+    }
+
+    @Test
+    fun `collects parameter schemas from modern operations`() {
+        val document = SourceOpenApiDocumentParser.parse(modernOperationsOpenApi)
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly("CallbackFilter", "CopyFilter", "WebhookState")
+        assertThat(document.modelSchemas.getValue("CallbackFilter").location)
+            .isEqualTo("#/paths/~1subjects/post/callbacks/updates/{${'$'}request.body#~1callbackUrl}/post/parameters/0/schema")
+        assertThat(document.modelSchemas.getValue("CopyFilter").location)
+            .isEqualTo("#/paths/~1subjects/additionalOperations/copy/parameters/0/schema")
+        assertThat(document.modelSchemas.getValue("WebhookState").location)
+            .isEqualTo("#/webhooks/subjectChanged/post/parameters/0/schema")
     }
 
     private fun openApi(version: String) =
@@ -62,5 +77,53 @@ class SourceOperationParameterSchemaCollectorTest {
               responses:
                 '204':
                   description: Success
+        """.trimIndent()
+
+    private val modernOperationsOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              callbacks:
+                updates:
+                  '{${'$'}request.body#/callbackUrl}':
+                    post:
+                      parameters:
+                        - name: callback-filter
+                          in: query
+                          schema:
+                            type: object
+                            properties:
+                              query: { type: string }
+                      responses:
+                        '204': { description: Success }
+              responses:
+                '204': { description: Success }
+            additionalOperations:
+              copy:
+                parameters:
+                  - name: copy-filter
+                    in: query
+                    schema:
+                      type: object
+                      properties:
+                        query: { type: string }
+                responses:
+                  '204': { description: Success }
+        webhooks:
+          subjectChanged:
+            post:
+              parameters:
+                - name: webhook-state
+                  in: query
+                  schema:
+                    type: string
+                    enum: [active, inactive]
+              responses:
+                '204': { description: Success }
         """.trimIndent()
 }

@@ -130,7 +130,12 @@ internal object SourceModelSchemaCollector {
         if (!parameters.isArray) return
         parameters.forEachIndexed { index, parameter ->
             if (parameter.isObject && !parameter.path("${'$'}ref").isTextual) {
-                val name = parameter.path("name").takeIf(JsonNode::isTextual)?.textValue()?.takeIf(String::isNotBlank)
+                val name =
+                    parameter
+                        .path("name")
+                        .takeIf(JsonNode::isTextual)
+                        ?.textValue()
+                        ?.takeIf(String::isNotBlank)
                 if (name != null) {
                     val parameterLocation = "$location/$index"
                     val schema =
