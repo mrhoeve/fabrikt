@@ -3,8 +3,14 @@ package com.cjbooms.fabrikt.parser
 import com.cjbooms.fabrikt.model.OasType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 
 class SchemaGenerationModeTest {
+    @TempDir
+    lateinit var tempDir: Path
+
     @Test
     fun `selects legacy schemas without reparsing the document`() {
         val parsed = OpenApiDocumentParser.parse(openApi30)
@@ -111,6 +117,44 @@ class SchemaGenerationModeTest {
             )
     }
 
+    @Test
+    fun `native mode resolves schemas across the complete external document graph`() {
+        val nestedFile = tempDir.resolve("nested.yaml")
+        Files.writeString(
+            nestedFile,
+            """
+            type: object
+            required: [street]
+            properties:
+              street: { type: string }
+            """.trimIndent(),
+        )
+        val externalFile = tempDir.resolve("external.yaml")
+        Files.writeString(
+            externalFile,
+            """
+            type: object
+            required: [id, address]
+            properties:
+              id: { type: string }
+              address:
+                ${'$'}ref: './nested.yaml'
+            """.trimIndent(),
+        )
+        val parsed =
+            OpenApiDocumentParser.parse(
+                input = externalReferenceOpenApi,
+                baseUri = tempDir.toUri(),
+                documentUri = tempDir.resolve("openapi.yaml").toUri(),
+            )
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val external = document.resolve(document.componentSchemas.getValue("External")) as GeneratorObjectSchema
+        val address = document.resolve(external.properties.getValue("address")) as GeneratorObjectSchema
+
+        assertThat(external.properties).containsKeys("id", "address")
+        assertThat(address.properties).containsKey("street")
+    }
+
     private fun referenceSiblingOpenApi(version: String) =
         """
         openapi: $version
@@ -170,5 +214,18 @@ class SchemaGenerationModeTest {
                   ${'$'}ref: '#/components/schemas/Value'
             Value:
               type: [string, integer, 'null']
+        """.trimIndent()
+
+    private val externalReferenceOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            External:
+              ${'$'}ref: './external.yaml'
         """.trimIndent()
 }

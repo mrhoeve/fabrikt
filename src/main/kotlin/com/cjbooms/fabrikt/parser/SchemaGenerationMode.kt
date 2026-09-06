@@ -9,28 +9,36 @@ internal class GeneratorSchemaDocument(
     val version: OpenApiVersion?,
     val componentSchemas: Map<String, GeneratorSchema>,
     private val referencedSchemas: Map<GeneratorSchemaIdentity, GeneratorSchema>,
+    schemaEntryPoints: Collection<GeneratorSchema> = componentSchemas.values,
 ) {
-    private val resolvedSchemas = GeneratorSchemaReferenceResolver.resolve(version, componentSchemas.values, referencedSchemas)
+    private val resolvedSchemas = GeneratorSchemaReferenceResolver.resolve(version, schemaEntryPoints, referencedSchemas)
 
     fun resolve(schema: GeneratorSchema): GeneratorSchema = resolvedSchemas[schema.identity] ?: schema
 }
 
 internal fun ParsedOpenApiDocument.toGeneratorSchemaDocument(mode: SchemaGenerationMode): GeneratorSchemaDocument {
-    val (schemas, referencedSchemas) =
-        when (mode) {
-            SchemaGenerationMode.LEGACY -> {
-                val adapter = LegacyGeneratorSchemaAdapter()
-                kaizenModel.schemas.mapValues { (_, schema) -> adapter.adapt(schema) } to emptyMap()
-            }
-            SchemaGenerationMode.NATIVE ->
-                source.componentSchemas to
-                    source.schemaReferenceResolutions
+    return when (mode) {
+        SchemaGenerationMode.LEGACY -> {
+            val adapter = LegacyGeneratorSchemaAdapter()
+            GeneratorSchemaDocument(
+                version = version,
+                componentSchemas = kaizenModel.schemas.mapValues { (_, schema) -> adapter.adapt(schema) },
+                referencedSchemas = emptyMap(),
+            )
+        }
+        SchemaGenerationMode.NATIVE ->
+            GeneratorSchemaDocument(
+                version = version,
+                componentSchemas = source.componentSchemas,
+                referencedSchemas =
+                    sourceGraph.schemaReferenceResolutions
                         .mapNotNull { (location, resolution) ->
-                            val sourceSchema = source.schemasByLocation[location] ?: return@mapNotNull null
+                            val document = sourceGraph.documentsByUri[location.documentUri] ?: return@mapNotNull null
+                            val sourceSchema = document.schemasByLocation[location.schemaLocation] ?: return@mapNotNull null
                             val target = (resolution as? SourceSchemaReferenceResolution.Resolved)?.target ?: return@mapNotNull null
                             sourceSchema.identity to target
-                        }.toMap()
-        }
-
-    return GeneratorSchemaDocument(version, schemas, referencedSchemas)
+                        }.toMap(),
+                schemaEntryPoints = sourceGraph.documentsByUri.values.flatMap { it.schemaEntryPoints.values },
+            )
+    }
 }
