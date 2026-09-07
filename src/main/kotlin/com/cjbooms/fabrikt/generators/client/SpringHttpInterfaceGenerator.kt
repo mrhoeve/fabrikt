@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.client
 
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.functionName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.getPrimaryContentMediaType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKdoc
@@ -28,6 +29,9 @@ import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
+import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.reprezen.kaizen.oasparser.model3.Operation
 import com.reprezen.kaizen.oasparser.model3.Path
 import com.squareup.kotlinpoet.AnnotationSpec
@@ -43,7 +47,18 @@ class SpringHttpInterfaceGenerator(
     private val api: SourceApi,
     private val srcPath: java.nio.file.Path = Destinations.MAIN_KT_SOURCE,
 ) : ClientGenerator {
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api) {
+        this.generatorContext = generatorContext
+    }
+
     override fun generate(options: Set<ClientCodeGenOptionType>): Clients {
+        generatorContext?.let { return generate(it, options) }
         val clientTypes =
             api
                 .groupedClientPaths(options)
@@ -66,6 +81,29 @@ class SpringHttpInterfaceGenerator(
                 }.toSet()
 
         return Clients(clientTypes)
+    }
+
+    private fun generate(
+        context: GeneratorEndpointContext,
+        options: Set<ClientCodeGenOptionType>,
+    ): Clients {
+        val strategy =
+            if (ClientCodeGenOptionType.GROUP_BY_TAG in options) GroupingStrategy.BY_FIRST_TAG else GroupingStrategy.BY_FIRST_PATH_SEGMENT
+        val clients =
+            context
+                .groupedPaths(strategy)
+                .map { (resourceName, paths) ->
+                    val functions = paths.flatMap { path -> path.operations.map { buildFunction(context, path, it, options) } }
+                    ClientType(
+                        TypeSpec
+                            .interfaceBuilder(simpleClientName(resourceName))
+                            .addAnnotation(AnnotationSpec.builder(Suppress::class).addMember("%S", "unused").build())
+                            .addFunctions(functions)
+                            .build(),
+                        packages.base,
+                    )
+                }.toSet()
+        return Clients(clients)
     }
 
     private fun buildFunction(
@@ -144,6 +182,61 @@ class SpringHttpInterfaceGenerator(
             ).build()
     }
 
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+        options: Set<ClientCodeGenOptionType>,
+    ): FunSpec {
+        val parameters = context.clientParameters(operation, path)
+        return FunSpec
+            .builder(context.functionName(operation, path.path))
+            .addModifiers(KModifier.ABSTRACT)
+            .addKdoc(context.toKdoc(operation, parameters))
+            .addHttpExchangeAnnotation(path.path, parameters, operation.method, context.primaryResponseContentType(operation))
+            .addSuspendModifier(options)
+            .addIncomingParameters(
+                parameters,
+                annotateRequestParameterWith = { parameter ->
+                    when (parameter.parameterLocation) {
+                        is QueryParam ->
+                            SpringHttpInterfaceAnnotations
+                                .requestParamBuilder()
+                                .addMember(
+                                    "%S",
+                                    parameter.originalName,
+                                ).build()
+                        is HeaderParam ->
+                            SpringHttpInterfaceAnnotations
+                                .requestHeaderBuilder()
+                                .addMember(
+                                    "%S",
+                                    parameter.originalName,
+                                ).build()
+                        is PathParam -> SpringHttpInterfaceAnnotations.pathVariableBuilder().addMember("%S", parameter.originalName).build()
+                    }
+                },
+                annotateBodyParameterWith = { SpringHttpInterfaceAnnotations.requestBodyBuilder().build() },
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_HEADERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(Any::class.asTypeName()),
+                    ).addAnnotation(SpringHttpInterfaceAnnotations.requestHeaderBuilder().build())
+                    .defaultValue("emptyMap()")
+                    .build(),
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(Any::class.asTypeName()),
+                    ).addAnnotation(SpringHttpInterfaceAnnotations.requestParamBuilder().build())
+                    .defaultValue("emptyMap()")
+                    .build(),
+            ).returns(context.successResponseType(operation, packages.base).optionallyParameterizeWithResponseEntity(options))
+            .build()
+    }
+
     private fun FunSpec.Builder.addHttpExchangeAnnotation(
         operation: Operation,
         resource: String,
@@ -151,15 +244,29 @@ class SpringHttpInterfaceGenerator(
         verb: String,
     ): FunSpec.Builder =
         apply {
-            val annotation = HttpExchangeAnnotationBuilder(operation, resource, parameters, verb).build()
+            val annotation =
+                HttpExchangeAnnotationBuilder(
+                    resource,
+                    parameters,
+                    verb,
+                    operation.getPrimaryContentMediaType()?.key,
+                ).build()
             addAnnotation(annotation)
         }
 
+    private fun FunSpec.Builder.addHttpExchangeAnnotation(
+        resource: String,
+        parameters: List<IncomingParameter>,
+        verb: String,
+        defaultAcceptContentType: String?,
+    ): FunSpec.Builder =
+        apply { addAnnotation(HttpExchangeAnnotationBuilder(resource, parameters, verb, defaultAcceptContentType).build()) }
+
     private class HttpExchangeAnnotationBuilder(
-        private val operation: Operation,
         private val resource: String,
         private val parameters: List<IncomingParameter>,
         private val verb: String,
+        private val defaultAcceptContentType: String?,
     ) {
         fun build(): AnnotationSpec {
             val headerParams = parameters.getHeaderParameters()
@@ -212,7 +319,7 @@ class SpringHttpInterfaceGenerator(
                         ?: run {
                             // Add default accept header
                             val block =
-                                operation.getPrimaryContentMediaType()?.key?.let { mediaType ->
+                                defaultAcceptContentType?.let { mediaType ->
                                     buildCodeBlock {
                                         add("%S", mediaType)
                                     }
