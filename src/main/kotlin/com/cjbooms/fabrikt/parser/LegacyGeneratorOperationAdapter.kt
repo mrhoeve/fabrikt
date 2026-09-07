@@ -99,6 +99,7 @@ internal class LegacyGeneratorOperationAdapter {
         GeneratorMediaType(
             key = key,
             schema = schema.takeIfPresent()?.let(schemaAdapter::adapt),
+            itemSchema = null,
         )
 
     private fun List<SecurityRequirement>.toGeneratorSecurityRequirements(): GeneratorSecurityRequirements =

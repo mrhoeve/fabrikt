@@ -65,6 +65,7 @@ internal data class GeneratorHeader(
 internal data class GeneratorMediaType(
     val key: String,
     val schema: GeneratorSchema?,
+    val itemSchema: GeneratorSchema?,
 )
 
 internal data class GeneratorSecurityRequirements(
