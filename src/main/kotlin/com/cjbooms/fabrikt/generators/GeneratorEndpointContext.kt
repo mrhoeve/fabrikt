@@ -51,6 +51,21 @@ internal class GeneratorEndpointContext(
             }
         }
 
+    fun requireSupportedMethods(
+        target: String,
+        supportedMethods: Set<String>,
+    ) {
+        val unsupported =
+            operations.paths
+                .flatMap(GeneratorPathItem::operations)
+                .map { it.method.uppercase() }
+                .filterNot(supportedMethods::contains)
+                .distinct()
+        require(unsupported.isEmpty()) {
+            "$target does not support native generation for HTTP method(s): ${unsupported.joinToString()}."
+        }
+    }
+
     fun methodName(
         operation: GeneratorOperation,
         path: String,

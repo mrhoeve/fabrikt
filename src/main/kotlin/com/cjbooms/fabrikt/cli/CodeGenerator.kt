@@ -61,6 +61,13 @@ class CodeGenerator internal constructor(
 
     private fun generateClient(): Collection<GeneratedFile> {
         val endpointContext = nativeEndpointContext()
+        when (MutableSettings.clientTarget) {
+            ClientCodeGenTargetType.OK_HTTP -> endpointContext?.requireSupportedMethods("OkHttp client", OK_HTTP_METHODS)
+            ClientCodeGenTargetType.KTOR -> endpointContext?.requireSupportedMethods("Ktor client", STANDARD_HTTP_METHODS)
+            ClientCodeGenTargetType.OPEN_FEIGN,
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+            -> Unit
+        }
         val clientGenerator =
             when (MutableSettings.clientTarget) {
                 ClientCodeGenTargetType.OK_HTTP ->
@@ -103,6 +110,15 @@ class CodeGenerator internal constructor(
 
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
+        endpointContext?.requireSupportedMethods(
+            "${MutableSettings.controllerTarget.displayName} controller",
+            when (MutableSettings.controllerTarget) {
+                ControllerCodeGenTargetType.MICRONAUT -> MICRONAUT_HTTP_METHODS
+                ControllerCodeGenTargetType.SPRING,
+                ControllerCodeGenTargetType.KTOR,
+                -> STANDARD_HTTP_METHODS
+            },
+        )
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->
@@ -163,4 +179,13 @@ class CodeGenerator internal constructor(
                 packages.base,
             )
         }
+
+    private val ControllerCodeGenTargetType.displayName: String
+        get() = name.lowercase().replaceFirstChar(Char::uppercase)
+
+    private companion object {
+        val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
+        val MICRONAUT_HTTP_METHODS = STANDARD_HTTP_METHODS - "TRACE"
+        val OK_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "HEAD", "PATCH")
+    }
 }
