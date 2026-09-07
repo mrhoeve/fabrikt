@@ -6,6 +6,7 @@ import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolver
+import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -36,7 +37,7 @@ internal class GeneratorEndpointContext(
     private val schemas: GeneratorSchemaDocument,
     private val basePackage: String,
 ) {
-    private val typeResolver = GeneratorKotlinTypeResolver(schemas)
+    private val typeResolver = GeneratorKotlinTypeResolver(schemas, GeneratorModelDescriptorBuilder.registeredModelNames(schemas))
 
     fun groupedPaths(strategy: GroupingStrategy): Map<String, List<GeneratorPathItem>> =
         operations.paths.groupBy { path ->

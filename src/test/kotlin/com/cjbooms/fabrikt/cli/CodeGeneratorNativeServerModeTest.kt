@@ -6,11 +6,42 @@ import com.cjbooms.fabrikt.model.KotlinSourceSet
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import java.nio.file.Paths
 
 class CodeGeneratorNativeServerModeTest {
+    @Test
+    fun `uses generated inline model names in native endpoint contracts`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.HTTP_MODELS, CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.SPRING,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(inlineEndpointModelsOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("public enum class Status(")
+            .contains("status: List<Status>?")
+            .contains("public data class CreateTokenRequest(")
+            .contains("createTokenRequest: CreateTokenRequest")
+            .contains("public data class CreateToken200Response(")
+            .contains("ResponseEntity<CreateToken200Response>")
+            .doesNotContain("models.Items")
+            .doesNotContain("models.Schema")
+    }
+
     @ParameterizedTest
     @EnumSource(ControllerCodeGenTargetType::class)
     fun `generates usable server contracts from native operations`(target: ControllerCodeGenTargetType) {
@@ -99,5 +130,49 @@ class CodeGeneratorNativeServerModeTest {
               required: [id]
               properties:
                 id: { type: string }
+        """.trimIndent()
+
+    private val inlineEndpointModelsOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native inline endpoint models
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              operationId: listSubjects
+              parameters:
+                - name: status
+                  in: query
+                  schema:
+                    type: array
+                    items:
+                      type: string
+                      enum: [active, inactive]
+              responses:
+                '204': { description: No content }
+          /auth/token:
+            post:
+              operationId: createToken
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      required: [client_id]
+                      properties:
+                        client_id: { type: string }
+              responses:
+                '200':
+                  description: Created
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        required: [access_token]
+                        properties:
+                          access_token: { type: string }
         """.trimIndent()
 }
