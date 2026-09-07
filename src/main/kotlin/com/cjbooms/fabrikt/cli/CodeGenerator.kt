@@ -63,10 +63,13 @@ class CodeGenerator internal constructor(
         val endpointContext = nativeEndpointContext()
         when (MutableSettings.clientTarget) {
             ClientCodeGenTargetType.OK_HTTP -> endpointContext?.requireSupportedMethods("OkHttp client", OK_HTTP_METHODS)
-            ClientCodeGenTargetType.KTOR -> endpointContext?.requireSupportedMethods("Ktor client", STANDARD_HTTP_METHODS)
+            ClientCodeGenTargetType.KTOR -> {
+                endpointContext?.requireSupportedMethods("Ktor client", STANDARD_HTTP_METHODS)
+                endpointContext?.requireMultipartSupported("Ktor client")
+            }
             ClientCodeGenTargetType.OPEN_FEIGN,
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
-            -> Unit
+            -> endpointContext?.requireMultipartSupported("${MutableSettings.clientTarget.displayName} client")
         }
         val clientGenerator =
             when (MutableSettings.clientTarget) {
@@ -119,6 +122,9 @@ class CodeGenerator internal constructor(
                 -> STANDARD_HTTP_METHODS
             },
         )
+        if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.SPRING) {
+            endpointContext?.requireMultipartSupported("${MutableSettings.controllerTarget.displayName} controller")
+        }
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->
@@ -182,6 +188,9 @@ class CodeGenerator internal constructor(
 
     private val ControllerCodeGenTargetType.displayName: String
         get() = name.lowercase().replaceFirstChar(Char::uppercase)
+
+    private val ClientCodeGenTargetType.displayName: String
+        get() = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
     private companion object {
         val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
