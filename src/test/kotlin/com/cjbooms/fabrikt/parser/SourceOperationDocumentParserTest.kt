@@ -108,6 +108,35 @@ class SourceOperationDocumentParserTest {
         assertThat(operations.reusableCallbacks).containsOnlyKeys("Audit", "Referenced")
     }
 
+    @Test
+    fun `distinguishes fixed query and case-sensitive additional methods in OpenAPI 3_2`() {
+        val path =
+            SourceOpenApiDocumentParser
+                .parse(openApi32Operations)
+                .operations.paths
+                .single()
+
+        assertThat(path.operations.map { it.method.wireName }).containsExactly("pOlL", "QUERY", "GET")
+        val additional = path.operations[0]
+        assertThat(additional.location).isEqualTo("#/paths/~1jobs/additionalOperations/pOlL")
+        assertThat(additional.method).isEqualTo(SourceOperationMethod.Additional("pOlL"))
+        assertThat(additional.operationId).isEqualTo("pollJob")
+        assertThat(path.operations[1].method)
+            .isEqualTo(SourceOperationMethod.Fixed(SourceFixedOperationMethod.QUERY))
+    }
+
+    @Test
+    fun `ignores OpenAPI 3_2 operations in earlier versions`() {
+        val path =
+            SourceOpenApiDocumentParser
+                .parse(openApi32Operations.replace("openapi: 3.2.0", "openapi: 3.1.2"))
+                .operations
+                .paths
+                .single()
+
+        assertThat(path.operations.map { it.method.wireName }).containsExactly("GET")
+    }
+
     private val pathOperationsOpenApi =
         """
         openapi: 3.1.2
@@ -188,5 +217,25 @@ class SourceOperationDocumentParserTest {
               x-ignore: true
             Referenced:
               ${'$'}ref: '#/components/callbacks/Audit'
+        """.trimIndent()
+
+    private val openApi32Operations =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /jobs:
+            additionalOperations:
+              pOlL:
+                operationId: pollJob
+                responses: {}
+            query:
+              operationId: queryJobs
+              responses: {}
+            get:
+              operationId: listJobs
+              responses: {}
         """.trimIndent()
 }

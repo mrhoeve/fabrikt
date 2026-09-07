@@ -169,31 +169,56 @@ internal object SourceOperationDocumentParser {
                 reference = pathItem.text("\$ref"),
                 summary = pathItem.text("summary"),
                 description = pathItem.text("description"),
-                operations = collectFixedOperations(pathItem, location),
+                operations = collectOperations(pathItem, location),
             )
 
-        private fun collectFixedOperations(
+        private fun collectOperations(
             pathItem: JsonNode,
             location: String,
         ): List<SourceOperation> =
             pathItem
                 .properties()
-                .mapNotNull { (fieldName, operation) ->
-                    val method = FIXED_METHODS_BY_FIELD[fieldName] ?: return@mapNotNull null
-                    if (method == SourceFixedOperationMethod.QUERY && version?.isAtLeast(3, 2) != true) return@mapNotNull null
+                .flatMap { (fieldName, value) ->
+                    val method = FIXED_METHODS_BY_FIELD[fieldName]
+                    when {
+                        method == SourceFixedOperationMethod.QUERY && !supportsOpenApi32 -> emptySequence()
+                        method != null && value.isObject ->
+                            sequenceOf(collectOperation(value, "$location/$fieldName", SourceOperationMethod.Fixed(method)))
+                        fieldName == "additionalOperations" && supportsOpenApi32 -> collectAdditionalOperations(value, location)
+                        else -> emptySequence()
+                    }
+                }.toList()
+
+        private fun collectAdditionalOperations(
+            additionalOperations: JsonNode,
+            location: String,
+        ): Sequence<SourceOperation> {
+            if (!additionalOperations.isObject) return emptySequence()
+
+            return additionalOperations
+                .properties()
+                .asSequence()
+                .mapNotNull { (method, operation) ->
                     operation
                         .takeIf(JsonNode::isObject)
-                        ?.let { collectOperation(it, "$location/$fieldName", method) }
-                }.toList()
+                        ?.let {
+                            collectOperation(
+                                it,
+                                "$location/additionalOperations/${method.toJsonPointerToken()}",
+                                SourceOperationMethod.Additional(method),
+                            )
+                        }
+                }
+        }
 
         private fun collectOperation(
             operation: JsonNode,
             location: String,
-            method: SourceFixedOperationMethod,
+            method: SourceOperationMethod,
         ): SourceOperation =
             SourceOperation(
                 location = location,
-                method = SourceOperationMethod.Fixed(method),
+                method = method,
                 node = operation,
                 operationId = operation.text("operationId"),
                 summary = operation.text("summary"),
@@ -255,5 +280,8 @@ internal object SourceOperationDocumentParser {
         private companion object {
             val FIXED_METHODS_BY_FIELD = SourceFixedOperationMethod.entries.associateBy(SourceFixedOperationMethod::fieldName)
         }
+
+        private val supportsOpenApi32: Boolean
+            get() = version?.isAtLeast(3, 2) == true
     }
 }
