@@ -6,6 +6,7 @@ import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolver
+import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
@@ -82,6 +83,51 @@ internal class GeneratorEndpointContext(
         val parameters = merged.mapNotNull(::requestParameter).sortedBy(IncomingParameter::isNullable)
         return avoidNameClashes(bodies + parameters + extraParameters)
     }
+
+    fun clientParameters(
+        operation: GeneratorOperation,
+        path: GeneratorPathItem,
+    ): List<IncomingParameter> {
+        val hasAcceptParameter =
+            (path.parameters + operation.parameters).any {
+                it.placement == "header" && it.name.equals("Accept", ignoreCase = true)
+            }
+        val primaryResponse = operation.responses.firstOrNull { it.status != "default" && it.content.isNotEmpty() }
+        val extra =
+            if (primaryResponse?.content?.size.orZero() > 1 && !hasAcceptParameter) {
+                listOf(
+                    RequestParameter(
+                        oasName = "acceptHeader",
+                        description = null,
+                        type = String::class.asTypeName(),
+                        isRequired = true,
+                        originalName = "Accept",
+                        parameterLocation = HeaderParam,
+                        typeInfo = KotlinTypeInfo.Text,
+                        defaultValue = primaryResponse?.content?.firstOrNull()?.key,
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+        return incomingParameters(operation, path.parameters, extra)
+    }
+
+    fun primaryResponseContentType(operation: GeneratorOperation): String? =
+        operation.responses
+            .firstOrNull { it.status != "default" && it.content.isNotEmpty() }
+            ?.content
+            ?.firstOrNull()
+            ?.key
+
+    fun requestContentType(operation: GeneratorOperation): String? =
+        operation.requestBody
+            ?.content
+            ?.firstOrNull()
+            ?.key
+
+    fun hasMultipartRequestBody(operation: GeneratorOperation): Boolean =
+        operation.requestBody?.content?.any { it.key.startsWith("multipart/form-data") } == true
 
     fun successResponseType(
         operation: GeneratorOperation,
@@ -275,4 +321,6 @@ internal class GeneratorEndpointContext(
             isTextual -> textValue()
             else -> this
         }
+
+    private fun Int?.orZero(): Int = this ?: 0
 }
