@@ -119,8 +119,23 @@ internal object SourceOperationDocumentParser {
                         "#/components/callbacks",
                         SourcePathItemKind.REUSABLE_CALLBACK,
                     ),
-                reusableParameters = emptyMap(),
+                reusableParameters =
+                    collectNamedParameters(
+                        root.path("components").path("parameters"),
+                        "#/components/parameters",
+                    ),
             )
+
+        private fun collectNamedParameters(
+            parameters: JsonNode,
+            location: String,
+        ): Map<String, SourceParameter> {
+            if (!parameters.isObject) return emptyMap()
+
+            return parameters.properties().associate { (name, parameter) ->
+                name to collectParameter(parameter, "$location/${name.toJsonPointerToken()}")
+            }
+        }
 
         private fun collectNamedPathItems(
             pathItems: JsonNode,
