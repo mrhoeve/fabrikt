@@ -292,14 +292,14 @@ internal object SourceOperationDocumentParser {
         private fun collectParameterContent(
             content: JsonNode?,
             location: String,
-        ): List<SourceParameterContent> {
+        ): List<SourceMediaType> {
             if (content?.isObject != true) return emptyList()
 
             return content.properties().map { (mediaType, mediaTypeObject) ->
                 val mediaTypeLocation = "$location/${mediaType.toJsonPointerToken()}"
-                SourceParameterContent(
+                SourceMediaType(
                     location = mediaTypeLocation,
-                    mediaType = mediaType,
+                    key = mediaType,
                     node = mediaTypeObject,
                     reference = mediaTypeObject.text("\$ref"),
                     schema = schemaEntryPoints["$mediaTypeLocation/schema"],

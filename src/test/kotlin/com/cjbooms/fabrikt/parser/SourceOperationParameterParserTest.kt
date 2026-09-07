@@ -63,7 +63,7 @@ class SourceOperationParameterParserTest {
         val parameter = parameters[0]
 
         assertThat(parameter.schema).isNull()
-        assertThat(parameter.content.map(SourceParameterContent::mediaType))
+        assertThat(parameter.content.map(SourceMediaType::key))
             .containsExactly("application/json")
         val jsonContent = parameter.content.single()
         assertThat(jsonContent.location)
