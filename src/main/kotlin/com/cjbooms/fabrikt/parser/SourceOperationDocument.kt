@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.parser
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class SourceOperationDocument(
+    val servers: SourceServers?,
     val security: SourceSecurityRequirements?,
     val paths: List<SourcePathItem>,
     val webhooks: List<SourcePathItem>,
@@ -107,6 +108,7 @@ internal object SourceOperationDocumentParser {
     ) {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
+                servers = collectServers(root["servers"], "#/servers"),
                 security = collectSecurityRequirements(root["security"], "#/security"),
                 paths = collectPathItemMap(root["paths"], "#/paths", SourcePathItemKind.PATH, pathsOnly = true),
                 webhooks =
@@ -166,6 +168,62 @@ internal object SourceOperationDocumentParser {
                         "#/components/securitySchemes",
                     ),
             )
+
+        private fun collectServers(
+            servers: JsonNode?,
+            location: String,
+        ): SourceServers? {
+            if (servers?.isArray != true) return null
+
+            return SourceServers(
+                location = location,
+                node = servers,
+                values =
+                    servers.mapIndexedNotNull { index, server ->
+                        server
+                            .takeIf(JsonNode::isObject)
+                            ?.let { collectServer(it, "$location/$index") }
+                    },
+            )
+        }
+
+        private fun collectServer(
+            server: JsonNode,
+            location: String,
+        ): SourceServer =
+            SourceServer(
+                location = location,
+                node = server,
+                url = server.text("url"),
+                description = server.text("description"),
+                name = if (supportsOpenApi32) server.text("name") else null,
+                variables = collectServerVariables(server["variables"], "$location/variables"),
+                extensions = server.extensions(),
+            )
+
+        private fun collectServerVariables(
+            variables: JsonNode?,
+            location: String,
+        ): Map<String, SourceServerVariable> {
+            if (variables?.isObject != true) return emptyMap()
+
+            return variables.properties().associate { (name, variable) ->
+                name to
+                    SourceServerVariable(
+                        location = "$location/${name.toJsonPointerToken()}",
+                        name = name,
+                        node = variable,
+                        enumValues =
+                            variable["enum"]
+                                ?.takeIf(JsonNode::isArray)
+                                ?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }
+                                .orEmpty(),
+                        defaultValue = variable.text("default"),
+                        description = variable.text("description"),
+                        extensions = variable.extensions(),
+                    )
+            }
+        }
 
         private fun collectNamedSecuritySchemes(
             securitySchemes: JsonNode,
