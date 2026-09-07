@@ -45,6 +45,7 @@ internal data class SourceOperation(
     val extensions: Map<String, JsonNode>,
     val parameters: List<SourceParameter>,
     val requestBody: SourceRequestBody?,
+    val responses: SourceResponses?,
     val callbacks: List<SourceCallback>,
 )
 
@@ -293,7 +294,42 @@ internal object SourceOperationDocumentParser {
                 extensions = operation.extensions(),
                 parameters = collectParameters(operation["parameters"], "$location/parameters"),
                 requestBody = collectRequestBody(operation["requestBody"], "$location/requestBody"),
+                responses = collectResponses(operation["responses"], "$location/responses"),
                 callbacks = collectOperationCallbacks(operation, location),
+            )
+
+        private fun collectResponses(
+            responses: JsonNode?,
+            location: String,
+        ): SourceResponses? {
+            if (responses?.isObject != true) return null
+
+            return SourceResponses(
+                location = location,
+                node = responses,
+                values =
+                    responses
+                        .properties()
+                        .filterNot { (key, _) -> key.isSpecificationExtension() }
+                        .map { (key, response) -> collectResponse(response, "$location/${key.toJsonPointerToken()}", key) }
+                        .toList(),
+                extensions = responses.extensions(),
+            )
+        }
+
+        private fun collectResponse(
+            response: JsonNode,
+            location: String,
+            key: String,
+        ): SourceResponse =
+            SourceResponse(
+                location = location,
+                key = key,
+                node = response,
+                reference = response.text("\$ref"),
+                description = response.text("description"),
+                content = collectMediaTypes(response["content"], "$location/content"),
+                extensions = response.extensions(),
             )
 
         private fun collectRequestBody(
