@@ -54,6 +54,15 @@ internal object SourceModelSchemaCollector {
                     }
                 }
             }
+            if (version?.isAtLeast(3, 1) == true) {
+                collectPathItems(
+                    components.path("pathItems"),
+                    "#/components/pathItems",
+                    version,
+                    schemaEntryPoints,
+                    pathsOnly = false,
+                )
+            }
             collectPathItems(root.path("paths"), "#/paths", version, schemaEntryPoints, pathsOnly = true)
             if (version?.isAtLeast(3, 1) == true) {
                 collectPathItems(root.path("webhooks"), "#/webhooks", version, schemaEntryPoints, pathsOnly = false)
