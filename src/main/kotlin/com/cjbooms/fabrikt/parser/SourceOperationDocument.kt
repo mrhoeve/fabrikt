@@ -15,6 +15,7 @@ internal data class SourceOperationDocument(
     val reusableResponses: Map<String, SourceResponse>,
     val reusableHeaders: Map<String, SourceHeader>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
+    val reusableExamples: Map<String, SourceExample>,
     val reusableSecuritySchemes: Map<String, SourceSecurityScheme>,
 ) {
     fun effectiveServersFor(
@@ -172,6 +173,11 @@ internal object SourceOperationDocumentParser {
                     } else {
                         emptyMap()
                     },
+                reusableExamples =
+                    collectExamples(
+                        root.path("components").path("examples"),
+                        "#/components/examples",
+                    ),
                 reusableSecuritySchemes =
                     collectNamedSecuritySchemes(
                         root.path("components").path("securitySchemes"),
@@ -402,6 +408,36 @@ internal object SourceOperationDocumentParser {
             }
         }
 
+        private fun collectExamples(
+            examples: JsonNode?,
+            location: String,
+        ): Map<String, SourceExample> {
+            if (examples?.isObject != true) return emptyMap()
+
+            return examples.properties().associate { (name, example) ->
+                name to collectExample(example, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
+
+        private fun collectExample(
+            example: JsonNode,
+            location: String,
+            name: String,
+        ): SourceExample =
+            SourceExample(
+                location = location,
+                name = name,
+                node = example,
+                reference = example.text("\$ref"),
+                summary = example.text("summary"),
+                description = example.text("description"),
+                value = example["value"],
+                externalValue = example.text("externalValue"),
+                dataValue = if (supportsOpenApi32) example["dataValue"] else null,
+                serializedValue = if (supportsOpenApi32) example.text("serializedValue") else null,
+                extensions = example.extensions(),
+            )
+
         private fun collectNamedPathItems(
             pathItems: JsonNode,
             location: String,
@@ -622,6 +658,8 @@ internal object SourceOperationDocumentParser {
                 explode = header.boolean("explode"),
                 schema = schemaEntryPoints["$location/schema"],
                 content = collectMediaTypes(header["content"], "$location/content"),
+                example = header["example"],
+                examples = collectExamples(header["examples"], "$location/examples"),
                 extensions = header.extensions(),
             )
 
@@ -672,6 +710,8 @@ internal object SourceOperationDocumentParser {
                 allowReserved = parameter.boolean("allowReserved"),
                 schema = schemaEntryPoints["$location/schema"],
                 content = collectMediaTypes(parameter["content"], "$location/content"),
+                example = parameter["example"],
+                examples = collectExamples(parameter["examples"], "$location/examples"),
                 extensions = parameter.extensions(),
             )
 
@@ -712,6 +752,8 @@ internal object SourceOperationDocumentParser {
                     } else {
                         null
                     },
+                example = mediaType["example"],
+                examples = collectExamples(mediaType["examples"], "$location/examples"),
                 extensions = mediaType.extensions(),
             )
 
