@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -38,6 +39,23 @@ class SourceHeaderModelSchemaCollectorTest {
         val document = SourceOpenApiDocumentParser.parse(sequentialHeaderOpenApi(componentHeader))
 
         assertThat(document.modelSchemas.keys).containsExactly("EventStreamItem")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2"])
+    fun `collects encoding header schemas`(version: String) {
+        val document = SourceOpenApiDocumentParser.parse(encodingHeaderOpenApi(version))
+
+        assertThat(document.modelSchemas.keys).containsExactly("PostUploadsRequest", "Checksum")
+        assertThat(document.modelSchemas.getValue("Checksum").location)
+            .isEqualTo("#/paths/~1uploads/post/requestBody/content/multipart~1form-data/encoding/file/headers/Checksum/schema")
+    }
+
+    @Test
+    fun `collects nested and positional OpenAPI 32 encoding header schemas`() {
+        val document = SourceOpenApiDocumentParser.parse(nestedEncodingHeaderOpenApi)
+
+        assertThat(document.modelSchemas.keys).containsExactly("MultipartEventsItem", "Item", "Nested", "Prefix")
     }
 
     private fun openApi(version: String) =
@@ -144,4 +162,70 @@ class SourceHeaderModelSchemaCollectorTest {
                                   eventId: { type: string }
             """.trimIndent()
         }
+
+    private fun encodingHeaderOpenApi(version: String) =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /uploads:
+            post:
+              requestBody:
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      properties:
+                        file: { type: string, format: binary }
+                    encoding:
+                      file:
+                        headers:
+                          Checksum:
+                            schema:
+                              type: object
+                              properties:
+                                value: { type: string }
+              responses:
+                '204': { description: Success }
+        """.trimIndent()
+
+    private val nestedEncodingHeaderOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          mediaTypes:
+            MultipartEvents:
+              itemSchema:
+                type: object
+                properties:
+                  value: { type: string }
+              itemEncoding:
+                headers:
+                  Item:
+                    schema:
+                      type: object
+                      properties:
+                        itemValue: { type: string }
+                encoding:
+                  nested:
+                    headers:
+                      Nested:
+                        schema:
+                          type: object
+                          properties:
+                            nestedValue: { type: string }
+                prefixEncoding:
+                  - headers:
+                      Prefix:
+                        schema:
+                          type: object
+                          properties:
+                            prefixValue: { type: string }
+        """.trimIndent()
 }

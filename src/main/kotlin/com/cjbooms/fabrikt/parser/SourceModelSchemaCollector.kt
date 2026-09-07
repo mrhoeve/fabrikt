@@ -22,10 +22,11 @@ internal object SourceModelSchemaCollector {
             if (version?.isAtLeast(3, 2) == true) {
                 val mediaTypes = components.path("mediaTypes")
                 if (mediaTypes.isObject) {
-                    mediaTypes.properties().forEach { (name, _) ->
+                    mediaTypes.properties().forEach { (name, mediaType) ->
                         val mediaTypeLocation = "#/components/mediaTypes/${name.toJsonPointerToken()}"
                         schemaEntryPoints["$mediaTypeLocation/schema"]?.let { register(name, it) }
                         schemaEntryPoints["$mediaTypeLocation/itemSchema"]?.let { register("$name Item".toModelClassName(), it) }
+                        collectMediaTypeEncodingHeaders(mediaType, mediaTypeLocation, schemaEntryPoints)
                     }
                 }
             }
@@ -239,12 +240,55 @@ internal object SourceModelSchemaCollector {
     ) {
         if (!content.isObject) return
         val mediaTypes = content.properties().toList()
-        mediaTypes.forEach { (mediaType, _) ->
+        mediaTypes.forEach { (mediaType, mediaTypeObject) ->
             val mediaTypeLocation = "$location/${mediaType.toJsonPointerToken()}"
             val modelName = name(mediaType, mediaTypes.size > 1)
             schemaEntryPoints["$mediaTypeLocation/schema"]?.let { register(modelName, it) }
             schemaEntryPoints["$mediaTypeLocation/itemSchema"]?.let { register("$modelName Item".toModelClassName(), it) }
+            collectMediaTypeEncodingHeaders(mediaTypeObject, mediaTypeLocation, schemaEntryPoints)
         }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectMediaTypeEncodingHeaders(
+        mediaType: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        collectEncodingMap(mediaType.path("encoding"), "$location/encoding", schemaEntryPoints)
+        collectEncodingArray(mediaType.path("prefixEncoding"), "$location/prefixEncoding", schemaEntryPoints)
+        collectEncoding(mediaType.path("itemEncoding"), "$location/itemEncoding", schemaEntryPoints)
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectEncodingMap(
+        encodings: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!encodings.isObject) return
+        encodings.properties().forEach { (name, encoding) ->
+            collectEncoding(encoding, "$location/${name.toJsonPointerToken()}", schemaEntryPoints)
+        }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectEncodingArray(
+        encodings: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!encodings.isArray) return
+        encodings.forEachIndexed { index, encoding -> collectEncoding(encoding, "$location/$index", schemaEntryPoints) }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectEncoding(
+        encoding: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!encoding.isObject) return
+        collectHeaders(encoding.path("headers"), "$location/headers", schemaEntryPoints)
+        collectEncodingMap(encoding.path("encoding"), "$location/encoding", schemaEntryPoints)
+        collectEncodingArray(encoding.path("prefixEncoding"), "$location/prefixEncoding", schemaEntryPoints)
+        collectEncoding(encoding.path("itemEncoding"), "$location/itemEncoding", schemaEntryPoints)
     }
 
     private fun MutableMap<String, SourceSchema>.register(
