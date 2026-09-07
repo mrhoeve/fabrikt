@@ -49,6 +49,28 @@ class SourceResponseParserTest {
         assertThat(operations[1].responses!!.values).isEmpty()
     }
 
+    @Test
+    fun `models reusable responses and references`() {
+        val document = SourceOpenApiDocumentParser.parse(reusableResponseOpenApi)
+
+        assertThat(document.operations.reusableResponses).containsOnlyKeys("Subject~/Response", "Alias")
+        val response = document.operations.reusableResponses.getValue("Subject~/Response")
+        assertThat(response.location).isEqualTo("#/components/responses/Subject~0~1Response")
+        assertThat(response.key).isEqualTo("Subject~/Response")
+        assertThat(response.description).isEqualTo("Subject response")
+        assertThat(response.content.single().schema)
+            .isSameAs(
+                document.schemaEntryPoints.getValue(
+                    "#/components/responses/Subject~0~1Response/content/application~1json/schema",
+                ),
+            )
+        assertThat(
+            document.operations.reusableResponses
+                .getValue("Alias")
+                .reference,
+        ).isEqualTo("#/components/responses/Subject~0~1Response")
+    }
+
     private val responseOpenApi =
         """
         openapi: 3.1.2
@@ -91,5 +113,24 @@ class SourceResponseParserTest {
             post: {}
             get:
               responses: {}
+        """.trimIndent()
+
+    private val reusableResponseOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          responses:
+            Subject~/Response:
+              description: Subject response
+              content:
+                application/json:
+                  schema:
+                    type: object
+            Alias:
+              ${'$'}ref: '#/components/responses/Subject~0~1Response'
         """.trimIndent()
 }
