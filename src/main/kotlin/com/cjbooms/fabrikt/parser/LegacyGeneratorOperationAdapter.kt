@@ -19,6 +19,7 @@ internal class LegacyGeneratorOperationAdapter {
 
     fun adapt(api: OpenApi3): GeneratorOperationDocument =
         GeneratorOperationDocument(
+            serverUrl = api.servers.firstOrNull()?.url,
             basePath =
                 api.servers
                     .firstOrNull()
