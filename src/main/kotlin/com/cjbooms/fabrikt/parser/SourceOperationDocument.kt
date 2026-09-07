@@ -14,7 +14,9 @@ internal data class SourceOperationDocument(
     val reusableHeaders: Map<String, SourceHeader>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
     val reusableSecuritySchemes: Map<String, SourceSecurityScheme>,
-)
+) {
+    fun effectiveSecurityFor(operation: SourceOperation): SourceSecurityRequirements? = operation.security ?: security
+}
 
 internal data class SourcePathItem(
     val location: String,
