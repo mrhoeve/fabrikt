@@ -8,6 +8,8 @@ internal data class SourceOperationDocument(
     val reusablePathItems: Map<String, SourcePathItem>,
     val reusableCallbacks: Map<String, SourceCallback>,
     val reusableParameters: Map<String, SourceParameter>,
+    val reusableRequestBodies: Map<String, SourceRequestBody>,
+    val reusableMediaTypes: Map<String, SourceMediaType>,
 )
 
 internal data class SourcePathItem(
@@ -125,7 +127,43 @@ internal object SourceOperationDocumentParser {
                         root.path("components").path("parameters"),
                         "#/components/parameters",
                     ),
+                reusableRequestBodies =
+                    collectNamedRequestBodies(
+                        root.path("components").path("requestBodies"),
+                        "#/components/requestBodies",
+                    ),
+                reusableMediaTypes =
+                    if (supportsOpenApi32) {
+                        collectNamedMediaTypes(
+                            root.path("components").path("mediaTypes"),
+                            "#/components/mediaTypes",
+                        )
+                    } else {
+                        emptyMap()
+                    },
             )
+
+        private fun collectNamedRequestBodies(
+            requestBodies: JsonNode,
+            location: String,
+        ): Map<String, SourceRequestBody> {
+            if (!requestBodies.isObject) return emptyMap()
+
+            return requestBodies.properties().associate { (name, requestBody) ->
+                name to checkNotNull(collectRequestBody(requestBody, "$location/${name.toJsonPointerToken()}"))
+            }
+        }
+
+        private fun collectNamedMediaTypes(
+            mediaTypes: JsonNode,
+            location: String,
+        ): Map<String, SourceMediaType> {
+            if (!mediaTypes.isObject) return emptyMap()
+
+            return mediaTypes.properties().associate { (name, mediaType) ->
+                name to collectMediaType(mediaType, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
 
         private fun collectNamedParameters(
             parameters: JsonNode,
@@ -316,17 +354,24 @@ internal object SourceOperationDocumentParser {
 
             return content.properties().map { (mediaType, mediaTypeObject) ->
                 val mediaTypeLocation = "$location/${mediaType.toJsonPointerToken()}"
-                SourceMediaType(
-                    location = mediaTypeLocation,
-                    key = mediaType,
-                    node = mediaTypeObject,
-                    reference = mediaTypeObject.text("\$ref"),
-                    schema = schemaEntryPoints["$mediaTypeLocation/schema"],
-                    itemSchema = schemaEntryPoints["$mediaTypeLocation/itemSchema"],
-                    extensions = mediaTypeObject.extensions(),
-                )
+                collectMediaType(mediaTypeObject, mediaTypeLocation, mediaType)
             }
         }
+
+        private fun collectMediaType(
+            mediaType: JsonNode,
+            location: String,
+            key: String,
+        ): SourceMediaType =
+            SourceMediaType(
+                location = location,
+                key = key,
+                node = mediaType,
+                reference = mediaType.text("\$ref"),
+                schema = schemaEntryPoints["$location/schema"],
+                itemSchema = schemaEntryPoints["$location/itemSchema"],
+                extensions = mediaType.extensions(),
+            )
 
         private fun parseParameterPlacement(value: String): SourceParameterPlacement {
             val fixed = FIXED_PARAMETER_PLACEMENTS_BY_VALUE[value]
