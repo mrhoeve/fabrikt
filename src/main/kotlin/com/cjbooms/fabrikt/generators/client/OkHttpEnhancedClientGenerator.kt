@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.client
 
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.functionName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toClassName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
@@ -21,13 +22,16 @@ import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
+import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.github.javaparser.utils.CodeGenerationUtils
-import com.reprezen.kaizen.oasparser.model3.Operation
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
 import com.squareup.kotlinpoet.TypeSpec
 import com.squareup.kotlinpoet.asTypeName
@@ -39,6 +43,16 @@ class OkHttpEnhancedClientGenerator(
     private val srcPath: Path = Destinations.MAIN_KT_SOURCE,
 ) {
     private val multipartParameterToSpecBuilder = ClientGeneratorUtils.MultipartParameterToSpecBuilder(packages.client)
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        srcPath: Path,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api, srcPath) {
+        this.generatorContext = generatorContext
+    }
 
     fun generateDynamicClientCode(options: Set<ClientCodeGenOptionType>): Collection<ClientType> =
         options.ifResilience4jIsEnabled {
@@ -46,7 +60,7 @@ class OkHttpEnhancedClientGenerator(
         }
 
     private fun generateResilience4jClientCode(options: Set<ClientCodeGenOptionType>): Collection<ClientType> =
-        api
+        generatorContext?.let { generateResilience4jClientCode(it, options) } ?: api
             .groupedClientPaths(options)
             .map { (resourceName, paths) ->
                 val funSpecs: List<FunSpec> =
@@ -73,9 +87,7 @@ class OkHttpEnhancedClientGenerator(
                                         .build(),
                                 ).addCode(
                                     Resilience4jClientOperationStatement(
-                                        resource,
-                                        verb,
-                                        operation,
+                                        functionName(operation, resource, verb),
                                         parameters,
                                     ).toStatement(),
                                 ).returns(operation.toClientReturnType(packages))
@@ -85,6 +97,46 @@ class OkHttpEnhancedClientGenerator(
 
                 generateCircuitBreakerClientCode(resourceName, funSpecs)
             }.toSet()
+
+    private fun generateResilience4jClientCode(
+        context: GeneratorEndpointContext,
+        options: Set<ClientCodeGenOptionType>,
+    ): Collection<ClientType> {
+        val strategy =
+            if (ClientCodeGenOptionType.GROUP_BY_TAG in options) GroupingStrategy.BY_FIRST_TAG else GroupingStrategy.BY_FIRST_PATH_SEGMENT
+        return context
+            .groupedPaths(strategy)
+            .map { (resourceName, paths) ->
+                val functions = paths.flatMap { path -> path.operations.map { buildFunction(context, path, it) } }
+                generateCircuitBreakerClientCode(resourceName, functions)
+            }.toSet()
+    }
+
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+    ): FunSpec {
+        val parameters = context.clientParameters(operation, path)
+        val functionName = context.functionName(operation, path.path)
+        val returnType = context.successResponseType(operation, packages.base)
+        return FunSpec
+            .builder(functionName)
+            .addModifiers(KModifier.PUBLIC)
+            .addAnnotation(
+                AnnotationSpec.builder(Throws::class).addMember("%T::class", "ApiException".toClassName(packages.client)).build(),
+            ).addIncomingParameters(parameters, multipartParameterToSpecBuilder = multipartParameterToSpecBuilder.toSpecBuilder())
+            .addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_HEADERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).defaultValue("emptyMap()")
+                    .build(),
+            ).addCode(Resilience4jClientOperationStatement(functionName, parameters).toStatement())
+            .returns("ApiResponse".toClassName(packages.client).parameterizedBy(returnType))
+            .build()
+    }
 
     private fun generateCircuitBreakerClientCode(
         resourceName: String,
@@ -176,9 +228,7 @@ class OkHttpEnhancedClientGenerator(
 }
 
 class Resilience4jClientOperationStatement(
-    private val resource: String,
-    private val verb: String,
-    private val operation: Operation,
+    private val functionName: String,
     private val parameters: List<IncomingParameter>,
 ) {
     fun toStatement(): CodeBlock =
@@ -197,7 +247,7 @@ class Resilience4jClientOperationStatement(
     private fun CodeBlock.Builder.addClientCallStatement(parameters: List<IncomingParameter>): CodeBlock.Builder {
         this.add(
             "apiClient.%N(%L)",
-            functionName(operation, resource, verb),
+            functionName,
             (parameters.map { it.name } + ADDITIONAL_HEADERS_PARAMETER_NAME).joinToString(","),
         )
         return this
