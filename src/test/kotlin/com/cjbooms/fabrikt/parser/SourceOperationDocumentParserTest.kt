@@ -48,6 +48,66 @@ class SourceOperationDocumentParserTest {
         ).containsExactly("DELETE", "GET")
     }
 
+    @Test
+    fun `collects webhooks callbacks and reusable operation definitions in OpenAPI 3_1`() {
+        val operations = SourceOpenApiDocumentParser.parse(modernOperationContainersOpenApi).operations
+
+        assertThat(operations.webhooks.map(SourcePathItem::key)).containsExactly("subject~changed")
+        val webhook = operations.webhooks.single()
+        assertThat(webhook.kind).isEqualTo(SourcePathItemKind.WEBHOOK)
+        assertThat(webhook.location).isEqualTo("#/webhooks/subject~0changed")
+        assertThat(webhook.operations.single().operationId).isEqualTo("subjectChanged")
+
+        val callback =
+            operations.paths
+                .single()
+                .operations
+                .single()
+                .callbacks
+                .single()
+        assertThat(callback.location).isEqualTo("#/paths/~1subjects/post/callbacks/updates")
+        assertThat(callback.name).isEqualTo("updates")
+        assertThat(callback.reference).isNull()
+        assertThat(callback.pathItems.map(SourcePathItem::key)).containsExactly("{${'$'}request.body#/~callbackUrl}")
+        assertThat(callback.pathItems.single().kind).isEqualTo(SourcePathItemKind.CALLBACK)
+        assertThat(
+            callback.pathItems
+                .single()
+                .operations
+                .single()
+                .operationId,
+        ).isEqualTo("receiveUpdate")
+
+        val reusablePathItem = operations.reusablePathItems.getValue("Subjects")
+        assertThat(reusablePathItem.kind).isEqualTo(SourcePathItemKind.REUSABLE_PATH_ITEM)
+        assertThat(reusablePathItem.operations.single().operationId).isEqualTo("listSubjects")
+
+        val reusableCallback = operations.reusableCallbacks.getValue("Audit")
+        assertThat(reusableCallback.pathItems.single().kind).isEqualTo(SourcePathItemKind.REUSABLE_CALLBACK)
+        assertThat(
+            reusableCallback.pathItems
+                .single()
+                .operations
+                .single()
+                .operationId,
+        ).isEqualTo("recordAudit")
+        assertThat(operations.reusableCallbacks.getValue("Referenced").reference)
+            .isEqualTo("#/components/callbacks/Audit")
+        assertThat(operations.reusableCallbacks.getValue("Referenced").pathItems).isEmpty()
+    }
+
+    @Test
+    fun `keeps OpenAPI 3_1 operation containers out of OpenAPI 3_0`() {
+        val operations =
+            SourceOpenApiDocumentParser
+                .parse(modernOperationContainersOpenApi.replace("openapi: 3.1.2", "openapi: 3.0.4"))
+                .operations
+
+        assertThat(operations.webhooks).isEmpty()
+        assertThat(operations.reusablePathItems).isEmpty()
+        assertThat(operations.reusableCallbacks).containsOnlyKeys("Audit", "Referenced")
+    }
+
     private val pathOperationsOpenApi =
         """
         openapi: 3.1.2
@@ -88,5 +148,45 @@ class SourceOperationDocumentParserTest {
           /a-first:
             post:
               responses: {}
+        """.trimIndent()
+
+    private val modernOperationContainersOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              operationId: createSubject
+              callbacks:
+                updates:
+                  '{${'$'}request.body#/~callbackUrl}':
+                    post:
+                      operationId: receiveUpdate
+                      responses: {}
+                  x-ignore: true
+              responses: {}
+        webhooks:
+          subject~changed:
+            post:
+              operationId: subjectChanged
+              responses: {}
+        components:
+          pathItems:
+            Subjects:
+              get:
+                operationId: listSubjects
+                responses: {}
+          callbacks:
+            Audit:
+              '{${'$'}request.body#/~auditUrl}':
+                post:
+                  operationId: recordAudit
+                  responses: {}
+              x-ignore: true
+            Referenced:
+              ${'$'}ref: '#/components/callbacks/Audit'
         """.trimIndent()
 }
