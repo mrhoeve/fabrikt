@@ -50,6 +50,7 @@ internal object SourceModelSchemaCollector {
                             version,
                             schemaEntryPoints,
                             pathsOnly = false,
+                            operationNamePrefix = name,
                         )
                     }
                 }
@@ -108,13 +109,22 @@ internal object SourceModelSchemaCollector {
         version: OpenApiVersion?,
         schemaEntryPoints: Map<String, SourceSchema>,
         pathsOnly: Boolean,
+        operationNamePrefix: String? = null,
     ) {
         if (!pathItems.isObject) return
         pathItems.properties().filter { (path, _) -> !pathsOnly || path.startsWith('/') }.forEach { (path, pathItem) ->
             val pathLocation = "$location/${path.toJsonPointerToken()}"
             collectParameters(pathItem.path("parameters"), "$pathLocation/parameters", schemaEntryPoints)
             operationNames(version).forEach { method ->
-                collectOperation(pathItem.path(method), "$pathLocation/$method", method, path, version, schemaEntryPoints)
+                collectOperation(
+                    pathItem.path(method),
+                    "$pathLocation/$method",
+                    method,
+                    path,
+                    version,
+                    schemaEntryPoints,
+                    operationNamePrefix,
+                )
             }
             if (version?.isAtLeast(3, 2) == true) {
                 val additionalOperations = pathItem.path("additionalOperations")
@@ -127,6 +137,7 @@ internal object SourceModelSchemaCollector {
                             path,
                             version,
                             schemaEntryPoints,
+                            operationNamePrefix,
                         )
                     }
                 }
@@ -141,6 +152,7 @@ internal object SourceModelSchemaCollector {
         path: String,
         version: OpenApiVersion?,
         schemaEntryPoints: Map<String, SourceSchema>,
+        operationNamePrefix: String?,
     ) {
         if (!operation.isObject) return
         val operationName =
@@ -150,7 +162,9 @@ internal object SourceModelSchemaCollector {
                 ?.textValue()
                 ?.takeIf(String::isNotBlank)
                 ?.toModelClassName()
-                ?: "$method $path".toModelClassName()
+                ?: listOfNotNull(operationNamePrefix, method, path.takeIf { operationNamePrefix == null })
+                    .joinToString(" ")
+                    .toModelClassName()
         collectParameters(operation.path("parameters"), "$location/parameters", schemaEntryPoints)
         collectContentSchemas(
             content = operation.path("requestBody").path("content"),
@@ -190,6 +204,7 @@ internal object SourceModelSchemaCollector {
                         version = version,
                         schemaEntryPoints = schemaEntryPoints,
                         pathsOnly = false,
+                        operationNamePrefix = "$operationName $callbackName",
                     )
                 }
             }

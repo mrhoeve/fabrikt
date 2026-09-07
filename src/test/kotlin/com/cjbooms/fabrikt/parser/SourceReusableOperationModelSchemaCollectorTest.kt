@@ -57,6 +57,13 @@ class SourceReusableOperationModelSchemaCollectorTest {
             )
     }
 
+    @Test
+    fun `uses callback context when an operation id is absent`() {
+        val document = SourceOpenApiDocumentParser.parse(callbackWithoutOperationIdOpenApi)
+
+        assertThat(document.modelSchemas.keys).containsExactly("EventCallbackPostRequest")
+    }
+
     private fun callbackOpenApi(version: String) =
         """
         openapi: $version
@@ -195,5 +202,28 @@ class SourceReusableOperationModelSchemaCollectorTest {
                             sourceId: { type: string }
                   responses:
                     '204': { description: Copied }
+        """.trimIndent()
+
+    private val callbackWithoutOperationIdOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          callbacks:
+            EventCallback:
+              '{${'$'}request.body#/callbackUrl}':
+                post:
+                  requestBody:
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          properties:
+                            eventId: { type: string }
+                  responses:
+                    '204': { description: Received }
         """.trimIndent()
 }
