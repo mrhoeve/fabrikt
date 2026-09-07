@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.groupingStrategyFrom
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKdoc
@@ -24,6 +25,8 @@ import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.util.FileUtils.addFileDisclaimer
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.groupedPaths
@@ -56,14 +59,41 @@ class SpringControllerInterfaceGenerator(
     private val groupingStrategy: GroupingStrategy
         get() = groupingStrategyFrom(options)
 
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        validationAnnotations: ValidationAnnotations,
+        options: Set<ControllerCodeGenOptionType>,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api, validationAnnotations, options) {
+        this.generatorContext = generatorContext
+    }
+
     override fun generate(): SpringControllers =
         SpringControllers(
-            api.openApi3
-                .groupedPaths(groupingStrategy)
-                .map { (resourceName, paths) ->
-                    buildController(resourceName, paths.values)
-                }.toSet(),
+            generatorContext?.let(::generateControllers)
+                ?: api.openApi3
+                    .groupedPaths(groupingStrategy)
+                    .map { (resourceName, paths) ->
+                        buildController(resourceName, paths.values)
+                    }.toSet(),
         )
+
+    private fun generateControllers(context: GeneratorEndpointContext): Set<ControllerType> =
+        context
+            .groupedPaths(groupingStrategy)
+            .map { (resourceName, paths) ->
+                val builder = controllerBuilder(ControllerGeneratorUtils.controllerName(resourceName), context.operations.basePath)
+                paths
+                    .flatMap { path ->
+                        path.operations
+                            .filterNot { it.method.equals("HEAD", ignoreCase = true) }
+                            .map { operation -> buildFunction(context, path, operation) }
+                    }.forEach(builder::addFunction)
+                ControllerType(builder.build(), packages.base)
+            }.toSet()
 
     override fun generateLibrary(): Collection<ControllerLibraryType> = emptySet()
 
@@ -156,6 +186,76 @@ class SpringControllerInterfaceGenerator(
         return funcSpec.build()
     }
 
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+    ): FunSpec {
+        val returnType = context.successResponseType(operation, packages.base)
+        val parameters = context.incomingParameters(operation, path.parameters)
+        val globalSecurity = context.operations.security.securitySupport()
+        val baseFunSpec =
+            FunSpec
+                .builder(context.methodName(operation, path.path))
+                .addModifiers(KModifier.ABSTRACT)
+                .addKdoc(context.toKdoc(operation, parameters))
+                .addSpringFunAnnotation(operation, path.path)
+                .addSuspendModifier()
+
+        val explicitAsyncSupport = operation.extensions[EXTENSION_ASYNC_SUPPORT]?.takeIf { it.isBoolean }?.booleanValue()
+        val asyncSupport = explicitAsyncSupport ?: options.contains(ControllerCodeGenOptionType.COMPLETION_STAGE)
+        val funcSpec =
+            when {
+                options.contains(ControllerCodeGenOptionType.SSE_EMITTER) && context.isSseResponse(operation) ->
+                    baseFunSpec.returns(SpringImports.SSE_EMITTER)
+                asyncSupport ->
+                    baseFunSpec.returns(
+                        SpringImports.COMPLETION_STAGE.parameterizedBy(SpringImports.RESPONSE_ENTITY.parameterizedBy(returnType)),
+                    )
+                else -> baseFunSpec.returns(SpringImports.RESPONSE_ENTITY.parameterizedBy(returnType))
+            }
+
+        parameters
+            .map {
+                when (it) {
+                    is MultipartParameter ->
+                        toParameterSpecBuilder(it)
+                            .addSpringParamAnnotation(it)
+                            .maybeAddAnnotation(validationAnnotations.parameterValid())
+                            .build()
+                    is BodyParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(SpringAnnotations.requestBodyBuilder().build())
+                            .maybeAddAnnotation(validationAnnotations.parameterValid())
+                            .build()
+                    is RequestParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addValidationAnnotations(it)
+                            .addSpringParamAnnotation(it)
+                            .build()
+                }
+            }.forEach(funcSpec::addParameter)
+
+        if (addAuthenticationParameter) {
+            val security = operation.securitySupport(globalSecurity)
+            if (security.allowsAuthenticated) {
+                funcSpec.addParameter(
+                    ParameterSpec
+                        .builder(
+                            "authentication",
+                            SpringImports.AUTHENTICATION.copy(
+                                nullable =
+                                    security == ControllerGeneratorUtils.SecuritySupport.AUTHENTICATION_OPTIONAL,
+                            ),
+                        ).build(),
+                )
+            }
+        }
+        return funcSpec.build()
+    }
+
     private val springMultipartFileType = ClassName.bestGuess("org.springframework.web.multipart.MultipartFile")
     private val springMultipartFileTypeList = List::class.asClassName().parameterizedBy(springMultipartFileType)
 
@@ -204,6 +304,39 @@ class SpringControllerInterfaceGenerator(
 
         this.addAnnotation(funcAnnotation.build())
         return this
+    }
+
+    private fun FunSpec.Builder.addSpringFunAnnotation(
+        operation: GeneratorOperation,
+        path: String,
+    ): FunSpec.Builder {
+        val produces =
+            operation.responses
+                .flatMap { it.content }
+                .map { it.key }
+                .distinct()
+                .toTypedArray()
+        val consumes =
+            operation.requestBody
+                ?.content
+                ?.map { it.key }
+                .orEmpty()
+                .toTypedArray()
+        val annotation =
+            SpringAnnotations
+                .requestMappingBuilder()
+                .addMember("value = [%S]", path)
+                .addMember(
+                    "produces = %L",
+                    produces.joinToString(prefix = "[", postfix = "]", separator = ", ", transform = { "\"$it\"" }),
+                ).addMember("method = [RequestMethod.%L]", operation.method.toUpperCase())
+        if (consumes.isNotEmpty()) {
+            annotation.addMember(
+                "consumes = %L",
+                consumes.joinToString(prefix = "[", postfix = "]", separator = ", ", transform = { "\"$it\"" }),
+            )
+        }
+        return addAnnotation(annotation.build())
     }
 
     private fun ParameterSpec.Builder.addSpringParamAnnotation(parameter: RequestParameter): ParameterSpec.Builder =
