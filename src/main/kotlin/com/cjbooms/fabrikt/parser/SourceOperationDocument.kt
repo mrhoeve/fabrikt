@@ -468,6 +468,18 @@ internal object SourceOperationDocumentParser {
                 schema = schemaEntryPoints["$location/schema"],
                 itemSchema = schemaEntryPoints["$location/itemSchema"],
                 encoding = collectEncodings(mediaType["encoding"], "$location/encoding"),
+                prefixEncoding =
+                    if (supportsOpenApi32) {
+                        collectEncodingArray(mediaType["prefixEncoding"], "$location/prefixEncoding")
+                    } else {
+                        emptyList()
+                    },
+                itemEncoding =
+                    if (supportsOpenApi32) {
+                        collectOptionalEncoding(mediaType["itemEncoding"], "$location/itemEncoding")
+                    } else {
+                        null
+                    },
                 extensions = mediaType.extensions(),
             )
 
@@ -496,8 +508,42 @@ internal object SourceOperationDocumentParser {
                 style = encoding.text("style"),
                 explode = encoding.boolean("explode"),
                 allowReserved = encoding.boolean("allowReserved"),
+                encoding =
+                    if (supportsOpenApi32) {
+                        collectEncodings(encoding["encoding"], "$location/encoding")
+                    } else {
+                        emptyMap()
+                    },
+                prefixEncoding =
+                    if (supportsOpenApi32) {
+                        collectEncodingArray(encoding["prefixEncoding"], "$location/prefixEncoding")
+                    } else {
+                        emptyList()
+                    },
+                itemEncoding =
+                    if (supportsOpenApi32) {
+                        collectOptionalEncoding(encoding["itemEncoding"], "$location/itemEncoding")
+                    } else {
+                        null
+                    },
                 extensions = encoding.extensions(),
             )
+
+        private fun collectEncodingArray(
+            encodings: JsonNode?,
+            location: String,
+        ): List<SourceEncoding> {
+            if (encodings?.isArray != true) return emptyList()
+
+            return encodings.mapIndexed { index, encoding ->
+                collectEncoding(encoding, "$location/$index", null)
+            }
+        }
+
+        private fun collectOptionalEncoding(
+            encoding: JsonNode?,
+            location: String,
+        ): SourceEncoding? = encoding?.takeIf(JsonNode::isObject)?.let { collectEncoding(it, location, null) }
 
         private fun parseParameterPlacement(value: String): SourceParameterPlacement {
             val fixed = FIXED_PARAMETER_PLACEMENTS_BY_VALUE[value]

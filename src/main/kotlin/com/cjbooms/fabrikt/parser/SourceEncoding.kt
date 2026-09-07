@@ -11,5 +11,8 @@ internal data class SourceEncoding(
     val style: String?,
     val explode: Boolean?,
     val allowReserved: Boolean?,
+    val encoding: Map<String, SourceEncoding>,
+    val prefixEncoding: List<SourceEncoding>,
+    val itemEncoding: SourceEncoding?,
     val extensions: Map<String, JsonNode>,
 )
