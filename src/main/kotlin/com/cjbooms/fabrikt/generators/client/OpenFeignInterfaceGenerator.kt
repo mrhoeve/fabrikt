@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.client
 
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.functionName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.getPrimaryContentMediaType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKdoc
@@ -29,6 +30,9 @@ import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
+import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.toUpperCase
 import com.reprezen.kaizen.oasparser.model3.Operation
 import com.reprezen.kaizen.oasparser.model3.Path
@@ -45,7 +49,18 @@ class OpenFeignInterfaceGenerator(
     private val packages: Packages,
     private val api: SourceApi,
 ) : ClientGenerator {
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api) {
+        this.generatorContext = generatorContext
+    }
+
     override fun generate(options: Set<ClientCodeGenOptionType>): Clients {
+        generatorContext?.let { return generate(it, options) }
         val clientTypes =
             api
                 .groupedClientPaths(options)
@@ -80,6 +95,38 @@ class OpenFeignInterfaceGenerator(
                 }.toSet()
 
         return Clients(clientTypes)
+    }
+
+    private fun generate(
+        context: GeneratorEndpointContext,
+        options: Set<ClientCodeGenOptionType>,
+    ): Clients {
+        val strategy =
+            if (ClientCodeGenOptionType.GROUP_BY_TAG in options) GroupingStrategy.BY_FIRST_TAG else GroupingStrategy.BY_FIRST_PATH_SEGMENT
+        return Clients(
+            context
+                .groupedPaths(strategy)
+                .map { (resourceName, paths) ->
+                    val functions = paths.flatMap { path -> path.operations.map { buildFunction(context, path, it, options) } }
+                    val type =
+                        TypeSpec
+                            .interfaceBuilder(simpleClientName(resourceName))
+                            .addAnnotation(AnnotationSpec.builder(Suppress::class).addMember("%S", "unused").build())
+                            .apply {
+                                if (ClientCodeGenOptionType.SPRING_CLOUD_OPENFEIGN_STARTER_ANNOTATION in options) {
+                                    addAnnotation(
+                                        OpenFeignAnnotations
+                                            .feignClientBuilder()
+                                            .addMember("name = %S", MutableSettings.openfeignClientName)
+                                            .addMember("contextId = %S", resourceName)
+                                            .build(),
+                                    )
+                                }
+                            }.addFunctions(functions)
+                            .build()
+                    ClientType(type, packages.base)
+                }.toSet(),
+        )
     }
 
     override fun generateLibrary(options: Set<ClientCodeGenOptionType>): Collection<GeneratedFile> = emptyList()
@@ -286,6 +333,45 @@ class OpenFeignInterfaceGenerator(
         add("}.joinToString(%S)", "; ")
     }
 
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+        options: Set<ClientCodeGenOptionType>,
+    ): FunSpec {
+        val parameters = context.clientParameters(operation, path)
+        return FunSpec
+            .builder(context.functionName(operation, path.path))
+            .addModifiers(KModifier.ABSTRACT)
+            .addKdoc(context.toKdoc(operation, parameters))
+            .addRequestLineAnnotation(path.path, operation.method, parameters)
+            .addHeadersAnnotation(parameters, context.primaryResponseContentType(operation))
+            .addSuspendModifier(options)
+            .addIncomingParameters(
+                parameters,
+                annotateRequestParameterWith = { parameter ->
+                    OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.name).build()
+                },
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_HEADERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).addAnnotation(OpenFeignAnnotations.HEADER_MAP)
+                    .defaultValue("emptyMap()")
+                    .build(),
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).addAnnotation(OpenFeignAnnotations.QUERY_MAP)
+                    .defaultValue("emptyMap()")
+                    .build(),
+            ).returns(context.successResponseType(operation, packages.base).optionallyParameterizeWithResponseEntity(options))
+            .build()
+    }
+
     /**
      * Adds OpenFeign's @RequestLine annotation to the function spec
      */
@@ -406,18 +492,31 @@ class OpenFeignInterfaceGenerator(
         hasCookieHeader: Boolean,
         cookieHeaderParameterName: String,
     ): FunSpec.Builder {
-        HeadersAnnotationBuilder(operation, parameters, hasCookieHeader, cookieHeaderParameterName).build()?.let { annotation ->
+        HeadersAnnotationBuilder(
+            parameters,
+            operation.getPrimaryContentMediaType()?.key,
+            hasCookieHeader,
+            cookieHeaderParameterName,
+        ).build()?.let { annotation ->
             addAnnotation(annotation)
         }
 
         return this
     }
 
+    private fun FunSpec.Builder.addHeadersAnnotation(
+        parameters: List<IncomingParameter>,
+        defaultAcceptContentType: String?,
+    ): FunSpec.Builder =
+        apply {
+            HeadersAnnotationBuilder(parameters, defaultAcceptContentType).build()?.let(::addAnnotation)
+        }
+
     private class HeadersAnnotationBuilder(
-        private val operation: Operation,
         private val parameters: List<IncomingParameter>,
-        private val hasCookieHeader: Boolean,
-        private val cookieHeaderParameterName: String,
+        private val defaultAcceptContentType: String?,
+        private val hasCookieHeader: Boolean = false,
+        private val cookieHeaderParameterName: String = "cookieHeader",
     ) {
         fun build(): AnnotationSpec? {
             val headersValueParts = mutableListOf<String>()
@@ -472,7 +571,7 @@ class OpenFeignInterfaceGenerator(
         }
 
         private fun getDefaultAcceptHeaderAnnotationValue(): String? =
-            operation.getPrimaryContentMediaType()?.key?.let { mediaType ->
+            defaultAcceptContentType?.let { mediaType ->
                 buildCodeBlock {
                     add(
                         "%L",
