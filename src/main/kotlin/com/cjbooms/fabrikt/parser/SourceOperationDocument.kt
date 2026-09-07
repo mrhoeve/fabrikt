@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.parser
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class SourceOperationDocument(
+    val externalDocumentation: SourceExternalDocumentation?,
     val servers: SourceServers?,
     val security: SourceSecurityRequirements?,
     val paths: List<SourcePathItem>,
@@ -55,6 +56,7 @@ internal data class SourceOperation(
     val description: String?,
     val tags: List<String>,
     val deprecated: Boolean,
+    val externalDocumentation: SourceExternalDocumentation?,
     val servers: SourceServers?,
     val security: SourceSecurityRequirements?,
     val extensions: Map<String, JsonNode>,
@@ -115,6 +117,7 @@ internal object SourceOperationDocumentParser {
     ) {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
+                externalDocumentation = collectExternalDocumentation(root["externalDocs"], "#/externalDocs"),
                 servers = collectServers(root["servers"], "#/servers"),
                 security = collectSecurityRequirements(root["security"], "#/security"),
                 paths = collectPathItemMap(root["paths"], "#/paths", SourcePathItemKind.PATH, pathsOnly = true),
@@ -175,6 +178,21 @@ internal object SourceOperationDocumentParser {
                         "#/components/securitySchemes",
                     ),
             )
+
+        private fun collectExternalDocumentation(
+            externalDocumentation: JsonNode?,
+            location: String,
+        ): SourceExternalDocumentation? {
+            if (externalDocumentation?.isObject != true) return null
+
+            return SourceExternalDocumentation(
+                location = location,
+                node = externalDocumentation,
+                description = externalDocumentation.text("description"),
+                url = externalDocumentation.text("url"),
+                extensions = externalDocumentation.extensions(),
+            )
+        }
 
         private fun collectServers(
             servers: JsonNode?,
@@ -499,6 +517,7 @@ internal object SourceOperationDocumentParser {
                 description = operation.text("description"),
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
+                externalDocumentation = collectExternalDocumentation(operation["externalDocs"], "$location/externalDocs"),
                 servers = collectServers(operation["servers"], "$location/servers"),
                 security = collectSecurityRequirements(operation["security"], "$location/security"),
                 extensions = operation.extensions(),
