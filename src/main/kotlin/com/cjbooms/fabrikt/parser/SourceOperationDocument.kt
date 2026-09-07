@@ -13,6 +13,7 @@ internal data class SourceOperationDocument(
     val reusableResponses: Map<String, SourceResponse>,
     val reusableHeaders: Map<String, SourceHeader>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
+    val reusableSecuritySchemes: Map<String, SourceSecurityScheme>,
 )
 
 internal data class SourcePathItem(
@@ -157,7 +158,59 @@ internal object SourceOperationDocumentParser {
                     } else {
                         emptyMap()
                     },
+                reusableSecuritySchemes =
+                    collectNamedSecuritySchemes(
+                        root.path("components").path("securitySchemes"),
+                        "#/components/securitySchemes",
+                    ),
             )
+
+        private fun collectNamedSecuritySchemes(
+            securitySchemes: JsonNode,
+            location: String,
+        ): Map<String, SourceSecurityScheme> {
+            if (!securitySchemes.isObject) return emptyMap()
+
+            return securitySchemes.properties().associate { (name, securityScheme) ->
+                name to collectSecurityScheme(securityScheme, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
+
+        private fun collectSecurityScheme(
+            securityScheme: JsonNode,
+            location: String,
+            key: String,
+        ): SourceSecurityScheme =
+            SourceSecurityScheme(
+                location = location,
+                key = key,
+                node = securityScheme,
+                reference = securityScheme.text("\$ref"),
+                type = securityScheme.text("type")?.let(::parseSecuritySchemeType),
+                description = securityScheme.text("description"),
+                name = securityScheme.text("name"),
+                placement = securityScheme.text("in")?.let(::parseApiKeyPlacement),
+                scheme = securityScheme.text("scheme"),
+                bearerFormat = securityScheme.text("bearerFormat"),
+                openIdConnectUrl = securityScheme.text("openIdConnectUrl"),
+                oauth2MetadataUrl = if (supportsOpenApi32) securityScheme.text("oauth2MetadataUrl") else null,
+                deprecated = supportsOpenApi32 && securityScheme.boolean("deprecated") == true,
+                extensions = securityScheme.extensions(),
+            )
+
+        private fun parseSecuritySchemeType(value: String): SourceSecuritySchemeType {
+            val fixed = FIXED_SECURITY_SCHEME_TYPES_BY_VALUE[value]
+            return if (fixed == null || fixed == SourceFixedSecuritySchemeType.MUTUAL_TLS && !supportsOpenApi31) {
+                SourceSecuritySchemeType.Unrecognised(value)
+            } else {
+                SourceSecuritySchemeType.Fixed(fixed)
+            }
+        }
+
+        private fun parseApiKeyPlacement(value: String): SourceApiKeyPlacement =
+            FIXED_API_KEY_PLACEMENTS_BY_VALUE[value]
+                ?.let(SourceApiKeyPlacement::Fixed)
+                ?: SourceApiKeyPlacement.Unrecognised(value)
 
         private fun collectNamedHeaders(
             headers: JsonNode,
@@ -652,7 +705,14 @@ internal object SourceOperationDocumentParser {
             val FIXED_METHODS_BY_FIELD = SourceFixedOperationMethod.entries.associateBy(SourceFixedOperationMethod::fieldName)
             val FIXED_PARAMETER_PLACEMENTS_BY_VALUE =
                 SourceFixedParameterPlacement.entries.associateBy(SourceFixedParameterPlacement::value)
+            val FIXED_SECURITY_SCHEME_TYPES_BY_VALUE =
+                SourceFixedSecuritySchemeType.entries.associateBy(SourceFixedSecuritySchemeType::value)
+            val FIXED_API_KEY_PLACEMENTS_BY_VALUE =
+                SourceFixedApiKeyPlacement.entries.associateBy(SourceFixedApiKeyPlacement::value)
         }
+
+        private val supportsOpenApi31: Boolean
+            get() = version?.isAtLeast(3, 1) == true
 
         private val supportsOpenApi32: Boolean
             get() = version?.isAtLeast(3, 2) == true
