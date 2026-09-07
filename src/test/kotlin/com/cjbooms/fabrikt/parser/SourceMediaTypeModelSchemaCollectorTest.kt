@@ -24,6 +24,20 @@ class SourceMediaTypeModelSchemaCollectorTest {
         assertThat(document.modelSchemas).isEmpty()
     }
 
+    @Test
+    fun `collects component container media schemas without dropping alternatives`() {
+        val document = SourceOpenApiDocumentParser.parse(componentContainerMediaOpenApi)
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly(
+                "StreamParameterItem",
+                "BatchInput",
+                "BatchInputItem",
+                "EventPageApplicationJson",
+                "EventPageApplicationXml",
+            )
+    }
+
     private fun componentMediaTypesOpenApi(version: String) =
         """
         openapi: $version
@@ -49,5 +63,53 @@ class SourceMediaTypeModelSchemaCollectorTest {
                 type: object
                 properties:
                   value: { type: string }
+        """.trimIndent()
+
+    private val componentContainerMediaOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          parameters:
+            StreamParameter:
+              name: events
+              in: query
+              content:
+                application/json-seq:
+                  itemSchema:
+                    type: object
+                    properties:
+                      eventId: { type: string }
+          requestBodies:
+            BatchInput:
+              content:
+                application/json-seq:
+                  schema:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        completeId: { type: string }
+                  itemSchema:
+                    type: object
+                    properties:
+                      itemId: { type: string }
+          responses:
+            EventPage:
+              description: Events
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      jsonValue: { type: string }
+                application/xml:
+                  schema:
+                    type: object
+                    properties:
+                      xmlValue: { type: string }
         """.trimIndent()
 }

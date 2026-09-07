@@ -13,31 +13,19 @@ internal object SourceModelSchemaCollector {
         buildMap {
             putAll(componentSchemas)
             val components = root.path("components")
-            val componentTypes =
-                buildList {
-                    addAll(listOf("parameters", "headers", "requestBodies", "responses"))
-                    if (version?.isAtLeast(3, 2) == true) add("mediaTypes")
-                }
-            componentTypes.forEach { componentType ->
-                val entries = components.path(componentType)
-                if (entries.isObject) {
-                    entries.properties().forEach { (name, _) ->
-                        val prefix = "#/components/$componentType/${name.toJsonPointerToken()}"
-                        schemaEntryPoints.entries
-                            .firstOrNull { (location, _) ->
-                                location == "$prefix/schema" ||
-                                    (location.startsWith("$prefix/content/") && location.endsWith("/schema"))
-                            }?.value
-                            ?.let { putIfAbsent(name, it) }
-                    }
-                }
+            listOf("parameters", "headers").forEach { componentType ->
+                collectComponentSchemaOrContent(components.path(componentType), "#/components/$componentType", schemaEntryPoints)
+            }
+            listOf("requestBodies", "responses").forEach { componentType ->
+                collectComponentContent(components.path(componentType), "#/components/$componentType", schemaEntryPoints)
             }
             if (version?.isAtLeast(3, 2) == true) {
                 val mediaTypes = components.path("mediaTypes")
                 if (mediaTypes.isObject) {
                     mediaTypes.properties().forEach { (name, _) ->
-                        schemaEntryPoints["#/components/mediaTypes/${name.toJsonPointerToken()}/itemSchema"]
-                            ?.let { register("$name Item".toModelClassName(), it) }
+                        val mediaTypeLocation = "#/components/mediaTypes/${name.toJsonPointerToken()}"
+                        schemaEntryPoints["$mediaTypeLocation/schema"]?.let { register(name, it) }
+                        schemaEntryPoints["$mediaTypeLocation/itemSchema"]?.let { register("$name Item".toModelClassName(), it) }
                     }
                 }
             }
@@ -56,6 +44,39 @@ internal object SourceModelSchemaCollector {
                 collectPathItems(root.path("webhooks"), "#/webhooks", version, schemaEntryPoints, pathsOnly = false)
             }
         }
+
+    private fun MutableMap<String, SourceSchema>.collectComponentSchemaOrContent(
+        components: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!components.isObject) return
+        components.properties().forEach { (name, component) ->
+            val componentLocation = "$location/${name.toJsonPointerToken()}"
+            val schema = schemaEntryPoints["$componentLocation/schema"]
+            if (schema != null) {
+                register(name, schema)
+            } else {
+                collectContentSchemas(component.path("content"), "$componentLocation/content", schemaEntryPoints) { mediaType, multiple ->
+                    listOfNotNull(name, mediaType.takeIf { multiple }).joinToString(" ").toModelClassName()
+                }
+            }
+        }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectComponentContent(
+        components: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!components.isObject) return
+        components.properties().forEach { (name, component) ->
+            val componentLocation = "$location/${name.toJsonPointerToken()}"
+            collectContentSchemas(component.path("content"), "$componentLocation/content", schemaEntryPoints) { mediaType, multiple ->
+                listOfNotNull(name, mediaType.takeIf { multiple }).joinToString(" ").toModelClassName()
+            }
+        }
+    }
 
     private fun MutableMap<String, SourceSchema>.collectPathItems(
         pathItems: JsonNode,
