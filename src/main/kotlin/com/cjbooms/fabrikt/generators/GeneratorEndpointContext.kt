@@ -298,11 +298,16 @@ internal class GeneratorEndpointContext(
     }
 
     private fun GeneratorOperation.successResponses(): List<GeneratorResponse> =
-        responses.filter { it.status.toIntOrNull()?.let { status -> status in 200..399 } == true && it.content.isNotEmpty() }
+        responses.filter {
+            it.status
+                .replace('X', '0')
+                .toIntOrNull()
+                ?.let { status -> status in 200..299 } == true &&
+                it.content.isNotEmpty()
+        }
 
     private fun GeneratorOperation.primarySuccessResponse(): GeneratorResponse? =
-        responses
-            .filterNot { it.status == "default" }
+        successResponses()
             .mapNotNull { response ->
                 response.status
                     .replace('X', '0')
