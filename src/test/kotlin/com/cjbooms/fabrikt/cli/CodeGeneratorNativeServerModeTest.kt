@@ -8,8 +8,10 @@ import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import java.nio.file.Paths
+import java.util.stream.Stream
 
 class CodeGeneratorNativeServerModeTest {
     @Test
@@ -43,8 +45,11 @@ class CodeGeneratorNativeServerModeTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ControllerCodeGenTargetType::class)
-    fun `generates usable server contracts from native operations`(target: ControllerCodeGenTargetType) {
+    @MethodSource("nativeServerConfigurations")
+    fun `generates usable server contracts from native operations`(
+        version: String,
+        target: ControllerCodeGenTargetType,
+    ) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
             controllerTarget = target,
@@ -53,7 +58,7 @@ class CodeGeneratorNativeServerModeTest {
         val generated =
             CodeGenerator(
                 Packages("com.example"),
-                SourceApi(openApi),
+                SourceApi(openApi.replace("VERSION", version)),
                 Paths.get(""),
                 Paths.get(""),
                 SchemaGenerationMode.NATIVE,
@@ -89,7 +94,7 @@ class CodeGeneratorNativeServerModeTest {
 
     private val openApi =
         """
-        openapi: 3.1.1
+        openapi: VERSION
         info:
           title: Native server
           version: "1.0"
@@ -175,4 +180,12 @@ class CodeGeneratorNativeServerModeTest {
                         properties:
                           access_token: { type: string }
         """.trimIndent()
+
+    companion object {
+        @JvmStatic
+        fun nativeServerConfigurations(): Stream<Arguments> =
+            Stream.of("3.0.4", "3.1.2", "3.2.0").flatMap { version ->
+                ControllerCodeGenTargetType.entries.stream().map { target -> Arguments.of(version, target) }
+            }
+    }
 }
