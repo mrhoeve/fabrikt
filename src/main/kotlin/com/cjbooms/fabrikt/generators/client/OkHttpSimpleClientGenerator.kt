@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.client
 
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.functionName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.getPrimaryContentMediaType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.hasMultipartRequestBody
@@ -33,13 +34,16 @@ import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
+import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.github.javaparser.utils.CodeGenerationUtils
-import com.reprezen.kaizen.oasparser.model3.Operation
 import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
 import com.squareup.kotlinpoet.TypeSpec
 import com.squareup.kotlinpoet.asTypeName
@@ -52,9 +56,19 @@ class OkHttpSimpleClientGenerator(
     private val srcPath: Path = Destinations.MAIN_KT_SOURCE,
 ) {
     private val multipartParameterToSpecBuilder = ClientGeneratorUtils.MultipartParameterToSpecBuilder(packages.client)
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        srcPath: Path,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api, srcPath) {
+        this.generatorContext = generatorContext
+    }
 
     fun generateDynamicClientCode(options: Set<ClientCodeGenOptionType> = emptySet()): Collection<ClientType> =
-        api
+        generatorContext?.let { generateDynamicClientCode(it, options) } ?: api
             .groupedClientPaths(options)
             .map { (resourceName, paths) ->
                 val funcSpecs: List<FunSpec> =
@@ -92,7 +106,9 @@ class OkHttpSimpleClientGenerator(
                                         packages,
                                         resource,
                                         verb,
-                                        operation,
+                                        operation.hasMultipartRequestBody(),
+                                        operation.requestBody.getPrimaryContentMediaType()?.key,
+                                        operation.getReturnType(packages),
                                         parameters,
                                         options,
                                     ).toStatement(),
@@ -117,6 +133,74 @@ class OkHttpSimpleClientGenerator(
                 ClientType(clientType, packages.base, setOf(TYPE_REFERENCE_IMPORT))
             }.toSet()
 
+    private fun generateDynamicClientCode(
+        context: GeneratorEndpointContext,
+        options: Set<ClientCodeGenOptionType>,
+    ): Collection<ClientType> {
+        val strategy =
+            if (ClientCodeGenOptionType.GROUP_BY_TAG in options) GroupingStrategy.BY_FIRST_TAG else GroupingStrategy.BY_FIRST_PATH_SEGMENT
+        return context
+            .groupedPaths(strategy)
+            .map { (resourceName, paths) ->
+                val functions = paths.flatMap { path -> path.operations.map { buildFunction(context, path, it, options) } }
+                val type =
+                    TypeSpec
+                        .classBuilder(simpleClientName(resourceName))
+                        .primaryPropertiesConstructor(
+                            PropertySpec.builder("objectMapper", OBJECT_MAPPER_CLASS, KModifier.PRIVATE).build(),
+                            PropertySpec.builder("baseUrl", String::class.asTypeName(), KModifier.PRIVATE).build(),
+                            PropertySpec.builder("okHttpClient", "OkHttpClient".toClassName("okhttp3"), KModifier.PRIVATE).build(),
+                        ).addAnnotation(AnnotationSpec.builder(Suppress::class).addMember("%S", "unused").build())
+                        .addFunctions(functions)
+                        .build()
+                ClientType(type, packages.base, setOf(TYPE_REFERENCE_IMPORT))
+            }.toSet()
+    }
+
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+        options: Set<ClientCodeGenOptionType>,
+    ): FunSpec {
+        val parameters = context.clientParameters(operation, path)
+        val returnType = context.successResponseType(operation, packages.base)
+        return FunSpec
+            .builder(context.functionName(operation, path.path))
+            .addModifiers(KModifier.PUBLIC)
+            .addKdoc(context.toKdoc(operation, parameters))
+            .addAnnotation(
+                AnnotationSpec.builder(Throws::class).addMember("%T::class", "ApiException".toClassName(packages.client)).build(),
+            ).addIncomingParameters(parameters, multipartParameterToSpecBuilder = multipartParameterToSpecBuilder.toSpecBuilder())
+            .addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_HEADERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).defaultValue("emptyMap()")
+                    .build(),
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).defaultValue("emptyMap()")
+                    .build(),
+            ).addCode(
+                SimpleClientOperationStatement(
+                    packages,
+                    path.path,
+                    operation.method,
+                    context.hasMultipartRequestBody(operation),
+                    context.requestContentType(operation),
+                    returnType,
+                    parameters,
+                    options,
+                ).toStatement(),
+            ).returns("ApiResponse".toClassName(packages.client).parameterizedBy(returnType))
+            .build()
+    }
+
     fun generateLibrary(options: Set<ClientCodeGenOptionType>): Collection<GeneratedFile> {
         val codeDir = srcPath.resolve(CodeGenerationUtils.packageToPath(packages.base))
         val clientDir = codeDir.resolve("client")
@@ -139,7 +223,9 @@ data class SimpleClientOperationStatement(
     private val packages: Packages,
     private val resource: String,
     private val verb: String,
-    private val operation: Operation,
+    private val multipartRequestBody: Boolean,
+    private val requestContentType: String?,
+    private val returnType: com.squareup.kotlinpoet.TypeName,
     private val parameters: List<IncomingParameter>,
     private val options: Set<ClientCodeGenOptionType>,
 ) {
@@ -251,7 +337,7 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addRequestStatement(): CodeBlock.Builder {
-        if (operation.hasMultipartRequestBody()) {
+        if (multipartRequestBody) {
             // For multipart requests, build the multipart body first, then the request
             this.addMultipartBodyStatement()
             this.add("\nval request: %T = Request.Builder()", "Request".toClassName("okhttp3"))
@@ -284,11 +370,11 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addRequestExecutionStatement() =
-        when (operation.getReturnType()) {
-            is KotlinTypeInfo.ByteArray ->
+        when (returnType) {
+            ByteArray::class.asTypeName() ->
                 this.add("\nreturn request.execute(okHttpClient)\n")
 
-            Unit::class ->
+            Unit::class.asTypeName() ->
                 if (ClientCodeGenOptionType.OKHTTP_NON_NULL_RESPONSE_PAYLOADS in options) {
                     this.add("\nreturn request.executeWithoutResponseBody(okHttpClient)\n")
                 } else {
@@ -300,7 +386,6 @@ data class SimpleClientOperationStatement(
         }
 
     private fun CodeBlock.Builder.addRequestSerializerStatement(verb: String) {
-        val requestBody = operation.requestBody
         val toRequestBody = "toRequestBody".toClassName("okhttp3.RequestBody.Companion")
         parameters.filterIsInstance<BodyParameter>().firstOrNull()?.let {
             this.add(
@@ -308,7 +393,7 @@ data class SimpleClientOperationStatement(
                 verb,
                 it.name,
                 toRequestBody,
-                requestBody.getPrimaryContentMediaType()?.key,
+                requestContentType,
                 "toMediaType".toClassName("okhttp3.MediaType.Companion"),
             )
         } ?: this.add("\n.%N(ByteArray(0).%T())", verb, toRequestBody)
