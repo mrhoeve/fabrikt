@@ -285,9 +285,29 @@ internal object SourceOperationDocumentParser {
                 explode = parameter.boolean("explode"),
                 allowReserved = parameter.boolean("allowReserved"),
                 schema = schemaEntryPoints["$location/schema"],
-                content = emptyList(),
+                content = collectParameterContent(parameter["content"], "$location/content"),
                 extensions = parameter.extensions(),
             )
+
+        private fun collectParameterContent(
+            content: JsonNode?,
+            location: String,
+        ): List<SourceParameterContent> {
+            if (content?.isObject != true) return emptyList()
+
+            return content.properties().map { (mediaType, mediaTypeObject) ->
+                val mediaTypeLocation = "$location/${mediaType.toJsonPointerToken()}"
+                SourceParameterContent(
+                    location = mediaTypeLocation,
+                    mediaType = mediaType,
+                    node = mediaTypeObject,
+                    reference = mediaTypeObject.text("\$ref"),
+                    schema = schemaEntryPoints["$mediaTypeLocation/schema"],
+                    itemSchema = schemaEntryPoints["$mediaTypeLocation/itemSchema"],
+                    extensions = mediaTypeObject.extensions(),
+                )
+            }
+        }
 
         private fun parseParameterPlacement(value: String): SourceParameterPlacement {
             val fixed = FIXED_PARAMETER_PLACEMENTS_BY_VALUE[value]

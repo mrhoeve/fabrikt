@@ -48,6 +48,8 @@ internal data class SourceParameterContent(
     val location: String,
     val mediaType: String,
     val node: JsonNode,
+    val reference: String?,
     val schema: SourceSchema?,
+    val itemSchema: SourceSchema?,
     val extensions: Map<String, JsonNode>,
 )
