@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.groupingStrategyFrom
 import com.cjbooms.fabrikt.generators.GeneratorUtils.isUnit
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
@@ -17,6 +18,8 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.util.FileUtils.addFileDisclaimer
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.groupedPaths
@@ -61,7 +64,19 @@ class KtorControllerInterfaceGenerator(
     private val groupingStrategy: GroupingStrategy
         get() = groupingStrategyFrom(options)
 
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        options: Set<ControllerCodeGenOptionType>,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api, options) {
+        this.generatorContext = generatorContext
+    }
+
     override fun generate(): KtorControllers {
+        generatorContext?.let { return generate(it) }
         val controllerInterfaces =
             api.openApi3.groupedPaths(groupingStrategy).map { (resourceName, paths) ->
                 val controllerBuilder = TypeSpec.interfaceBuilder(ControllerGeneratorUtils.controllerName(resourceName))
@@ -110,6 +125,219 @@ class KtorControllerInterfaceGenerator(
         return KtorControllers(
             controllerInterfaces.map { ControllerType(it, packages.base) }.toSet(),
         )
+    }
+
+    private fun generate(context: GeneratorEndpointContext): KtorControllers {
+        val controllerInterfaces =
+            context.groupedPaths(groupingStrategy).map { (resourceName, paths) ->
+                val controllerBuilder = TypeSpec.interfaceBuilder(ControllerGeneratorUtils.controllerName(resourceName))
+                val routeFunBuilder =
+                    FunSpec
+                        .builder("${resourceName.camelCase()}Routes")
+                        .receiver(ClassName("io.ktor.server.routing", "Route"))
+                        .addParameter("controller", ClassName(packages.controllers, ControllerGeneratorUtils.controllerName(resourceName)))
+                        .addKdoc("Mounts all routes for the $resourceName resource\n\n")
+
+                paths.forEach { path ->
+                    path.operations.filterNot { it.method.equals("HEAD", ignoreCase = true) }.forEach { operation ->
+                        routeFunBuilder.addCode(buildRouteCode(context, operation, path))
+                        routeFunBuilder.addKdoc(
+                            "- ${operation.method.toUpperCase()} ${path.path} ${(operation.summary ?: operation.description).orEmpty()}\n",
+                        )
+                        controllerBuilder.addFunction(buildControllerFun(context, operation, path))
+                    }
+                }
+                controllerBuilder.addType(
+                    TypeSpec
+                        .companionObjectBuilder()
+                        .addFunction(routeFunBuilder.build())
+                        .addFunction(getTypedFun)
+                        .addFunction(getTypedOrFailFun)
+                        .addFunction(getOrFailFun)
+                        .build(),
+                )
+                controllerBuilder.build()
+            }
+        return KtorControllers(controllerInterfaces.map { ControllerType(it, packages.base) }.toSet())
+    }
+
+    private fun buildControllerFun(
+        context: GeneratorEndpointContext,
+        operation: GeneratorOperation,
+        path: GeneratorPathItem,
+    ): FunSpec {
+        val builder =
+            FunSpec
+                .builder(context.methodName(operation, path.path))
+                .addModifiers(setOf(KModifier.SUSPEND, KModifier.ABSTRACT))
+        val params = context.incomingParameters(operation, path.parameters)
+        val (pathParams, queryParams, headerParams, bodyParams) = params.splitByType()
+        headerParams.forEach { parameter ->
+            builder.addParameter(
+                ParameterSpec
+                    .builder(
+                        parameter.name,
+                        String::class.asTypeName().copy(nullable = !parameter.isRequired),
+                    ).build(),
+            )
+        }
+        (pathParams + queryParams).forEach { parameter ->
+            builder.addParameter(parameter.toParameterSpecBuilder().build())
+        }
+        bodyParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
+        builder.addKdoc(buildControllerFunKdoc(context, operation, params))
+        val responseType = context.successResponseType(operation, packages.base)
+        if (responseType.isUnit()) {
+            builder.addParameter("call", ClassName("io.ktor.server.application", "ApplicationCall"))
+        } else {
+            builder.addParameter(
+                "call",
+                ClassName(packages.controllers, TYPED_APPLICATION_CALL_CLASS_NAME).parameterizedBy(responseType),
+            )
+        }
+        return builder.build()
+    }
+
+    private fun buildRouteCode(
+        context: GeneratorEndpointContext,
+        operation: GeneratorOperation,
+        path: GeneratorPathItem,
+    ): CodeBlock {
+        val builder = CodeBlock.builder()
+        val security = operation.securitySupport(context.operations.security.securitySupport())
+        val addAuth = security.allowsAuthenticated && options.contains(ControllerCodeGenOptionType.AUTHENTICATION)
+        if (addAuth) {
+            val requirements = operation.security ?: context.operations.security
+            val authNames =
+                requirements
+                    ?.values
+                    .orEmpty()
+                    .filter { it.schemes.isNotEmpty() }
+                    .map { it.schemes.keys.first() }
+                    .joinToString(", ") { "\"$it\"" }
+            builder
+                .addStatement(
+                    "%M($authNames, optional = %L) {",
+                    MemberName("io.ktor.server.auth", "authenticate"),
+                    security == SecuritySupport.AUTHENTICATION_OPTIONAL,
+                ).indent()
+        }
+
+        val params = context.incomingParameters(operation, path.parameters)
+        val (pathParams, queryParams, headerParams, bodyParams) = params.splitByType()
+        builder
+            .addStatement(
+                "%M(%S) {",
+                MemberName("io.ktor.server.routing", operation.method),
+                path.path,
+            ).indent()
+        pathParams.forEach { parameter ->
+            val type = parameter.type.copy(nullable = false)
+            if (parameter.requiresKtorDataConversionPlugin()) {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.parameters.%M<$type>(\"${parameter.originalName}\", call.application.%M)",
+                    MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, "getTypedOrFail"),
+                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                )
+            } else {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.parameters.%M<$type>(\"${parameter.originalName}\")",
+                    MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, "getTypedOrFail"),
+                )
+            }
+        }
+        headerParams.forEach { parameter ->
+            if (parameter.isRequired) {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.headers.getOrFail(\"${parameter.originalName}\")",
+                    MemberName("io.ktor.server.application", "call"),
+                )
+            } else {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.headers[\"${parameter.originalName}\"]",
+                    MemberName("io.ktor.server.application", "call"),
+                )
+            }
+        }
+        queryParams.forEach { parameter ->
+            val type = parameter.type.copy(nullable = false)
+            val method = if (parameter.isRequired) "getTypedOrFail" else "getTyped"
+            if (parameter.requiresKtorDataConversionPlugin()) {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\", call.application.%M)",
+                    MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, method),
+                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                )
+            } else {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\")",
+                    MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, method),
+                )
+            }
+        }
+        bodyParams.forEach { parameter ->
+            builder.addStatement(
+                "val ${parameter.name} = %M.%M<%T>()",
+                MemberName("io.ktor.server.application", "call"),
+                MemberName("io.ktor.server.request", "receive"),
+                parameter.type,
+            )
+        }
+        val methodParameters =
+            listOf(headerParams, pathParams, queryParams, bodyParams).asSequence().flatten().joinToString(", ") { it.name }
+        val responseType = context.successResponseType(operation, packages.base)
+        if (responseType.isUnit()) {
+            builder.addStatement(
+                "controller.%L(%L%M)",
+                context.methodName(operation, path.path),
+                methodParameters.let { if (it.isNotEmpty()) "$it, " else "" },
+                MemberName("io.ktor.server.application", "call"),
+            )
+        } else {
+            builder.addStatement(
+                "controller.%L(%L%T(%M))",
+                context.methodName(operation, path.path),
+                methodParameters.let { if (it.isNotEmpty()) "$it, " else "" },
+                ClassName(packages.controllers, TYPED_APPLICATION_CALL_CLASS_NAME),
+                MemberName("io.ktor.server.application", "call"),
+            )
+        }
+        builder.unindent().addStatement("}")
+        if (addAuth) builder.unindent().addStatement("}")
+        return builder.build()
+    }
+
+    private fun buildControllerFunKdoc(
+        context: GeneratorEndpointContext,
+        operation: GeneratorOperation,
+        parameters: List<IncomingParameter>,
+    ): CodeBlock {
+        val kdoc = CodeBlock.builder()
+        listOf(operation.summary.orEmpty(), operation.description.orEmpty()).filter(String::isNotEmpty).forEach { kdoc.add("%L\n", it) }
+        val responseType = context.successResponseType(operation, packages.base)
+        if (responseType.isUnit()) {
+            kdoc.add("Route is expected to respond with status ${operation.responses.firstOrNull()?.status.orEmpty()}.\n")
+            kdoc.add("Use [%M] to send the response.\n\n", MemberName("io.ktor.server.response", "respond", isExtension = true))
+        } else {
+            kdoc.add(
+                "Route is expected to respond with [%L].\nUse [%M] to send the response.\n\n",
+                responseType.toString(),
+                MemberName(ClassName(packages.controllers, TYPED_APPLICATION_CALL_CLASS_NAME), "respondTyped"),
+            )
+        }
+        parameters.forEach { kdoc.add("@param %L %L\n", it.name.toKCodeName(), it.description?.trimIndent().orEmpty()) }
+        kdoc.add(
+            if (responseType.isUnit()) {
+                "@param call The Ktor application call\n"
+            } else {
+                "@param call Decorated ApplicationCall with additional typed respond methods\n"
+            },
+        )
+        return kdoc.build()
     }
 
     /**
