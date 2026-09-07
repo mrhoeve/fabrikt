@@ -129,4 +129,35 @@ class OpenApiDocumentParserTest {
         assertThat(parsed.sourceGraph.loadFailures).isEmpty()
         assertThat(parsed.kaizenModel.schemas).containsKey("External")
     }
+
+    @Test
+    fun `exposes native operations before parsing the Kaizen compatibility model`() {
+        val parsed =
+            OpenApiDocumentParser.parse(
+                """
+                openapi: 3.2.0
+                info:
+                  title: Test
+                  version: "1.0"
+                paths:
+                  /jobs:
+                    query:
+                      operationId: queryJobs
+                      responses: {}
+                    additionalOperations:
+                      PURGE:
+                        operationId: purgeJobs
+                        responses: {}
+                """.trimIndent(),
+            )
+
+        assertThat(parsed.operations).isSameAs(parsed.source.operations)
+        assertThat(
+            parsed.operations.paths
+                .single()
+                .operations
+                .map { it.method.wireName },
+        ).containsExactly("QUERY", "PURGE")
+        assertThat(parsed.kaizenModel.paths).isNotNull()
+    }
 }

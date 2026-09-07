@@ -13,6 +13,7 @@ internal data class ParsedOpenApiDocument(
 ) {
     val source: SourceOpenApiDocument = sourceGraph.rootDocument
     val version: OpenApiVersion? = source.version
+    val operations: SourceOperationDocument = source.operations
 }
 
 internal object OpenApiDocumentParser {
