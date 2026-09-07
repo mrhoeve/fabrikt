@@ -128,6 +128,59 @@ class SourceOperationParameterParserTest {
             .doesNotContainKey("#/paths/~1search/get/parameters/0/content/application~1jsonl/itemSchema")
     }
 
+    @Test
+    fun `collects parameters throughout modern operation containers`() {
+        val operations = SourceOpenApiDocumentParser.parse(operationContainersOpenApi).operations
+
+        val rootOperation =
+            operations.paths
+                .single()
+                .operations
+                .single()
+        assertThat(rootOperation.method).isEqualTo(SourceOperationMethod.Additional("PURGE"))
+        assertThat(rootOperation.parameters.single().name).isEqualTo("root")
+        val callbackOperation =
+            rootOperation.callbacks
+                .single()
+                .pathItems
+                .single()
+                .operations
+                .single()
+        assertThat(callbackOperation.method)
+            .isEqualTo(SourceOperationMethod.Fixed(SourceFixedOperationMethod.QUERY))
+        assertThat(callbackOperation.parameters.single().name).isEqualTo("callback")
+
+        assertThat(
+            operations.webhooks
+                .single()
+                .operations
+                .single()
+                .parameters
+                .single()
+                .name,
+        ).isEqualTo("webhook")
+        assertThat(
+            operations.reusablePathItems
+                .getValue("Reusable")
+                .operations
+                .single()
+                .parameters
+                .single()
+                .name,
+        ).isEqualTo("pathItem")
+        assertThat(
+            operations.reusableCallbacks
+                .getValue("ReusableCallback")
+                .pathItems
+                .single()
+                .operations
+                .single()
+                .parameters
+                .single()
+                .name,
+        ).isEqualTo("reusableCallback")
+    }
+
     private val parameterOpenApi =
         """
         openapi: 3.1.2
@@ -222,5 +275,57 @@ class SourceOperationParameterParserTest {
                       itemSchema:
                         type: object
               responses: {}
+        """.trimIndent()
+
+    private val operationContainersOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /root:
+            additionalOperations:
+              PURGE:
+                parameters:
+                  - name: root
+                    in: query
+                    schema: { type: string }
+                callbacks:
+                  changed:
+                    '{${'$'}request.body#/~callbackUrl}':
+                      query:
+                        parameters:
+                          - name: callback
+                            in: header
+                            schema: { type: string }
+                        responses: {}
+                responses: {}
+        webhooks:
+          changed:
+            post:
+              parameters:
+                - name: webhook
+                  in: header
+                  schema: { type: string }
+              responses: {}
+        components:
+          pathItems:
+            Reusable:
+              get:
+                parameters:
+                  - name: pathItem
+                    in: query
+                    schema: { type: string }
+                responses: {}
+          callbacks:
+            ReusableCallback:
+              '{${'$'}request.body#/~callbackUrl}':
+                post:
+                  parameters:
+                    - name: reusableCallback
+                      in: cookie
+                      schema: { type: string }
+                  responses: {}
         """.trimIndent()
 }
