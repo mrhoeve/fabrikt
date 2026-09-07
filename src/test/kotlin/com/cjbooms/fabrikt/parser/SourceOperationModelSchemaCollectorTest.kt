@@ -82,6 +82,20 @@ class SourceOperationModelSchemaCollectorTest {
             )
     }
 
+    @Test
+    fun `collects complete and item schemas from sequential media types`() {
+        val document = SourceOpenApiDocumentParser.parse(sequentialMediaOpenApi)
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly("StreamEventsRequestItem", "StreamEvents200Response", "StreamEvents200ResponseItem")
+        assertThat(document.modelSchemas.getValue("StreamEventsRequestItem").location)
+            .isEqualTo("#/paths/~1events/query/requestBody/content/application~1json-seq/itemSchema")
+        assertThat(document.modelSchemas.getValue("StreamEvents200Response").location)
+            .isEqualTo("#/paths/~1events/query/responses/200/content/application~1json-seq/schema")
+        assertThat(document.modelSchemas.getValue("StreamEvents200ResponseItem").location)
+            .isEqualTo("#/paths/~1events/query/responses/200/content/application~1json-seq/itemSchema")
+    }
+
     private fun operationOpenApi(version: String) =
         """
         openapi: $version
@@ -227,5 +241,39 @@ class SourceOperationModelSchemaCollectorTest {
                         type: object
                         properties:
                           accepted: { type: boolean }
+        """.trimIndent()
+
+    private val sequentialMediaOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /events:
+            query:
+              operationId: streamEvents
+              requestBody:
+                content:
+                  application/json-seq:
+                    itemSchema:
+                      type: object
+                      properties:
+                        requestId: { type: string }
+              responses:
+                '200':
+                  description: Stream
+                  content:
+                    application/json-seq:
+                      schema:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            completeId: { type: string }
+                      itemSchema:
+                        type: object
+                        properties:
+                          eventId: { type: string }
         """.trimIndent()
 }

@@ -195,11 +195,13 @@ internal object SourceModelSchemaCollector {
         name: (String, Boolean) -> String,
     ) {
         if (!content.isObject) return
-        val schemas =
-            content.properties().mapNotNull { (mediaType, _) ->
-                schemaEntryPoints["$location/${mediaType.toJsonPointerToken()}/schema"]?.let { mediaType to it }
-            }
-        schemas.forEach { (mediaType, schema) -> register(name(mediaType, schemas.size > 1), schema) }
+        val mediaTypes = content.properties().toList()
+        mediaTypes.forEach { (mediaType, _) ->
+            val mediaTypeLocation = "$location/${mediaType.toJsonPointerToken()}"
+            val modelName = name(mediaType, mediaTypes.size > 1)
+            schemaEntryPoints["$mediaTypeLocation/schema"]?.let { register(modelName, it) }
+            schemaEntryPoints["$mediaTypeLocation/itemSchema"]?.let { register("$modelName Item".toModelClassName(), it) }
+        }
     }
 
     private fun MutableMap<String, SourceSchema>.register(
