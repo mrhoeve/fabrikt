@@ -17,6 +17,8 @@ class SourceOperationDocumentParserTest {
         assertThat(path.reference).isEqualTo("#/components/pathItems/Subjects")
         assertThat(path.summary).isEqualTo("Subject operations")
         assertThat(path.description).isEqualTo("Operations for one subject")
+        assertThat(path.extensions).containsOnlyKeys("x-internal")
+        assertThat(path.extensions.getValue("x-internal").booleanValue()).isTrue()
         assertThat(path.node).isSameAs(document.root.at("/paths/~1subjects~1{id}"))
         assertThat(path.operations.map { it.method.wireName }).containsExactly("GET", "POST")
 
@@ -28,6 +30,7 @@ class SourceOperationDocumentParserTest {
         assertThat(get.description).isEqualTo("Returns one subject")
         assertThat(get.tags).containsExactly("subjects", "read")
         assertThat(get.deprecated).isTrue()
+        assertThat(get.extensions.getValue("x-kotlin-name").textValue()).isEqualTo("SubjectLookup")
 
         val post = path.operations.last()
         assertThat(post.operationId).isNull()
@@ -68,6 +71,7 @@ class SourceOperationDocumentParserTest {
         assertThat(callback.location).isEqualTo("#/paths/~1subjects/post/callbacks/updates")
         assertThat(callback.name).isEqualTo("updates")
         assertThat(callback.reference).isNull()
+        assertThat(callback.extensions).containsOnlyKeys("x-ignore")
         assertThat(callback.pathItems.map(SourcePathItem::key)).containsExactly("{${'$'}request.body#/~callbackUrl}")
         assertThat(callback.pathItems.single().kind).isEqualTo(SourcePathItemKind.CALLBACK)
         assertThat(
@@ -155,6 +159,7 @@ class SourceOperationDocumentParserTest {
               description: Returns one subject
               tags: [subjects, read]
               deprecated: true
+              x-kotlin-name: SubjectLookup
               responses: {}
             post:
               responses: {}

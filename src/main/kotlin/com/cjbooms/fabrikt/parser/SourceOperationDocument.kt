@@ -17,6 +17,7 @@ internal data class SourcePathItem(
     val reference: String?,
     val summary: String?,
     val description: String?,
+    val extensions: Map<String, JsonNode>,
     val operations: List<SourceOperation>,
 )
 
@@ -37,6 +38,7 @@ internal data class SourceOperation(
     val description: String?,
     val tags: List<String>,
     val deprecated: Boolean,
+    val extensions: Map<String, JsonNode>,
     val callbacks: List<SourceCallback>,
 )
 
@@ -74,6 +76,7 @@ internal data class SourceCallback(
     val name: String,
     val node: JsonNode,
     val reference: String?,
+    val extensions: Map<String, JsonNode>,
     val pathItems: List<SourcePathItem>,
 )
 
@@ -169,6 +172,7 @@ internal object SourceOperationDocumentParser {
                 reference = pathItem.text("\$ref"),
                 summary = pathItem.text("summary"),
                 description = pathItem.text("description"),
+                extensions = pathItem.extensions(),
                 operations = collectOperations(pathItem, location),
             )
 
@@ -225,6 +229,7 @@ internal object SourceOperationDocumentParser {
                 description = operation.text("description"),
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
+                extensions = operation.extensions(),
                 callbacks = collectOperationCallbacks(operation, location),
             )
 
@@ -257,6 +262,7 @@ internal object SourceOperationDocumentParser {
                 name = name,
                 node = callback,
                 reference = reference,
+                extensions = callback.extensions(),
                 pathItems =
                     if (reference == null) {
                         collectPathItemMap(
@@ -272,6 +278,13 @@ internal object SourceOperationDocumentParser {
         }
 
         private fun JsonNode.text(fieldName: String): String? = this[fieldName]?.takeIf(JsonNode::isTextual)?.textValue()
+
+        private fun JsonNode.extensions(): Map<String, JsonNode> =
+            takeIf(JsonNode::isObject)
+                ?.properties()
+                ?.filter { (name, _) -> name.isSpecificationExtension() }
+                ?.associate { (name, value) -> name to value }
+                .orEmpty()
 
         private fun String.toJsonPointerToken(): String = replace("~", "~0").replace("/", "~1")
 
