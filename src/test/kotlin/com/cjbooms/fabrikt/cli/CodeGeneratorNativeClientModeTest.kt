@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import java.nio.file.Paths
@@ -72,6 +73,30 @@ class CodeGeneratorNativeClientModeTest {
         }
     }
 
+    @Test
+    fun `uses a successful response body instead of informational redirects or empty responses`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(responseSelectionOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("public fun findSubject(")
+            .contains("): Subject")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -113,6 +138,42 @@ class CodeGeneratorNativeClientModeTest {
             Subject:
               type: object
               required: [id]
+              properties:
+                id: { type: string }
+        """.trimIndent()
+
+    private val responseSelectionOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native responses
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              operationId: findSubject
+              responses:
+                '100':
+                  description: Continue
+                  content:
+                    application/json:
+                      schema: { type: string }
+                '204':
+                  description: Empty success
+                2XX:
+                  description: Found
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Subject' }
+                '300':
+                  description: Redirect
+                  content:
+                    application/json:
+                      schema: { type: integer }
+        components:
+          schemas:
+            Subject:
+              type: object
               properties:
                 id: { type: string }
         """.trimIndent()
