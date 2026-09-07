@@ -13,7 +13,12 @@ internal object SourceModelSchemaCollector {
         buildMap {
             putAll(componentSchemas)
             val components = root.path("components")
-            listOf("parameters", "headers", "requestBodies", "responses").forEach { componentType ->
+            val componentTypes =
+                buildList {
+                    addAll(listOf("parameters", "headers", "requestBodies", "responses"))
+                    if (version?.isAtLeast(3, 2) == true) add("mediaTypes")
+                }
+            componentTypes.forEach { componentType ->
                 val entries = components.path(componentType)
                 if (entries.isObject) {
                     entries.properties().forEach { (name, _) ->
@@ -24,6 +29,15 @@ internal object SourceModelSchemaCollector {
                                     (location.startsWith("$prefix/content/") && location.endsWith("/schema"))
                             }?.value
                             ?.let { putIfAbsent(name, it) }
+                    }
+                }
+            }
+            if (version?.isAtLeast(3, 2) == true) {
+                val mediaTypes = components.path("mediaTypes")
+                if (mediaTypes.isObject) {
+                    mediaTypes.properties().forEach { (name, _) ->
+                        schemaEntryPoints["#/components/mediaTypes/${name.toJsonPointerToken()}/itemSchema"]
+                            ?.let { register("$name Item".toModelClassName(), it) }
                     }
                 }
             }
