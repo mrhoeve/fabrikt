@@ -1,6 +1,5 @@
 package com.cjbooms.fabrikt.model
 
-import com.cjbooms.fabrikt.cli.SchemaGenerationMode
 import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
