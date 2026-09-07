@@ -27,6 +27,16 @@ internal object SourceModelSchemaCollector {
                     }
                 }
             }
+            val componentResponses = components.path("responses")
+            if (componentResponses.isObject) {
+                componentResponses.properties().forEach { (name, response) ->
+                    collectHeaders(
+                        response.path("headers"),
+                        "#/components/responses/${name.toJsonPointerToken()}/headers",
+                        schemaEntryPoints,
+                    )
+                }
+            }
             collectPathItems(root.path("paths"), "#/paths", version, schemaEntryPoints, pathsOnly = true)
             if (version?.isAtLeast(3, 1) == true) {
                 collectPathItems(root.path("webhooks"), "#/webhooks", version, schemaEntryPoints, pathsOnly = false)
@@ -94,6 +104,11 @@ internal object SourceModelSchemaCollector {
         val responses = operation.path("responses")
         if (responses.isObject) {
             responses.properties().filterNot { (status, _) -> status.startsWith("x-", ignoreCase = true) }.forEach { (status, response) ->
+                collectHeaders(
+                    response.path("headers"),
+                    "$location/responses/${status.toJsonPointerToken()}/headers",
+                    schemaEntryPoints,
+                )
                 collectContentSchemas(
                     content = response.path("content"),
                     location = "$location/responses/${status.toJsonPointerToken()}/content",
@@ -120,6 +135,29 @@ internal object SourceModelSchemaCollector {
                 }
             }
         }
+    }
+
+    private fun MutableMap<String, SourceSchema>.collectHeaders(
+        headers: JsonNode,
+        location: String,
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ) {
+        if (!headers.isObject) return
+        headers
+            .properties()
+            .filterNot { (name, _) -> name.equals("Content-Type", ignoreCase = true) }
+            .forEach { (name, header) ->
+                if (header.isObject && !header.path("${'$'}ref").isTextual) {
+                    val headerLocation = "$location/${name.toJsonPointerToken()}"
+                    val schema =
+                        schemaEntryPoints["$headerLocation/schema"]
+                            ?: schemaEntryPoints.entries
+                                .firstOrNull { (schemaLocation, _) ->
+                                    schemaLocation.startsWith("$headerLocation/content/") && schemaLocation.endsWith("/schema")
+                                }?.value
+                    if (schema != null) register(name.toModelClassName(), schema)
+                }
+            }
     }
 
     private fun MutableMap<String, SourceSchema>.collectParameters(
