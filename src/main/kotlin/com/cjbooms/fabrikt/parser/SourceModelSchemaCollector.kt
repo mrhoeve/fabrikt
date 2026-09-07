@@ -40,6 +40,20 @@ internal object SourceModelSchemaCollector {
                     )
                 }
             }
+            val componentCallbacks = components.path("callbacks")
+            if (componentCallbacks.isObject) {
+                componentCallbacks.properties().forEach { (name, callback) ->
+                    if (callback.isObject && !callback.path("${'$'}ref").isTextual) {
+                        collectPathItems(
+                            callback,
+                            "#/components/callbacks/${name.toJsonPointerToken()}",
+                            version,
+                            schemaEntryPoints,
+                            pathsOnly = false,
+                        )
+                    }
+                }
+            }
             collectPathItems(root.path("paths"), "#/paths", version, schemaEntryPoints, pathsOnly = true)
             if (version?.isAtLeast(3, 1) == true) {
                 collectPathItems(root.path("webhooks"), "#/webhooks", version, schemaEntryPoints, pathsOnly = false)
