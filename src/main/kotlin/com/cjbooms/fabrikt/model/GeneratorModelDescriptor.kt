@@ -187,12 +187,14 @@ internal object GeneratorModelDescriptorBuilder {
         val registeredRootIdentities = mutableSetOf<GeneratorSchemaIdentity>()
         document.modelSchemas.forEach { (name, schema) ->
             val resolved = document.resolve(schema)
+            val isComponentSchema = schema.location.startsWith("#/components/schemas/")
             if (
                 (resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true &&
-                registeredRootIdentities.add(resolved.identity)
+                (isComponentSchema || registeredRootIdentities.add(resolved.identity))
             ) {
                 register(name, resolved)
             }
+            if (isComponentSchema) registeredRootIdentities.add(resolved.identity)
         }
         document.modelSchemas.forEach { (name, schema) -> visit(schema, name, name, isRoot = true) }
         return models

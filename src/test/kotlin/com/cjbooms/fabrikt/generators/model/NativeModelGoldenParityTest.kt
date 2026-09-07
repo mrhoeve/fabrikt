@@ -38,16 +38,9 @@ class NativeModelGoldenParityTest {
                     ),
                 ).asComparableFiles()
 
-        if (example == "singleAllOf") {
-            assertThat(native)
-                .describedAs("Expected native output parity plus the supported inline operation response for $example")
-                .containsAllEntriesOf(legacy)
-            assertThat(native.keys - legacy.keys).containsExactly("Test200Response")
-        } else {
-            assertThat(native)
-                .describedAs("Expected native output parity for $example")
-                .isEqualTo(legacy)
-        }
+        assertThat(native)
+            .describedAs("Expected native output parity for $example")
+            .isEqualTo(legacy)
     }
 
     @Test
