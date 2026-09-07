@@ -51,6 +51,32 @@ class SourceOperationParameterParserTest {
             .isSameAs(document.schemaEntryPoints.getValue("#/components/parameters/Trace~0~1Id/schema"))
     }
 
+    @Test
+    fun `models parameter content schemas and media type references`() {
+        val document = SourceOpenApiDocumentParser.parse(contentParameterOpenApi)
+        val parameters =
+            document.operations.paths
+                .single()
+                .operations
+                .single()
+                .parameters
+        val parameter = parameters[0]
+
+        assertThat(parameter.schema).isNull()
+        assertThat(parameter.content.map(SourceParameterContent::mediaType))
+            .containsExactly("application/json")
+        val jsonContent = parameter.content.single()
+        assertThat(jsonContent.location)
+            .isEqualTo("#/paths/~1search/get/parameters/0/content/application~1json")
+        assertThat(jsonContent.schema)
+            .isSameAs(document.schemaEntryPoints.getValue("#/paths/~1search/get/parameters/0/content/application~1json/schema"))
+        assertThat(jsonContent.itemSchema).isNull()
+        assertThat(jsonContent.extensions).containsOnlyKeys("x-parser")
+        val referencedContent = parameters[1].content.single()
+        assertThat(referencedContent.reference).isEqualTo("#/components/mediaTypes/Search")
+        assertThat(referencedContent.schema).isNull()
+    }
+
     private val parameterOpenApi =
         """
         openapi: 3.1.2
@@ -87,5 +113,35 @@ class SourceOperationParameterParserTest {
               in: header
               schema:
                 type: string
+        """.trimIndent()
+
+    private val contentParameterOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /search:
+            get:
+              parameters:
+                - name: criteria
+                  in: query
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                      x-parser: json
+                - name: reusableCriteria
+                  in: query
+                  content:
+                    application/vnd.example+json:
+                      ${'$'}ref: '#/components/mediaTypes/Search'
+              responses: {}
+        components:
+          mediaTypes:
+            Search:
+              schema:
+                type: object
         """.trimIndent()
 }
