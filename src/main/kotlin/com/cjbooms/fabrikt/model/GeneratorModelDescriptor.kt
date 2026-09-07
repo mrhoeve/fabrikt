@@ -49,13 +49,18 @@ internal data class GeneratorPropertyDescriptor(
 internal object GeneratorModelDescriptorBuilder {
     fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> {
         val modelSchemas = collectModelSchemas(document)
-        val registeredModelNames =
-            buildMap {
-                modelSchemas.forEach { model -> putIfAbsent(model.schema.identity, model.name) }
-            }
+        val registeredModelNames = modelSchemas.registeredModelNames()
         val typeResolver = GeneratorKotlinTypeResolver(document, registeredModelNames)
         return modelSchemas.map { model -> model.schema.toDescriptor(model.name, document, typeResolver) }
     }
+
+    fun registeredModelNames(document: GeneratorSchemaDocument): Map<GeneratorSchemaIdentity, String> =
+        collectModelSchemas(document).registeredModelNames()
+
+    private fun List<RegisteredModel>.registeredModelNames(): Map<GeneratorSchemaIdentity, String> =
+        buildMap {
+            this@registeredModelNames.forEach { model -> putIfAbsent(model.schema.identity, model.name) }
+        }
 
     private fun GeneratorSchema.toDescriptor(
         name: String,
