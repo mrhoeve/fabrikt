@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import com.cjbooms.fabrikt.parser.SchemaGenerationMode as InternalSchemaGenerationMode
 
 class CodeGeneratorExternalSchemaModeTest {
     @TempDir
@@ -42,7 +43,7 @@ class CodeGeneratorExternalSchemaModeTest {
             )
 
         val generated =
-            CodeGenerator(Packages("com.example"), sourceApi, tempDir, tempDir, SchemaGenerationMode.NATIVE)
+            CodeGenerator(Packages("com.example"), sourceApi, tempDir, tempDir, InternalSchemaGenerationMode.NATIVE)
                 .generate()
                 .filterIsInstance<KotlinSourceSet>()
                 .flatMap { it.files }

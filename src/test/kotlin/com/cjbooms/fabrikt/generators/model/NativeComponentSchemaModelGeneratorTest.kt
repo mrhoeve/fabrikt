@@ -1,12 +1,12 @@
 package com.cjbooms.fabrikt.generators.model
 
-import com.cjbooms.fabrikt.cli.SchemaGenerationMode
 import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
+import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach

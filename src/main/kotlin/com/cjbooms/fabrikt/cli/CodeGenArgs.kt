@@ -183,6 +183,13 @@ class CodeGenArgs {
     var externalRefResolutionMode: ExternalReferencesResolutionMode = ExternalReferencesResolutionMode.TARGETED
 
     @Parameter(
+        names = ["--schema-generation-mode"],
+        description = "Select the pipeline used to generate models, controllers, and clients. Default: LEGACY",
+        converter = SchemaGenerationModeOptionConverter::class,
+    )
+    var schemaGenerationMode: SchemaGenerationMode = SchemaGenerationMode.default
+
+    @Parameter(
         names = ["--serialization-library"],
         description = "Specify which serialization library to use for annotations in generated model classes. Default: JACKSON",
         converter = SerializationLibraryOptionConverter::class,
@@ -246,6 +253,10 @@ class TypeCodeGenOptionsConverter : IStringConverter<CodeGenTypeOverride> {
 
 class ExternalReferencesResolutionModeConverter : IStringConverter<ExternalReferencesResolutionMode> {
     override fun convert(value: String): ExternalReferencesResolutionMode = convertToEnumValue(value)
+}
+
+class SchemaGenerationModeOptionConverter : IStringConverter<SchemaGenerationMode> {
+    override fun convert(value: String): SchemaGenerationMode = convertToEnumValue(value)
 }
 
 class SerializationLibraryOptionConverter : IStringConverter<SerializationLibrary> {
