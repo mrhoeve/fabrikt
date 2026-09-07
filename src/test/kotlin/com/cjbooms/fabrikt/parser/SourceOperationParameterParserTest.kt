@@ -27,7 +27,7 @@ class SourceOperationParameterParserTest {
 
         val operationParameters = path.operations.single().parameters
         assertThat(operationParameters).hasSize(2)
-        assertThat(operationParameters[0].reference).isEqualTo("#/components/parameters/TraceId")
+        assertThat(operationParameters[0].reference).isEqualTo("#/components/parameters/Trace~0~1Id")
         assertThat(operationParameters[0].name).isNull()
         assertThat(operationParameters[0].schema).isNull()
         assertThat(operationParameters[1].name).isEqualTo("filter")
@@ -35,6 +35,20 @@ class SourceOperationParameterParserTest {
             .isEqualTo(SourceParameterPlacement.Fixed(SourceFixedParameterPlacement.QUERY))
         assertThat(operationParameters[1].required).isFalse()
         assertThat(operationParameters[1].deprecated).isFalse()
+    }
+
+    @Test
+    fun `models reusable parameters and preserves escaped source locations`() {
+        val document = SourceOpenApiDocumentParser.parse(parameterOpenApi)
+
+        assertThat(document.operations.reusableParameters).containsOnlyKeys("Trace~/Id")
+        val parameter = document.operations.reusableParameters.getValue("Trace~/Id")
+        assertThat(parameter.location).isEqualTo("#/components/parameters/Trace~0~1Id")
+        assertThat(parameter.name).isEqualTo("X-Trace-Id")
+        assertThat(parameter.placement)
+            .isEqualTo(SourceParameterPlacement.Fixed(SourceFixedParameterPlacement.HEADER))
+        assertThat(parameter.schema)
+            .isSameAs(document.schemaEntryPoints.getValue("#/components/parameters/Trace~0~1Id/schema"))
     }
 
     private val parameterOpenApi =
@@ -60,7 +74,7 @@ class SourceOperationParameterParserTest {
                 x-kotlin-name: subjectId
             get:
               parameters:
-                - ${'$'}ref: '#/components/parameters/TraceId'
+                - ${'$'}ref: '#/components/parameters/Trace~0~1Id'
                 - name: filter
                   in: query
                   schema:
@@ -68,7 +82,7 @@ class SourceOperationParameterParserTest {
               responses: {}
         components:
           parameters:
-            TraceId:
+            Trace~/Id:
               name: X-Trace-Id
               in: header
               schema:
