@@ -87,6 +87,14 @@ class NativeReusableOperationModelGeneratorTest {
         assertThat(generated.getValue("ReceiveEventRequestExtra")).contains("public val callbackValue: String")
     }
 
+    @Test
+    fun `uses the reusable path item name when an operation id is absent`() {
+        val generated = generate(pathItemWithoutOperationIdOpenApi)
+
+        assertThat(generated).containsOnlyKeys("GetSubjectOperations200Response")
+        assertThat(generated.getValue("GetSubjectOperations200Response")).contains("public val subjectId: String")
+    }
+
     private fun generate(input: String): Map<String, String> = generate(OpenApiDocumentParser.parse(input))
 
     private fun generate(parsed: ParsedOpenApiDocument): Map<String, String> =
@@ -231,5 +239,28 @@ class NativeReusableOperationModelGeneratorTest {
                             callbackValue: { type: string }
                   responses:
                     '204': { description: Received }
+        """.trimIndent()
+
+    private val pathItemWithoutOperationIdOpenApi =
+        """
+        openapi: 3.1.2
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          pathItems:
+            SubjectOperations:
+              get:
+                responses:
+                  '200':
+                    description: Subject
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          required: [subjectId]
+                          properties:
+                            subjectId: { type: string }
         """.trimIndent()
 }
