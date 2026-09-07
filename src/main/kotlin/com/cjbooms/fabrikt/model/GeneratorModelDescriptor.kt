@@ -147,7 +147,7 @@ internal object GeneratorModelDescriptorBuilder {
                 } else {
                     suggestedName
                 }
-            if (objectSchema.requiresGeneratedModel()) register(name, resolved)
+            if (!isRoot && objectSchema.requiresGeneratedModel()) register(name, resolved)
             if (!visited.add(VisitKey(resolved.identity, name, rootName))) return
 
             val parentName =
@@ -186,9 +186,13 @@ internal object GeneratorModelDescriptorBuilder {
             }
         }
 
+        val registeredRootIdentities = mutableSetOf<GeneratorSchemaIdentity>()
         document.modelSchemas.forEach { (name, schema) ->
             val resolved = document.resolve(schema)
-            if ((resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true) {
+            if (
+                (resolved as? GeneratorObjectSchema)?.requiresGeneratedModel() == true &&
+                registeredRootIdentities.add(resolved.identity)
+            ) {
                 register(name, resolved)
             }
         }
