@@ -42,6 +42,7 @@ internal data class SourceOperation(
     val deprecated: Boolean,
     val extensions: Map<String, JsonNode>,
     val parameters: List<SourceParameter>,
+    val requestBody: SourceRequestBody?,
     val callbacks: List<SourceCallback>,
 )
 
@@ -253,8 +254,26 @@ internal object SourceOperationDocumentParser {
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
                 extensions = operation.extensions(),
                 parameters = collectParameters(operation["parameters"], "$location/parameters"),
+                requestBody = collectRequestBody(operation["requestBody"], "$location/requestBody"),
                 callbacks = collectOperationCallbacks(operation, location),
             )
+
+        private fun collectRequestBody(
+            requestBody: JsonNode?,
+            location: String,
+        ): SourceRequestBody? {
+            if (requestBody?.isObject != true) return null
+
+            return SourceRequestBody(
+                location = location,
+                node = requestBody,
+                reference = requestBody.text("\$ref"),
+                description = requestBody.text("description"),
+                required = requestBody.boolean("required") ?: false,
+                content = collectMediaTypes(requestBody["content"], "$location/content"),
+                extensions = requestBody.extensions(),
+            )
+        }
 
         private fun collectParameters(
             parameters: JsonNode?,
@@ -285,11 +304,11 @@ internal object SourceOperationDocumentParser {
                 explode = parameter.boolean("explode"),
                 allowReserved = parameter.boolean("allowReserved"),
                 schema = schemaEntryPoints["$location/schema"],
-                content = collectParameterContent(parameter["content"], "$location/content"),
+                content = collectMediaTypes(parameter["content"], "$location/content"),
                 extensions = parameter.extensions(),
             )
 
-        private fun collectParameterContent(
+        private fun collectMediaTypes(
             content: JsonNode?,
             location: String,
         ): List<SourceMediaType> {
