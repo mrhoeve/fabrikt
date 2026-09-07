@@ -467,7 +467,36 @@ internal object SourceOperationDocumentParser {
                 reference = mediaType.text("\$ref"),
                 schema = schemaEntryPoints["$location/schema"],
                 itemSchema = schemaEntryPoints["$location/itemSchema"],
+                encoding = collectEncodings(mediaType["encoding"], "$location/encoding"),
                 extensions = mediaType.extensions(),
+            )
+
+        private fun collectEncodings(
+            encodings: JsonNode?,
+            location: String,
+        ): Map<String, SourceEncoding> {
+            if (encodings?.isObject != true) return emptyMap()
+
+            return encodings.properties().associate { (name, encoding) ->
+                name to collectEncoding(encoding, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
+
+        private fun collectEncoding(
+            encoding: JsonNode,
+            location: String,
+            key: String?,
+        ): SourceEncoding =
+            SourceEncoding(
+                location = location,
+                key = key,
+                node = encoding,
+                contentType = encoding.text("contentType"),
+                headers = collectHeaders(encoding["headers"], "$location/headers"),
+                style = encoding.text("style"),
+                explode = encoding.boolean("explode"),
+                allowReserved = encoding.boolean("allowReserved"),
+                extensions = encoding.extensions(),
             )
 
         private fun parseParameterPlacement(value: String): SourceParameterPlacement {
