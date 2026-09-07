@@ -13,7 +13,7 @@ internal object SourceModelSchemaCollector {
         buildMap {
             putAll(componentSchemas)
             val components = root.path("components")
-            listOf("parameters", "requestBodies", "responses").forEach { componentType ->
+            listOf("parameters", "headers", "requestBodies", "responses").forEach { componentType ->
                 val entries = components.path(componentType)
                 if (entries.isObject) {
                     entries.properties().forEach { (name, _) ->
