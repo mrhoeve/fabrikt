@@ -13,6 +13,7 @@ import com.cjbooms.fabrikt.generators.client.SpringHttpInterfaceGenerator
 import com.cjbooms.fabrikt.generators.controller.KtorClientGenerator
 import com.cjbooms.fabrikt.generators.controller.KtorControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.controller.MicronautControllerInterfaceGenerator
+import com.cjbooms.fabrikt.generators.controller.NativeKtorClientGenerator
 import com.cjbooms.fabrikt.generators.controller.SpringControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.model.ModelGenerator
 import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
@@ -59,12 +60,21 @@ class CodeGenerator internal constructor(
     private fun generateControllerInterfaces(): Collection<GeneratedFile> = sourceSet(controllers()).plus(sourceSet(models().files))
 
     private fun generateClient(): Collection<GeneratedFile> {
+        val endpointContext = nativeEndpointContext()
         val clientGenerator =
             when (MutableSettings.clientTarget) {
-                ClientCodeGenTargetType.OK_HTTP -> OkHttpClientGenerator(packages, sourceApi, srcPath)
-                ClientCodeGenTargetType.OPEN_FEIGN -> OpenFeignInterfaceGenerator(packages, sourceApi)
-                ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> SpringHttpInterfaceGenerator(packages, sourceApi)
-                ClientCodeGenTargetType.KTOR -> KtorClientGenerator(packages, sourceApi)
+                ClientCodeGenTargetType.OK_HTTP ->
+                    endpointContext?.let { OkHttpClientGenerator(packages, sourceApi, srcPath, it) }
+                        ?: OkHttpClientGenerator(packages, sourceApi, srcPath)
+                ClientCodeGenTargetType.OPEN_FEIGN ->
+                    endpointContext?.let { OpenFeignInterfaceGenerator(packages, sourceApi, it) }
+                        ?: OpenFeignInterfaceGenerator(packages, sourceApi)
+                ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                    endpointContext?.let { SpringHttpInterfaceGenerator(packages, sourceApi, it) }
+                        ?: SpringHttpInterfaceGenerator(packages, sourceApi)
+                ClientCodeGenTargetType.KTOR ->
+                    endpointContext?.let { NativeKtorClientGenerator(packages, it) }
+                        ?: KtorClientGenerator(packages, sourceApi)
             }
         val options = MutableSettings.clientOptions
         val clientFiles = clientGenerator.generate(options).files
@@ -92,14 +102,7 @@ class CodeGenerator internal constructor(
     private fun resources(models: Models): List<ResourceFile> = listOfNotNull(QuarkusReflectionModelGenerator(models).generate())
 
     private fun controllers(): List<FileSpec> {
-        val endpointContext =
-            schemaGenerationMode.takeIf { it == SchemaGenerationMode.NATIVE }?.let {
-                GeneratorEndpointContext(
-                    sourceApi.parsedDocument.toGeneratorOperationDocument(it),
-                    sourceApi.parsedDocument.toGeneratorSchemaDocument(it),
-                    packages.base,
-                )
-            }
+        val endpointContext = nativeEndpointContext()
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->
@@ -151,4 +154,13 @@ class CodeGenerator internal constructor(
 
         return controllerFiles.plus(libFiles)
     }
+
+    private fun nativeEndpointContext(): GeneratorEndpointContext? =
+        schemaGenerationMode.takeIf { it == SchemaGenerationMode.NATIVE }?.let {
+            GeneratorEndpointContext(
+                sourceApi.parsedDocument.toGeneratorOperationDocument(it),
+                sourceApi.parsedDocument.toGeneratorSchemaDocument(it),
+                packages.base,
+            )
+        }
 }
