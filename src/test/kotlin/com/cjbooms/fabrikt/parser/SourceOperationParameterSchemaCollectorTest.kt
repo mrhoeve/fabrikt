@@ -36,6 +36,35 @@ class SourceOperationParameterSchemaCollectorTest {
             .isEqualTo("#/webhooks/subjectChanged/post/parameters/0/schema")
     }
 
+    @Test
+    fun `collects sequential parameter item schemas`() {
+        val document =
+            SourceOpenApiDocumentParser.parse(
+                """
+                openapi: 3.2.0
+                info:
+                  title: Test
+                  version: "1.0"
+                paths:
+                  /events:
+                    query:
+                      parameters:
+                        - name: event-stream
+                          in: query
+                          content:
+                            application/json-seq:
+                              itemSchema:
+                                type: object
+                                properties:
+                                  eventId: { type: string }
+                      responses:
+                        '204': { description: Success }
+                """.trimIndent(),
+            )
+
+        assertThat(document.modelSchemas.keys).containsExactly("EventStreamItem")
+    }
+
     private fun openApi(version: String) =
         """
         openapi: $version

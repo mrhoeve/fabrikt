@@ -184,13 +184,14 @@ internal object SourceModelSchemaCollector {
             .forEach { (name, header) ->
                 if (header.isObject && !header.path("${'$'}ref").isTextual) {
                     val headerLocation = "$location/${name.toJsonPointerToken()}"
-                    val schema =
-                        schemaEntryPoints["$headerLocation/schema"]
-                            ?: schemaEntryPoints.entries
-                                .firstOrNull { (schemaLocation, _) ->
-                                    schemaLocation.startsWith("$headerLocation/content/") && schemaLocation.endsWith("/schema")
-                                }?.value
-                    if (schema != null) register(name.toModelClassName(), schema)
+                    val schema = schemaEntryPoints["$headerLocation/schema"]
+                    if (schema != null) {
+                        register(name.toModelClassName(), schema)
+                    } else {
+                        collectContentSchemas(header.path("content"), "$headerLocation/content", schemaEntryPoints) { mediaType, multiple ->
+                            listOfNotNull(name, mediaType.takeIf { multiple }).joinToString(" ").toModelClassName()
+                        }
+                    }
                 }
             }
     }
@@ -211,13 +212,20 @@ internal object SourceModelSchemaCollector {
                         ?.takeIf(String::isNotBlank)
                 if (name != null) {
                     val parameterLocation = "$location/$index"
-                    val schema =
-                        schemaEntryPoints["$parameterLocation/schema"]
-                            ?: schemaEntryPoints.entries
-                                .firstOrNull { (schemaLocation, _) ->
-                                    schemaLocation.startsWith("$parameterLocation/content/") && schemaLocation.endsWith("/schema")
-                                }?.value
-                    if (schema != null) register(name.toModelClassName(), schema)
+                    val schema = schemaEntryPoints["$parameterLocation/schema"]
+                    if (schema != null) {
+                        register(name.toModelClassName(), schema)
+                    } else {
+                        collectContentSchemas(
+                            parameter.path("content"),
+                            "$parameterLocation/content",
+                            schemaEntryPoints,
+                        ) { mediaType, multiple ->
+                            listOfNotNull(name, mediaType.takeIf { multiple })
+                                .joinToString(" ")
+                                .toModelClassName()
+                        }
+                    }
                 }
             }
         }
