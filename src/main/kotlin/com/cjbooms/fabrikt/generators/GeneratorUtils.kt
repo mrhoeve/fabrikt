@@ -261,10 +261,10 @@ object GeneratorUtils {
                             isRequired = requestBody.isRequired,
                         )
                     }.distinctBy {
-                        it.schema
+                        requireNotNull(it.schema)
                             .safeName()
                             .toKotlinParameterName()
-                            .ifEmpty { it.schema.toVarName() }
+                            .ifEmpty { requireNotNull(it.schema).toVarName() }
                     }.reduceOrNull { acc, bodyParam ->
                         BodyParameter(
                             oasName = "body",

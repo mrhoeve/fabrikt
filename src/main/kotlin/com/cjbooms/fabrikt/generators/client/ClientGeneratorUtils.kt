@@ -215,7 +215,7 @@ object ClientGeneratorUtils {
                         },
                     type =
                         when {
-                            it.isBinaryFile && it.schema.type == "array" -> requestBodyWithFilenameTypeList
+                            it.isBinaryFile && it.isArray -> requestBodyWithFilenameTypeList
                             it.isBinaryFile -> requestBodyWithFilenameType
                             else -> it.type
                         }.copy(nullable = !it.isRequired),

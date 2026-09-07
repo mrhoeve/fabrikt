@@ -129,7 +129,7 @@ open class BodyParameter(
     description: String?,
     type: TypeName,
     isRequired: Boolean = false,
-    open val schema: Schema,
+    open val schema: Schema? = null,
 ) : IncomingParameter(oasName, description, type, isRequired)
 
 class MultipartParameter(
@@ -137,10 +137,11 @@ class MultipartParameter(
     description: String?,
     type: TypeName,
     isRequired: Boolean = false,
-    val schema: Schema,
+    val schema: Schema? = null,
     val partName: String,
     val isBinaryFile: Boolean = false,
     val contentType: String? = null,
+    val isArray: Boolean = schema?.type == "array",
 ) : IncomingParameter(oasName, description, type, isRequired)
 
 class RequestParameter(
