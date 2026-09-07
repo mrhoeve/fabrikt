@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 
 internal data class SourceOperationDocument(
     val externalDocumentation: SourceExternalDocumentation?,
+    val tags: List<SourceTag>,
     val servers: SourceServers?,
     val security: SourceSecurityRequirements?,
     val paths: List<SourcePathItem>,
@@ -120,6 +121,7 @@ internal object SourceOperationDocumentParser {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
                 externalDocumentation = collectExternalDocumentation(root["externalDocs"], "#/externalDocs"),
+                tags = collectTags(root["tags"], "#/tags"),
                 servers = collectServers(root["servers"], "#/servers"),
                 security = collectSecurityRequirements(root["security"], "#/security"),
                 paths = collectPathItemMap(root["paths"], "#/paths", SourcePathItemKind.PATH, pathsOnly = true),
@@ -205,6 +207,33 @@ internal object SourceOperationDocumentParser {
                 extensions = externalDocumentation.extensions(),
             )
         }
+
+        private fun collectTags(
+            tags: JsonNode?,
+            location: String,
+        ): List<SourceTag> {
+            if (tags?.isArray != true) return emptyList()
+
+            return tags.mapIndexedNotNull { index, tag ->
+                tag.takeIf(JsonNode::isObject)?.let { collectTag(it, "$location/$index") }
+            }
+        }
+
+        private fun collectTag(
+            tag: JsonNode,
+            location: String,
+        ): SourceTag =
+            SourceTag(
+                location = location,
+                node = tag,
+                name = tag.text("name"),
+                summary = if (supportsOpenApi32) tag.text("summary") else null,
+                description = tag.text("description"),
+                externalDocumentation = collectExternalDocumentation(tag["externalDocs"], "$location/externalDocs"),
+                parent = if (supportsOpenApi32) tag.text("parent") else null,
+                kind = if (supportsOpenApi32) tag.text("kind") else null,
+                extensions = tag.extensions(),
+            )
 
         private fun collectServers(
             servers: JsonNode?,
