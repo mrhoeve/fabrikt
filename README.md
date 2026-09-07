@@ -216,6 +216,8 @@ The `discriminator` property is used by Fabrikt to determine the subtypes to be 
 
 This section documents the available CLI parameters for controlling what gets generated. This documentation is generated using: `./gradlew printCodeGenUsage`
 
+`LEGACY` remains the default generation pipeline and preserves the existing Kaizen-based output. `NATIVE` is an explicit opt-in that generates models, controller interfaces, and clients directly from the source OpenAPI documents, enabling modern OpenAPI and JSON Schema semantics without changing existing users' generated code. Generated shapes can differ when switching pipelines; once a project adopts `NATIVE`, later support is intended to be additive wherever possible. Target-specific combinations that cannot yet produce correct code fail with a descriptive error instead of silently generating an incomplete contract.
+
 Usage: <main class> [options]
 | Parameter                      | Description |
 | ------------------------------ | ------------------------------ |
@@ -284,6 +286,10 @@ Usage: <main class> [options]
 |                                | CHOOSE ANY OF: |
 |                                |   `ADD_FILE_DISCLAIMER` - This option adds a disclaimer to the generated files. |
 |   `--resources-path`           | Allows the path for generated resources to be overridden. Defaults to `src/main/resources` |
+|   `--schema-generation-mode`   | Select the pipeline used to generate models, controllers, and clients. Default: LEGACY |
+|                                | CHOOSE ONE OF: |
+|                                |   `LEGACY` - Generate through the existing Kaizen-based pipeline (default) |
+|                                |   `NATIVE` - Generate models, controllers, and clients directly from the source OpenAPI documents |
 |   `--serialization-library`    | Specify which serialization library to use for annotations in generated model classes. Default: JACKSON |
 |                                | CHOOSE ONE OF: |
 |                                |   `JACKSON` - Use Jackson 2 for serialization and deserialization |
