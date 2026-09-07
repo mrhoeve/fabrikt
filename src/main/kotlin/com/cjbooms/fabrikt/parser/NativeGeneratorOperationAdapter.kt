@@ -8,6 +8,11 @@ internal class NativeGeneratorOperationAdapter(
 ) {
     fun adapt(): GeneratorOperationDocument =
         GeneratorOperationDocument(
+            serverUrl =
+                document.servers
+                    ?.values
+                    ?.firstOrNull()
+                    ?.url,
             basePath =
                 document.servers
                     ?.values

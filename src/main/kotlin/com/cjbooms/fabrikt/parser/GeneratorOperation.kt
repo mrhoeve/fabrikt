@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.parser
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class GeneratorOperationDocument(
+    val serverUrl: String?,
     val basePath: String,
     val security: GeneratorSecurityRequirements?,
     val paths: List<GeneratorPathItem>,
