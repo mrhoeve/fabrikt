@@ -80,6 +80,19 @@ class CodeGeneratorSchemaModeTest {
             .contains("public val limit: Long")
     }
 
+    @Test
+    fun `routes reusable operation models through native mode`() {
+        val generated = generate(SchemaGenerationMode.NATIVE, reusableOperationsOpenApi).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class SearchFilter(")
+            .contains("public val query: String")
+            .contains("public data class SearchSubjects200Response(")
+            .contains("public val subjectId: String")
+            .contains("public data class EventCallbackPostRequest(")
+            .contains("public val eventId: String")
+    }
+
     @ParameterizedTest
     @MethodSource("nativeValueConstraintConfigurations")
     fun `routes native value constraints through supported serialization libraries`(
@@ -340,6 +353,52 @@ class CodeGeneratorSchemaModeTest {
                 required: [eventId]
                 properties:
                   eventId: { type: string }
+        """.trimIndent()
+
+    private val reusableOperationsOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          callbacks:
+            EventCallback:
+              '{${'$'}request.body#/callbackUrl}':
+                post:
+                  requestBody:
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          required: [eventId]
+                          properties:
+                            eventId: { type: string }
+                  responses:
+                    '204': { description: Received }
+          pathItems:
+            SubjectSearch:
+              query:
+                operationId: searchSubjects
+                parameters:
+                  - name: search-filter
+                    in: query
+                    schema:
+                      type: object
+                      required: [query]
+                      properties:
+                        query: { type: string }
+                responses:
+                  '200':
+                    description: Subjects
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          required: [subjectId]
+                          properties:
+                            subjectId: { type: string }
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
