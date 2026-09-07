@@ -9,6 +9,7 @@ internal data class SourceOperationDocument(
     val reusableCallbacks: Map<String, SourceCallback>,
     val reusableParameters: Map<String, SourceParameter>,
     val reusableRequestBodies: Map<String, SourceRequestBody>,
+    val reusableResponses: Map<String, SourceResponse>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
 )
 
@@ -133,6 +134,11 @@ internal object SourceOperationDocumentParser {
                         root.path("components").path("requestBodies"),
                         "#/components/requestBodies",
                     ),
+                reusableResponses =
+                    collectNamedResponses(
+                        root.path("components").path("responses"),
+                        "#/components/responses",
+                    ),
                 reusableMediaTypes =
                     if (supportsOpenApi32) {
                         collectNamedMediaTypes(
@@ -143,6 +149,17 @@ internal object SourceOperationDocumentParser {
                         emptyMap()
                     },
             )
+
+        private fun collectNamedResponses(
+            responses: JsonNode,
+            location: String,
+        ): Map<String, SourceResponse> {
+            if (!responses.isObject) return emptyMap()
+
+            return responses.properties().associate { (name, response) ->
+                name to collectResponse(response, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
 
         private fun collectNamedRequestBodies(
             requestBodies: JsonNode,
