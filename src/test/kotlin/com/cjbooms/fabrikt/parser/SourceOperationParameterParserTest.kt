@@ -77,6 +77,57 @@ class SourceOperationParameterParserTest {
         assertThat(referencedContent.schema).isNull()
     }
 
+    @Test
+    fun `recognises querystring parameters and sequential content in OpenAPI 3_2`() {
+        val document = SourceOpenApiDocumentParser.parse(openApi32Parameters)
+        val operations =
+            document.operations.paths
+                .single()
+                .operations
+
+        val queryStringParameter = operations[0].parameters.single()
+        assertThat(queryStringParameter.placement)
+            .isEqualTo(SourceParameterPlacement.Fixed(SourceFixedParameterPlacement.QUERYSTRING))
+        assertThat(queryStringParameter.content.single().schema)
+            .isSameAs(
+                document.schemaEntryPoints.getValue(
+                    "#/paths/~1search/query/parameters/0/content/application~1x-www-form-urlencoded/schema",
+                ),
+            )
+
+        val sequentialParameter = operations[1].parameters.single()
+        assertThat(sequentialParameter.placement)
+            .isEqualTo(SourceParameterPlacement.Unrecognised("future-location"))
+        assertThat(sequentialParameter.content.single().schema).isNull()
+        assertThat(sequentialParameter.content.single().itemSchema)
+            .isSameAs(
+                document.schemaEntryPoints.getValue(
+                    "#/paths/~1search/get/parameters/0/content/application~1jsonl/itemSchema",
+                ),
+            )
+    }
+
+    @Test
+    fun `preserves querystring as unrecognised before OpenAPI 3_2`() {
+        val document =
+            SourceOpenApiDocumentParser.parse(
+                openApi32Parameters
+                    .replace("openapi: 3.2.0", "openapi: 3.1.2")
+                    .replace("\n    query:", "\n    post:"),
+            )
+        val queryStringParameter =
+            document.operations.paths
+                .single()
+                .operations[0]
+                .parameters
+                .single()
+
+        assertThat(queryStringParameter.placement)
+            .isEqualTo(SourceParameterPlacement.Unrecognised("querystring"))
+        assertThat(document.schemaEntryPoints)
+            .doesNotContainKey("#/paths/~1search/get/parameters/0/content/application~1jsonl/itemSchema")
+    }
+
     private val parameterOpenApi =
         """
         openapi: 3.1.2
@@ -143,5 +194,33 @@ class SourceOperationParameterParserTest {
             Search:
               schema:
                 type: object
+        """.trimIndent()
+
+    private val openApi32Parameters =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /search:
+            query:
+              parameters:
+                - name: queryString
+                  in: querystring
+                  content:
+                    application/x-www-form-urlencoded:
+                      schema:
+                        type: object
+              responses: {}
+            get:
+              parameters:
+                - name: future
+                  in: future-location
+                  content:
+                    application/jsonl:
+                      itemSchema:
+                        type: object
+              responses: {}
         """.trimIndent()
 }
