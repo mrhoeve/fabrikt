@@ -5,6 +5,7 @@ import com.cjbooms.fabrikt.cli.CodeGenerationType.CONTROLLERS
 import com.cjbooms.fabrikt.cli.CodeGenerationType.HTTP_MODELS
 import com.cjbooms.fabrikt.cli.CodeGenerationType.QUARKUS_REFLECTION_CONFIG
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.client.OkHttpClientGenerator
 import com.cjbooms.fabrikt.generators.client.OpenFeignInterfaceGenerator
@@ -24,6 +25,7 @@ import com.cjbooms.fabrikt.model.ResourceFile
 import com.cjbooms.fabrikt.model.ResourceSourceSet
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
+import com.cjbooms.fabrikt.parser.toGeneratorOperationDocument
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.squareup.kotlinpoet.FileSpec
 import java.nio.file.Path
@@ -90,10 +92,26 @@ class CodeGenerator internal constructor(
     private fun resources(models: Models): List<ResourceFile> = listOfNotNull(QuarkusReflectionModelGenerator(models).generate())
 
     private fun controllers(): List<FileSpec> {
+        val endpointContext =
+            schemaGenerationMode.takeIf { it == SchemaGenerationMode.NATIVE }?.let {
+                GeneratorEndpointContext(
+                    sourceApi.parsedDocument.toGeneratorOperationDocument(it),
+                    sourceApi.parsedDocument.toGeneratorSchemaDocument(it),
+                    packages.base,
+                )
+            }
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->
-                    SpringControllerInterfaceGenerator(
+                    endpointContext?.let {
+                        SpringControllerInterfaceGenerator(
+                            packages,
+                            sourceApi,
+                            MutableSettings.validationLibrary.annotations,
+                            MutableSettings.controllerOptions,
+                            it,
+                        )
+                    } ?: SpringControllerInterfaceGenerator(
                         packages,
                         sourceApi,
                         MutableSettings.validationLibrary.annotations,
@@ -101,7 +119,15 @@ class CodeGenerator internal constructor(
                     )
 
                 ControllerCodeGenTargetType.MICRONAUT ->
-                    MicronautControllerInterfaceGenerator(
+                    endpointContext?.let {
+                        MicronautControllerInterfaceGenerator(
+                            packages,
+                            sourceApi,
+                            MutableSettings.validationLibrary.annotations,
+                            MutableSettings.controllerOptions,
+                            it,
+                        )
+                    } ?: MicronautControllerInterfaceGenerator(
                         packages,
                         sourceApi,
                         MutableSettings.validationLibrary.annotations,
@@ -109,11 +135,9 @@ class CodeGenerator internal constructor(
                     )
 
                 ControllerCodeGenTargetType.KTOR ->
-                    KtorControllerInterfaceGenerator(
-                        packages,
-                        sourceApi,
-                        MutableSettings.controllerOptions,
-                    )
+                    endpointContext?.let {
+                        KtorControllerInterfaceGenerator(packages, sourceApi, MutableSettings.controllerOptions, it)
+                    } ?: KtorControllerInterfaceGenerator(packages, sourceApi, MutableSettings.controllerOptions)
             }
 
         val controllerFiles: Collection<FileSpec> = generator.generate().files
