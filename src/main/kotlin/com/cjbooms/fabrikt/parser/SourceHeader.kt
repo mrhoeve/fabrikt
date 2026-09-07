@@ -15,5 +15,7 @@ internal data class SourceHeader(
     val explode: Boolean?,
     val schema: SourceSchema?,
     val content: List<SourceMediaType>,
+    val example: JsonNode?,
+    val examples: Map<String, SourceExample>,
     val extensions: Map<String, JsonNode>,
 )
