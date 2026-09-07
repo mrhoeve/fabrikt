@@ -211,6 +211,20 @@ enum class ExternalReferencesResolutionMode(
     }
 }
 
+enum class SchemaGenerationMode(
+    val description: String,
+) {
+    LEGACY("Generate through the existing Kaizen-based pipeline (default)"),
+    NATIVE("Generate models, controllers, and clients directly from the source OpenAPI documents"),
+    ;
+
+    override fun toString() = "`${super.toString()}` - $description"
+
+    companion object {
+        val default = LEGACY
+    }
+}
+
 enum class SerializationLibrary(
     val description: String,
     val serializationAnnotations: SerializationAnnotations,

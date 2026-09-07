@@ -44,6 +44,7 @@ object CodeGen {
             srcPath = codeGenArgs.srcPath,
             resourcesPath = codeGenArgs.resourcesPath,
             resolvedAuth = resolvedAuth,
+            schemaGenerationMode = codeGenArgs.schemaGenerationMode,
         )
     }
 
@@ -55,6 +56,7 @@ object CodeGen {
         srcPath: Path,
         resourcesPath: Path,
         resolvedAuth: List<Pair<String, String>> = emptyList(),
+        schemaGenerationMode: SchemaGenerationMode = SchemaGenerationMode.default,
     ) {
         val suppliedApi = ApiFileLoader.load(apiFile, "--api-file", resolvedAuth)
         val fragments = apiFragments.map { ApiFileLoader.load(it, "--api-fragment", resolvedAuth).content }
@@ -71,7 +73,7 @@ object CodeGen {
                 jsonLoader = jsonLoader,
                 documentUri = suppliedApi.documentUri,
             )
-        val generator = CodeGenerator(packages, sourceApi, srcPath, resourcesPath)
+        val generator = CodeGenerator(packages, sourceApi, srcPath, resourcesPath, schemaGenerationMode.toParserMode())
         generator.generate().forEach { it.writeFileTo(outputDir.toFile()) }
     }
 }
