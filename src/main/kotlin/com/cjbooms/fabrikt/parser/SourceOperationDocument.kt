@@ -28,6 +28,7 @@ internal data class SourcePathItem(
     val summary: String?,
     val description: String?,
     val extensions: Map<String, JsonNode>,
+    val servers: SourceServers?,
     val parameters: List<SourceParameter>,
     val operations: List<SourceOperation>,
 )
@@ -49,6 +50,7 @@ internal data class SourceOperation(
     val description: String?,
     val tags: List<String>,
     val deprecated: Boolean,
+    val servers: SourceServers?,
     val security: SourceSecurityRequirements?,
     val extensions: Map<String, JsonNode>,
     val parameters: List<SourceParameter>,
@@ -434,6 +436,7 @@ internal object SourceOperationDocumentParser {
                 summary = pathItem.text("summary"),
                 description = pathItem.text("description"),
                 extensions = pathItem.extensions(),
+                servers = collectServers(pathItem["servers"], "$location/servers"),
                 parameters = collectParameters(pathItem["parameters"], "$location/parameters"),
                 operations = collectOperations(pathItem, location),
             )
@@ -491,6 +494,7 @@ internal object SourceOperationDocumentParser {
                 description = operation.text("description"),
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
+                servers = collectServers(operation["servers"], "$location/servers"),
                 security = collectSecurityRequirements(operation["security"], "$location/security"),
                 extensions = operation.extensions(),
                 parameters = collectParameters(operation["parameters"], "$location/parameters"),
