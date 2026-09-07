@@ -67,6 +67,19 @@ class CodeGeneratorSchemaModeTest {
             .contains("public val query: String")
     }
 
+    @Test
+    fun `routes header and sequential media models through native mode`() {
+        val generated = generate(SchemaGenerationMode.NATIVE, headerMediaOpenApi).joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class TraceContext(")
+            .contains("public val traceId: String")
+            .contains("public data class EventStreamItem(")
+            .contains("public val eventId: String")
+            .contains("public data class RateLimit(")
+            .contains("public val limit: Long")
+    }
+
     @ParameterizedTest
     @MethodSource("nativeValueConstraintConfigurations")
     fun `routes native value constraints through supported serialization libraries`(
@@ -291,6 +304,42 @@ class CodeGeneratorSchemaModeTest {
               responses:
                 '204':
                   description: Success
+        """.trimIndent()
+
+    private val headerMediaOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /events:
+            query:
+              responses:
+                '200':
+                  description: Events
+                  headers:
+                    Rate-Limit:
+                      schema:
+                        type: object
+                        required: [limit]
+                        properties:
+                          limit: { type: integer, format: int64 }
+        components:
+          headers:
+            TraceContext:
+              schema:
+                type: object
+                required: [traceId]
+                properties:
+                  traceId: { type: string }
+          mediaTypes:
+            EventStream:
+              itemSchema:
+                type: object
+                required: [eventId]
+                properties:
+                  eventId: { type: string }
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
