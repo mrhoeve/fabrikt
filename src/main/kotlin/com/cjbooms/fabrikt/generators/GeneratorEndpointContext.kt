@@ -66,6 +66,18 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun requireMultipartSupported(target: String) {
+        val unsupported =
+            operations.paths.flatMap { path ->
+                path.operations
+                    .filter(::hasMultipartRequestBody)
+                    .map { operation -> "${operation.method.uppercase()} ${path.path}" }
+            }
+        require(unsupported.isEmpty()) {
+            "$target does not support native multipart generation for: ${unsupported.joinToString()}."
+        }
+    }
+
     fun methodName(
         operation: GeneratorOperation,
         path: String,
