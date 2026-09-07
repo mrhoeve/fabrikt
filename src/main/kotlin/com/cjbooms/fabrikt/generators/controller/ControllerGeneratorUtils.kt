@@ -6,6 +6,8 @@ import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.ControllerType
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorSecurityRequirements
 import com.cjbooms.fabrikt.util.NormalisedString.camelCase
 import com.reprezen.kaizen.oasparser.model3.Operation
 import com.reprezen.kaizen.oasparser.model3.Response
@@ -113,4 +115,19 @@ object ControllerGeneratorUtils {
 
         return this.securityRequirements.securitySupport()
     }
+
+    internal fun GeneratorSecurityRequirements?.securitySupport(): SecuritySupport {
+        val requirements = this?.values.orEmpty()
+        val containsEmptyObject = requirements.any { it.schemes.isEmpty() }
+        val containsNonEmptyObject = requirements.any { it.schemes.isNotEmpty() }
+        return when {
+            containsEmptyObject && containsNonEmptyObject -> SecuritySupport.AUTHENTICATION_OPTIONAL
+            containsEmptyObject -> SecuritySupport.AUTHENTICATION_PROHIBITED
+            containsNonEmptyObject -> SecuritySupport.AUTHENTICATION_REQUIRED
+            else -> SecuritySupport.NO_SECURITY
+        }
+    }
+
+    internal fun GeneratorOperation.securitySupport(defaultSupport: SecuritySupport? = null): SecuritySupport =
+        security?.securitySupport() ?: defaultSupport ?: SecuritySupport.NO_SECURITY
 }
