@@ -13,11 +13,56 @@ internal data class SourceSecurityScheme(
     val placement: SourceApiKeyPlacement?,
     val scheme: String?,
     val bearerFormat: String?,
+    val flows: SourceOAuthFlows?,
     val openIdConnectUrl: String?,
     val oauth2MetadataUrl: String?,
     val deprecated: Boolean,
     val extensions: Map<String, JsonNode>,
 )
+
+internal data class SourceOAuthFlows(
+    val location: String,
+    val node: JsonNode,
+    val values: List<SourceOAuthFlow>,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class SourceOAuthFlow(
+    val location: String,
+    val key: String,
+    val type: SourceOAuthFlowType,
+    val node: JsonNode,
+    val authorizationUrl: String?,
+    val deviceAuthorizationUrl: String?,
+    val tokenUrl: String?,
+    val refreshUrl: String?,
+    val scopes: Map<String, String>,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal sealed interface SourceOAuthFlowType {
+    val value: String
+
+    data class Fixed(
+        val type: SourceFixedOAuthFlowType,
+    ) : SourceOAuthFlowType {
+        override val value: String = type.value
+    }
+
+    data class Unrecognised(
+        override val value: String,
+    ) : SourceOAuthFlowType
+}
+
+internal enum class SourceFixedOAuthFlowType(
+    val value: String,
+) {
+    IMPLICIT("implicit"),
+    PASSWORD("password"),
+    CLIENT_CREDENTIALS("clientCredentials"),
+    AUTHORIZATION_CODE("authorizationCode"),
+    DEVICE_AUTHORIZATION("deviceAuthorization"),
+}
 
 internal sealed interface SourceSecuritySchemeType {
     val value: String

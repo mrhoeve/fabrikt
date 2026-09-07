@@ -192,11 +192,67 @@ internal object SourceOperationDocumentParser {
                 placement = securityScheme.text("in")?.let(::parseApiKeyPlacement),
                 scheme = securityScheme.text("scheme"),
                 bearerFormat = securityScheme.text("bearerFormat"),
+                flows = collectOAuthFlows(securityScheme["flows"], "$location/flows"),
                 openIdConnectUrl = securityScheme.text("openIdConnectUrl"),
                 oauth2MetadataUrl = if (supportsOpenApi32) securityScheme.text("oauth2MetadataUrl") else null,
                 deprecated = supportsOpenApi32 && securityScheme.boolean("deprecated") == true,
                 extensions = securityScheme.extensions(),
             )
+
+        private fun collectOAuthFlows(
+            flows: JsonNode?,
+            location: String,
+        ): SourceOAuthFlows? {
+            if (flows?.isObject != true) return null
+
+            return SourceOAuthFlows(
+                location = location,
+                node = flows,
+                values =
+                    flows
+                        .properties()
+                        .filterNot { (name, _) -> name.isSpecificationExtension() }
+                        .mapNotNull { (name, flow) ->
+                            flow
+                                .takeIf(JsonNode::isObject)
+                                ?.let { collectOAuthFlow(it, "$location/${name.toJsonPointerToken()}", name) }
+                        }.toList(),
+                extensions = flows.extensions(),
+            )
+        }
+
+        private fun collectOAuthFlow(
+            flow: JsonNode,
+            location: String,
+            key: String,
+        ): SourceOAuthFlow =
+            SourceOAuthFlow(
+                location = location,
+                key = key,
+                type = parseOAuthFlowType(key),
+                node = flow,
+                authorizationUrl = flow.text("authorizationUrl"),
+                deviceAuthorizationUrl = if (supportsOpenApi32) flow.text("deviceAuthorizationUrl") else null,
+                tokenUrl = flow.text("tokenUrl"),
+                refreshUrl = flow.text("refreshUrl"),
+                scopes =
+                    flow["scopes"]
+                        ?.takeIf(JsonNode::isObject)
+                        ?.properties()
+                        ?.mapNotNull { (name, description) -> description.takeIf(JsonNode::isTextual)?.let { name to it.textValue() } }
+                        ?.toMap()
+                        .orEmpty(),
+                extensions = flow.extensions(),
+            )
+
+        private fun parseOAuthFlowType(value: String): SourceOAuthFlowType {
+            val fixed = FIXED_OAUTH_FLOW_TYPES_BY_VALUE[value]
+            return if (fixed == null || fixed == SourceFixedOAuthFlowType.DEVICE_AUTHORIZATION && !supportsOpenApi32) {
+                SourceOAuthFlowType.Unrecognised(value)
+            } else {
+                SourceOAuthFlowType.Fixed(fixed)
+            }
+        }
 
         private fun parseSecuritySchemeType(value: String): SourceSecuritySchemeType {
             val fixed = FIXED_SECURITY_SCHEME_TYPES_BY_VALUE[value]
@@ -709,6 +765,8 @@ internal object SourceOperationDocumentParser {
                 SourceFixedSecuritySchemeType.entries.associateBy(SourceFixedSecuritySchemeType::value)
             val FIXED_API_KEY_PLACEMENTS_BY_VALUE =
                 SourceFixedApiKeyPlacement.entries.associateBy(SourceFixedApiKeyPlacement::value)
+            val FIXED_OAUTH_FLOW_TYPES_BY_VALUE =
+                SourceFixedOAuthFlowType.entries.associateBy(SourceFixedOAuthFlowType::value)
         }
 
         private val supportsOpenApi31: Boolean
