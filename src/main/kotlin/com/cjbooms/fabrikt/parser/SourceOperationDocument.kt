@@ -16,6 +16,11 @@ internal data class SourceOperationDocument(
     val reusableMediaTypes: Map<String, SourceMediaType>,
     val reusableSecuritySchemes: Map<String, SourceSecurityScheme>,
 ) {
+    fun effectiveServersFor(
+        pathItem: SourcePathItem,
+        operation: SourceOperation,
+    ): SourceServers? = operation.servers ?: pathItem.servers ?: servers
+
     fun effectiveSecurityFor(operation: SourceOperation): SourceSecurityRequirements? = operation.security ?: security
 }
 
