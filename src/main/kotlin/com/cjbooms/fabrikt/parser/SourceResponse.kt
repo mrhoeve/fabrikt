@@ -17,5 +17,6 @@ internal data class SourceResponse(
     val description: String?,
     val headers: Map<String, SourceHeader>,
     val content: List<SourceMediaType>,
+    val links: Map<String, SourceLink>,
     val extensions: Map<String, JsonNode>,
 )

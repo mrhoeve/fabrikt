@@ -16,6 +16,7 @@ internal data class SourceOperationDocument(
     val reusableHeaders: Map<String, SourceHeader>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
     val reusableExamples: Map<String, SourceExample>,
+    val reusableLinks: Map<String, SourceLink>,
     val reusableSecuritySchemes: Map<String, SourceSecurityScheme>,
 ) {
     fun effectiveServersFor(
@@ -177,6 +178,11 @@ internal object SourceOperationDocumentParser {
                     collectExamples(
                         root.path("components").path("examples"),
                         "#/components/examples",
+                    ),
+                reusableLinks =
+                    collectLinks(
+                        root.path("components").path("links"),
+                        "#/components/links",
                     ),
                 reusableSecuritySchemes =
                     collectNamedSecuritySchemes(
@@ -438,6 +444,41 @@ internal object SourceOperationDocumentParser {
                 extensions = example.extensions(),
             )
 
+        private fun collectLinks(
+            links: JsonNode?,
+            location: String,
+        ): Map<String, SourceLink> {
+            if (links?.isObject != true) return emptyMap()
+
+            return links.properties().associate { (name, link) ->
+                name to collectLink(link, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
+
+        private fun collectLink(
+            link: JsonNode,
+            location: String,
+            name: String,
+        ): SourceLink =
+            SourceLink(
+                location = location,
+                name = name,
+                node = link,
+                reference = link.text("\$ref"),
+                operationReference = link.text("operationRef"),
+                operationId = link.text("operationId"),
+                parameters =
+                    link["parameters"]
+                        ?.takeIf(JsonNode::isObject)
+                        ?.properties()
+                        ?.associate { (parameterName, value) -> parameterName to value }
+                        .orEmpty(),
+                requestBody = link["requestBody"],
+                description = link.text("description"),
+                server = link["server"]?.takeIf(JsonNode::isObject)?.let { collectServer(it, "$location/server") },
+                extensions = link.extensions(),
+            )
+
         private fun collectNamedPathItems(
             pathItems: JsonNode,
             location: String,
@@ -626,6 +667,7 @@ internal object SourceOperationDocumentParser {
                 description = response.text("description"),
                 headers = collectHeaders(response["headers"], "$location/headers"),
                 content = collectMediaTypes(response["content"], "$location/content"),
+                links = collectLinks(response["links"], "$location/links"),
                 extensions = response.extensions(),
             )
 
