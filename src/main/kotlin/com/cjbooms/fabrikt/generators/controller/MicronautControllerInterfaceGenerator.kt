@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
+import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.groupingStrategyFrom
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKdoc
@@ -24,6 +25,8 @@ import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
+import com.cjbooms.fabrikt.parser.GeneratorOperation
+import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.util.FileUtils.addFileDisclaimer
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.groupedPaths
@@ -54,15 +57,42 @@ class MicronautControllerInterfaceGenerator(
     private val groupingStrategy: GroupingStrategy
         get() = groupingStrategyFrom(options)
 
+    private var generatorContext: GeneratorEndpointContext? = null
+
+    internal constructor(
+        packages: Packages,
+        api: SourceApi,
+        validationAnnotations: ValidationAnnotations,
+        options: Set<ControllerCodeGenOptionType>,
+        generatorContext: GeneratorEndpointContext,
+    ) : this(packages, api, validationAnnotations, options) {
+        this.generatorContext = generatorContext
+    }
+
     override fun generate(): MicronautControllers =
         MicronautControllers(
-            api.openApi3
-                .groupedPaths(groupingStrategy)
-                .map { (resourceName, paths) ->
-                    buildController(resourceName, paths.values)
-                }.toSet(),
+            generatorContext?.let(::generateControllers)
+                ?: api.openApi3
+                    .groupedPaths(groupingStrategy)
+                    .map { (resourceName, paths) ->
+                        buildController(resourceName, paths.values)
+                    }.toSet(),
             addAuthenticationParameter,
         )
+
+    private fun generateControllers(context: GeneratorEndpointContext): Set<ControllerType> =
+        context
+            .groupedPaths(groupingStrategy)
+            .map { (resourceName, paths) ->
+                val builder = controllerBuilder(ControllerGeneratorUtils.controllerName(resourceName), context.operations.basePath)
+                paths
+                    .flatMap { path ->
+                        path.operations
+                            .filterNot { it.method.equals("HEAD", ignoreCase = true) }
+                            .map { operation -> buildFunction(context, path, operation) }
+                    }.forEach(builder::addFunction)
+                ControllerType(builder.build(), packages.base)
+            }.toSet()
 
     override fun generateLibrary(): Collection<ControllerLibraryType> = emptySet()
 
@@ -147,6 +177,58 @@ class MicronautControllerInterfaceGenerator(
         return funcSpec.build()
     }
 
+    private fun buildFunction(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+    ): FunSpec {
+        val parameters = context.incomingParameters(operation, path.parameters)
+        val globalSecurity = context.operations.security.securitySupport()
+        val function =
+            FunSpec
+                .builder(context.methodName(operation, path.path))
+                .addModifiers(KModifier.ABSTRACT)
+                .addKdoc(context.toKdoc(operation, parameters))
+                .addMicronautFunAnnotation(operation, path.path, globalSecurity)
+                .apply { if (useSuspendModifier) addModifiers(KModifier.SUSPEND) }
+                .returns(MicronautImports.RESPONSE.parameterizedBy(context.successResponseType(operation, packages.base)))
+
+        parameters
+            .map {
+                when (it) {
+                    is MultipartParameter -> throw UnsupportedOperationException(
+                        "Multipart parameters are not supported for Micronaut controllers",
+                    )
+                    is BodyParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(AnnotationSpec.builder(MicronautImports.BODY).build())
+                            .maybeAddAnnotation(validationAnnotations.parameterValid())
+                            .build()
+                    is RequestParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addValidationAnnotations(it)
+                            .addMicronautParamAnnotation(it)
+                            .build()
+                }
+            }.forEach(function::addParameter)
+
+        if (addAuthenticationParameter) {
+            val security = operation.securitySupport(globalSecurity)
+            if (security.allowsAuthenticated) {
+                function.addParameter(
+                    ParameterSpec
+                        .builder(
+                            "authentication",
+                            MicronautImports.AUTHENTICATION.copy(nullable = security == SecuritySupport.AUTHENTICATION_OPTIONAL),
+                        ).build(),
+                )
+            }
+        }
+        return function.build()
+    }
+
     private fun FunSpec.Builder.addMicronautFunAnnotation(
         op: Operation,
         verb: String,
@@ -224,6 +306,61 @@ class MicronautControllerInterfaceGenerator(
             }
         }
 
+        return this
+    }
+
+    private fun FunSpec.Builder.addMicronautFunAnnotation(
+        operation: GeneratorOperation,
+        path: String,
+        globalSecurity: SecuritySupport,
+    ): FunSpec.Builder {
+        val produces =
+            operation.responses
+                .flatMap { it.content }
+                .map { it.key }
+                .toTypedArray()
+        val consumes =
+            operation.requestBody
+                ?.content
+                ?.map { it.key }
+                .orEmpty()
+                .toTypedArray()
+        addAnnotation(
+            AnnotationSpec
+                .builder(MicronautImports.HttpMethods.byName(operation.method))
+                .addMember("uri = %S", path)
+                .build(),
+        )
+        if (consumes.isNotEmpty()) {
+            addAnnotation(
+                AnnotationSpec
+                    .builder(MicronautImports.CONSUMES)
+                    .addMember(
+                        "value = %L",
+                        consumes.joinToString(prefix = "[", postfix = "]", separator = ", ", transform = { "\"$it\"" }),
+                    ).build(),
+            )
+        }
+        if (produces.isNotEmpty()) {
+            addAnnotation(
+                AnnotationSpec
+                    .builder(MicronautImports.PRODUCES)
+                    .addMember(
+                        "value = %L",
+                        produces.joinToString(prefix = "[", postfix = "]", separator = ", ", transform = { "\"$it\"" }),
+                    ).build(),
+            )
+        }
+        if (addAuthenticationParameter) {
+            val rule =
+                when (operation.securitySupport(globalSecurity)) {
+                    SecuritySupport.AUTHENTICATION_REQUIRED -> SECURITY_RULE_IS_AUTHENTICATED
+                    SecuritySupport.AUTHENTICATION_PROHIBITED -> SECURITY_RULE_IS_ANONYMOUS
+                    SecuritySupport.AUTHENTICATION_OPTIONAL -> "$SECURITY_RULE_IS_AUTHENTICATED, $SECURITY_RULE_IS_ANONYMOUS"
+                    else -> ""
+                }
+            if (rule.isNotEmpty()) addAnnotation(AnnotationSpec.builder(MicronautImports.SECURED).addMember(rule).build())
+        }
         return this
     }
 
