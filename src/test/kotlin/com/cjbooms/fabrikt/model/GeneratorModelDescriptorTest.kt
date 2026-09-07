@@ -7,6 +7,8 @@ import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class GeneratorModelDescriptorTest {
     @Test
@@ -39,6 +41,16 @@ class GeneratorModelDescriptorTest {
         assertThat(label.defaultValue).isEqualTo(JsonNodeFactory.instance.textNode("unknown"))
         assertThat(label.constraints?.minLength).isEqualTo(2)
         assertThat(label.constraints?.maxLength).isEqualTo(40)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `reuses component models referenced by operation inputs and outputs`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(operationReferencesOpenApi(version))
+
+        val models = GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
+
+        assertThat(models.map(GeneratorModelDescriptor::name)).containsExactly("Subject")
     }
 
     private fun List<GeneratorModelDescriptor>.withoutIdentities() =
@@ -80,5 +92,40 @@ class GeneratorModelDescriptorTest {
               format: uuid
               description: Stable identifier
               readOnly: true
+        """.trimIndent()
+
+    private fun operationReferencesOpenApi(version: String) =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              operationId: createSubject
+              parameters:
+                - name: filter
+                  in: query
+                  schema:
+                    ${'$'}ref: '#/components/schemas/Subject'
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      ${'$'}ref: '#/components/schemas/Subject'
+              responses:
+                '200':
+                  description: Found
+                  content:
+                    application/json:
+                      schema:
+                        ${'$'}ref: '#/components/schemas/Subject'
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                id: { type: string }
         """.trimIndent()
 }
