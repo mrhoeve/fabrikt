@@ -16,7 +16,7 @@ internal data class SourceParameter(
     val explode: Boolean?,
     val allowReserved: Boolean?,
     val schema: SourceSchema?,
-    val content: List<SourceParameterContent>,
+    val content: List<SourceMediaType>,
     val extensions: Map<String, JsonNode>,
 )
 
@@ -43,13 +43,3 @@ internal enum class SourceFixedParameterPlacement(
     COOKIE("cookie"),
     QUERYSTRING("querystring"),
 }
-
-internal data class SourceParameterContent(
-    val location: String,
-    val mediaType: String,
-    val node: JsonNode,
-    val reference: String?,
-    val schema: SourceSchema?,
-    val itemSchema: SourceSchema?,
-    val extensions: Map<String, JsonNode>,
-)
