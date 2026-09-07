@@ -44,6 +44,19 @@ class SourceReusableOperationModelSchemaCollectorTest {
         assertThat(document.modelSchemas).isEmpty()
     }
 
+    @Test
+    fun `collects modern operations nested in reusable path items`() {
+        val document = SourceOpenApiDocumentParser.parse(modernPathItemOpenApi)
+
+        assertThat(document.modelSchemas.keys)
+            .containsExactly(
+                "SearchFilter",
+                "SearchReusable200ResponseItem",
+                "NotifyReusable202Response",
+                "CopyReusableRequest",
+            )
+    }
+
     private fun callbackOpenApi(version: String) =
         """
         openapi: $version
@@ -126,5 +139,61 @@ class SourceReusableOperationModelSchemaCollectorTest {
                           required: [name]
                           properties:
                             name: { type: string }
+        """.trimIndent()
+
+    private val modernPathItemOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          pathItems:
+            ReusableOperations:
+              query:
+                operationId: searchReusable
+                parameters:
+                  - name: search-filter
+                    in: query
+                    schema:
+                      type: object
+                      properties:
+                        query: { type: string }
+                responses:
+                  '200':
+                    description: Stream
+                    content:
+                      application/json-seq:
+                        itemSchema:
+                          type: object
+                          properties:
+                            resultId: { type: string }
+                callbacks:
+                  notify:
+                    '{${'$'}request.body#/callbackUrl}':
+                      post:
+                        operationId: notifyReusable
+                        responses:
+                          '202':
+                            description: Accepted
+                            content:
+                              application/json:
+                                schema:
+                                  type: object
+                                  properties:
+                                    jobId: { type: string }
+              additionalOperations:
+                copy:
+                  operationId: copyReusable
+                  requestBody:
+                    content:
+                      application/json:
+                        schema:
+                          type: object
+                          properties:
+                            sourceId: { type: string }
+                  responses:
+                    '204': { description: Copied }
         """.trimIndent()
 }
