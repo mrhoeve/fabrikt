@@ -39,7 +39,7 @@ internal object SourceOpenApiDocumentParser {
             root = root,
             baseUri = baseUri,
             version = version,
-            operations = SourceOperationDocumentParser.parse(root, version),
+            operations = SourceOperationDocumentParser.parse(root, version, schemaEntryPoints),
             componentSchemas = componentSchemas,
             modelSchemas = SourceModelSchemaCollector.collect(root, version, schemaEntryPoints, componentSchemas),
             schemaEntryPoints = schemaEntryPoints,

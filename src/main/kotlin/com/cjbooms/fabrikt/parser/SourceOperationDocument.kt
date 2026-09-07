@@ -7,6 +7,7 @@ internal data class SourceOperationDocument(
     val webhooks: List<SourcePathItem>,
     val reusablePathItems: Map<String, SourcePathItem>,
     val reusableCallbacks: Map<String, SourceCallback>,
+    val reusableParameters: Map<String, SourceParameter>,
 )
 
 internal data class SourcePathItem(
@@ -18,6 +19,7 @@ internal data class SourcePathItem(
     val summary: String?,
     val description: String?,
     val extensions: Map<String, JsonNode>,
+    val parameters: List<SourceParameter>,
     val operations: List<SourceOperation>,
 )
 
@@ -39,6 +41,7 @@ internal data class SourceOperation(
     val tags: List<String>,
     val deprecated: Boolean,
     val extensions: Map<String, JsonNode>,
+    val parameters: List<SourceParameter>,
     val callbacks: List<SourceCallback>,
 )
 
@@ -84,10 +87,12 @@ internal object SourceOperationDocumentParser {
     fun parse(
         root: JsonNode,
         version: OpenApiVersion?,
-    ): SourceOperationDocument = Collector(version).collect(root)
+        schemaEntryPoints: Map<String, SourceSchema>,
+    ): SourceOperationDocument = Collector(version, schemaEntryPoints).collect(root)
 
     private class Collector(
         private val version: OpenApiVersion?,
+        private val schemaEntryPoints: Map<String, SourceSchema>,
     ) {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
@@ -114,6 +119,7 @@ internal object SourceOperationDocumentParser {
                         "#/components/callbacks",
                         SourcePathItemKind.REUSABLE_CALLBACK,
                     ),
+                reusableParameters = emptyMap(),
             )
 
         private fun collectNamedPathItems(
@@ -173,6 +179,7 @@ internal object SourceOperationDocumentParser {
                 summary = pathItem.text("summary"),
                 description = pathItem.text("description"),
                 extensions = pathItem.extensions(),
+                parameters = collectParameters(pathItem["parameters"], "$location/parameters"),
                 operations = collectOperations(pathItem, location),
             )
 
@@ -230,8 +237,51 @@ internal object SourceOperationDocumentParser {
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
                 extensions = operation.extensions(),
+                parameters = collectParameters(operation["parameters"], "$location/parameters"),
                 callbacks = collectOperationCallbacks(operation, location),
             )
+
+        private fun collectParameters(
+            parameters: JsonNode?,
+            location: String,
+        ): List<SourceParameter> {
+            if (parameters?.isArray != true) return emptyList()
+
+            return parameters.mapIndexed { index, parameter ->
+                collectParameter(parameter, "$location/$index")
+            }
+        }
+
+        private fun collectParameter(
+            parameter: JsonNode,
+            location: String,
+        ): SourceParameter =
+            SourceParameter(
+                location = location,
+                node = parameter,
+                reference = parameter.text("\$ref"),
+                name = parameter.text("name"),
+                placement = parameter.text("in")?.let(::parseParameterPlacement),
+                description = parameter.text("description"),
+                required = parameter.boolean("required") ?: false,
+                deprecated = parameter.boolean("deprecated") ?: false,
+                allowEmptyValue = parameter.boolean("allowEmptyValue"),
+                style = parameter.text("style"),
+                explode = parameter.boolean("explode"),
+                allowReserved = parameter.boolean("allowReserved"),
+                schema = schemaEntryPoints["$location/schema"],
+                content = emptyList(),
+                extensions = parameter.extensions(),
+            )
+
+        private fun parseParameterPlacement(value: String): SourceParameterPlacement {
+            val fixed = FIXED_PARAMETER_PLACEMENTS_BY_VALUE[value]
+            return if (fixed == null || fixed == SourceFixedParameterPlacement.QUERYSTRING && !supportsOpenApi32) {
+                SourceParameterPlacement.Unrecognised(value)
+            } else {
+                SourceParameterPlacement.Fixed(fixed)
+            }
+        }
 
         private fun collectOperationCallbacks(
             operation: JsonNode,
@@ -279,6 +329,8 @@ internal object SourceOperationDocumentParser {
 
         private fun JsonNode.text(fieldName: String): String? = this[fieldName]?.takeIf(JsonNode::isTextual)?.textValue()
 
+        private fun JsonNode.boolean(fieldName: String): Boolean? = this[fieldName]?.takeIf(JsonNode::isBoolean)?.booleanValue()
+
         private fun JsonNode.extensions(): Map<String, JsonNode> =
             takeIf(JsonNode::isObject)
                 ?.properties()
@@ -292,6 +344,8 @@ internal object SourceOperationDocumentParser {
 
         private companion object {
             val FIXED_METHODS_BY_FIELD = SourceFixedOperationMethod.entries.associateBy(SourceFixedOperationMethod::fieldName)
+            val FIXED_PARAMETER_PLACEMENTS_BY_VALUE =
+                SourceFixedParameterPlacement.entries.associateBy(SourceFixedParameterPlacement::value)
         }
 
         private val supportsOpenApi32: Boolean
