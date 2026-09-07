@@ -89,22 +89,67 @@ internal object SourceOperationDocumentParser {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
                 paths = collectPathItemMap(root["paths"], "#/paths", SourcePathItemKind.PATH, pathsOnly = true),
-                webhooks = emptyList(),
-                reusablePathItems = emptyMap(),
-                reusableCallbacks = emptyMap(),
+                webhooks =
+                    if (version?.isAtLeast(3, 1) == true) {
+                        collectPathItemMap(root["webhooks"], "#/webhooks", SourcePathItemKind.WEBHOOK)
+                    } else {
+                        emptyList()
+                    },
+                reusablePathItems =
+                    if (version?.isAtLeast(3, 1) == true) {
+                        collectNamedPathItems(
+                            root.path("components").path("pathItems"),
+                            "#/components/pathItems",
+                            SourcePathItemKind.REUSABLE_PATH_ITEM,
+                        )
+                    } else {
+                        emptyMap()
+                    },
+                reusableCallbacks =
+                    collectNamedCallbacks(
+                        root.path("components").path("callbacks"),
+                        "#/components/callbacks",
+                        SourcePathItemKind.REUSABLE_CALLBACK,
+                    ),
             )
+
+        private fun collectNamedPathItems(
+            pathItems: JsonNode,
+            location: String,
+            kind: SourcePathItemKind,
+        ): Map<String, SourcePathItem> {
+            if (!pathItems.isObject) return emptyMap()
+
+            return pathItems.properties().associate { (name, pathItem) ->
+                name to collectPathItem(pathItem, "$location/${name.toJsonPointerToken()}", name, kind)
+            }
+        }
+
+        private fun collectNamedCallbacks(
+            callbacks: JsonNode,
+            location: String,
+            pathItemKind: SourcePathItemKind,
+        ): Map<String, SourceCallback> {
+            if (!callbacks.isObject) return emptyMap()
+
+            return callbacks.properties().associate { (name, callback) ->
+                name to collectCallback(callback, "$location/${name.toJsonPointerToken()}", name, pathItemKind)
+            }
+        }
 
         private fun collectPathItemMap(
             pathItems: JsonNode?,
             location: String,
             kind: SourcePathItemKind,
             pathsOnly: Boolean = false,
+            skipSpecificationExtensions: Boolean = false,
         ): List<SourcePathItem> {
             if (pathItems?.isObject != true) return emptyList()
 
             return pathItems
                 .properties()
                 .filter { (key, _) -> !pathsOnly || key.startsWith('/') }
+                .filterNot { (key, _) -> skipSpecificationExtensions && key.isSpecificationExtension() }
                 .map { (key, pathItem) ->
                     collectPathItem(pathItem, "$location/${key.toJsonPointerToken()}", key, kind)
                 }.toList()
@@ -155,12 +200,57 @@ internal object SourceOperationDocumentParser {
                 description = operation.text("description"),
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
-                callbacks = emptyList(),
+                callbacks = collectOperationCallbacks(operation, location),
             )
+
+        private fun collectOperationCallbacks(
+            operation: JsonNode,
+            location: String,
+        ): List<SourceCallback> {
+            val callbacks = operation["callbacks"]?.takeIf(JsonNode::isObject) ?: return emptyList()
+            return callbacks
+                .properties()
+                .map { (name, callback) ->
+                    collectCallback(
+                        callback = callback,
+                        location = "$location/callbacks/${name.toJsonPointerToken()}",
+                        name = name,
+                        pathItemKind = SourcePathItemKind.CALLBACK,
+                    )
+                }.toList()
+        }
+
+        private fun collectCallback(
+            callback: JsonNode,
+            location: String,
+            name: String,
+            pathItemKind: SourcePathItemKind,
+        ): SourceCallback {
+            val reference = callback.text("\$ref")
+            return SourceCallback(
+                location = location,
+                name = name,
+                node = callback,
+                reference = reference,
+                pathItems =
+                    if (reference == null) {
+                        collectPathItemMap(
+                            callback,
+                            location,
+                            pathItemKind,
+                            skipSpecificationExtensions = true,
+                        )
+                    } else {
+                        emptyList()
+                    },
+            )
+        }
 
         private fun JsonNode.text(fieldName: String): String? = this[fieldName]?.takeIf(JsonNode::isTextual)?.textValue()
 
         private fun String.toJsonPointerToken(): String = replace("~", "~0").replace("/", "~1")
+
+        private fun String.isSpecificationExtension(): Boolean = startsWith("x-", ignoreCase = true)
 
         private companion object {
             val FIXED_METHODS_BY_FIELD = SourceFixedOperationMethod.entries.associateBy(SourceFixedOperationMethod::fieldName)
