@@ -2,20 +2,18 @@ package com.cjbooms.fabrikt.parser
 
 import com.fasterxml.jackson.databind.JsonNode
 
-internal data class SourceResponses(
+internal data class SourceHeader(
     val location: String,
-    val node: JsonNode,
-    val values: List<SourceResponse>,
-    val extensions: Map<String, JsonNode>,
-)
-
-internal data class SourceResponse(
-    val location: String,
-    val key: String,
+    val name: String,
     val node: JsonNode,
     val reference: String?,
     val description: String?,
-    val headers: Map<String, SourceHeader>,
+    val required: Boolean,
+    val deprecated: Boolean,
+    val allowEmptyValue: Boolean?,
+    val style: String?,
+    val explode: Boolean?,
+    val schema: SourceSchema?,
     val content: List<SourceMediaType>,
     val extensions: Map<String, JsonNode>,
 )

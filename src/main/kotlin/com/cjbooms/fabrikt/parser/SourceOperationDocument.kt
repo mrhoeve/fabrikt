@@ -10,6 +10,7 @@ internal data class SourceOperationDocument(
     val reusableParameters: Map<String, SourceParameter>,
     val reusableRequestBodies: Map<String, SourceRequestBody>,
     val reusableResponses: Map<String, SourceResponse>,
+    val reusableHeaders: Map<String, SourceHeader>,
     val reusableMediaTypes: Map<String, SourceMediaType>,
 )
 
@@ -139,6 +140,11 @@ internal object SourceOperationDocumentParser {
                         root.path("components").path("responses"),
                         "#/components/responses",
                     ),
+                reusableHeaders =
+                    collectNamedHeaders(
+                        root.path("components").path("headers"),
+                        "#/components/headers",
+                    ),
                 reusableMediaTypes =
                     if (supportsOpenApi32) {
                         collectNamedMediaTypes(
@@ -149,6 +155,11 @@ internal object SourceOperationDocumentParser {
                         emptyMap()
                     },
             )
+
+        private fun collectNamedHeaders(
+            headers: JsonNode,
+            location: String,
+        ): Map<String, SourceHeader> = collectHeaders(headers, location)
 
         private fun collectNamedResponses(
             responses: JsonNode,
@@ -345,8 +356,41 @@ internal object SourceOperationDocumentParser {
                 node = response,
                 reference = response.text("\$ref"),
                 description = response.text("description"),
+                headers = collectHeaders(response["headers"], "$location/headers"),
                 content = collectMediaTypes(response["content"], "$location/content"),
                 extensions = response.extensions(),
+            )
+
+        private fun collectHeaders(
+            headers: JsonNode?,
+            location: String,
+        ): Map<String, SourceHeader> {
+            if (headers?.isObject != true) return emptyMap()
+
+            return headers.properties().associate { (name, header) ->
+                name to collectHeader(header, "$location/${name.toJsonPointerToken()}", name)
+            }
+        }
+
+        private fun collectHeader(
+            header: JsonNode,
+            location: String,
+            name: String,
+        ): SourceHeader =
+            SourceHeader(
+                location = location,
+                name = name,
+                node = header,
+                reference = header.text("\$ref"),
+                description = header.text("description"),
+                required = header.boolean("required") ?: false,
+                deprecated = header.boolean("deprecated") ?: false,
+                allowEmptyValue = header.boolean("allowEmptyValue"),
+                style = header.text("style"),
+                explode = header.boolean("explode"),
+                schema = schemaEntryPoints["$location/schema"],
+                content = collectMediaTypes(header["content"], "$location/content"),
+                extensions = header.extensions(),
             )
 
         private fun collectRequestBody(
