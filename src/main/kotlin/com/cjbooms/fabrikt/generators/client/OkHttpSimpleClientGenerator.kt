@@ -321,7 +321,7 @@ data class SimpleClientOperationStatement(
         // First handle the array binary files with forEach loops
         parameters
             .filterIsInstance<MultipartParameter>()
-            .filter { it.isBinaryFile && it.schema.type == "array" }
+            .filter { it.isBinaryFile && it.isArray }
             .forEach { param ->
                 this.add("\n%N?.forEachIndexed { index, fileData ->", param.name)
                 this.add(
@@ -334,7 +334,7 @@ data class SimpleClientOperationStatement(
         // Then handle other parameters using multipartBuilder directly
         parameters
             .filterIsInstance<MultipartParameter>()
-            .filter { !(it.isBinaryFile && it.schema.type == "array") }
+            .filter { !(it.isBinaryFile && it.isArray) }
             .forEach { param ->
                 if (!param.isRequired) this.add("\n%N?.let {", param.name)
                 when {

@@ -164,7 +164,7 @@ class SpringControllerInterfaceGenerator(
             name = parameter.name,
             type =
                 when {
-                    parameter.isBinaryFile && parameter.schema.type == "array" -> springMultipartFileTypeList
+                    parameter.isBinaryFile && parameter.isArray -> springMultipartFileTypeList
                     parameter.isBinaryFile -> springMultipartFileType
                     else -> parameter.type
                 }.copy(nullable = !parameter.isRequired),
