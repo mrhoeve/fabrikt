@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.parser
 import com.fasterxml.jackson.databind.JsonNode
 
 internal data class SourceOperationDocument(
+    val security: SourceSecurityRequirements?,
     val paths: List<SourcePathItem>,
     val webhooks: List<SourcePathItem>,
     val reusablePathItems: Map<String, SourcePathItem>,
@@ -44,6 +45,7 @@ internal data class SourceOperation(
     val description: String?,
     val tags: List<String>,
     val deprecated: Boolean,
+    val security: SourceSecurityRequirements?,
     val extensions: Map<String, JsonNode>,
     val parameters: List<SourceParameter>,
     val requestBody: SourceRequestBody?,
@@ -102,6 +104,7 @@ internal object SourceOperationDocumentParser {
     ) {
         fun collect(root: JsonNode): SourceOperationDocument =
             SourceOperationDocument(
+                security = collectSecurityRequirements(root["security"], "#/security"),
                 paths = collectPathItemMap(root["paths"], "#/paths", SourcePathItemKind.PATH, pathsOnly = true),
                 webhooks =
                     if (version?.isAtLeast(3, 1) == true) {
@@ -319,11 +322,43 @@ internal object SourceOperationDocumentParser {
                 description = operation.text("description"),
                 tags = operation["tags"]?.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty(),
                 deprecated = operation["deprecated"]?.takeIf(JsonNode::isBoolean)?.booleanValue() ?: false,
+                security = collectSecurityRequirements(operation["security"], "$location/security"),
                 extensions = operation.extensions(),
                 parameters = collectParameters(operation["parameters"], "$location/parameters"),
                 requestBody = collectRequestBody(operation["requestBody"], "$location/requestBody"),
                 responses = collectResponses(operation["responses"], "$location/responses"),
                 callbacks = collectOperationCallbacks(operation, location),
+            )
+
+        private fun collectSecurityRequirements(
+            security: JsonNode?,
+            location: String,
+        ): SourceSecurityRequirements? {
+            if (security?.isArray != true) return null
+
+            return SourceSecurityRequirements(
+                location = location,
+                node = security,
+                values =
+                    security.mapIndexedNotNull { index, requirement ->
+                        requirement
+                            .takeIf(JsonNode::isObject)
+                            ?.let { collectSecurityRequirement(it, "$location/$index") }
+                    },
+            )
+        }
+
+        private fun collectSecurityRequirement(
+            requirement: JsonNode,
+            location: String,
+        ): SourceSecurityRequirement =
+            SourceSecurityRequirement(
+                location = location,
+                node = requirement,
+                schemes =
+                    requirement.properties().associate { (name, scopes) ->
+                        name to scopes.takeIf(JsonNode::isArray)?.mapNotNull { it.takeIf(JsonNode::isTextual)?.textValue() }.orEmpty()
+                    },
             )
 
         private fun collectResponses(
