@@ -9,5 +9,6 @@ internal data class SourceMediaType(
     val reference: String?,
     val schema: SourceSchema?,
     val itemSchema: SourceSchema?,
+    val encoding: Map<String, SourceEncoding>,
     val extensions: Map<String, JsonNode>,
 )
