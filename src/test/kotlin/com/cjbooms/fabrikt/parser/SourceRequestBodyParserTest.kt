@@ -55,6 +55,44 @@ class SourceRequestBodyParserTest {
         assertThat(operations[1].requestBody).isNull()
     }
 
+    @Test
+    fun `models reusable request bodies and OpenAPI 3_2 media types`() {
+        val document = SourceOpenApiDocumentParser.parse(reusablePayloadOpenApi)
+
+        assertThat(document.operations.reusableRequestBodies).containsOnlyKeys("Create~/Subject", "Alias")
+        val requestBody = document.operations.reusableRequestBodies.getValue("Create~/Subject")
+        assertThat(requestBody.location).isEqualTo("#/components/requestBodies/Create~0~1Subject")
+        assertThat(requestBody.content.single().schema)
+            .isSameAs(
+                document.schemaEntryPoints.getValue(
+                    "#/components/requestBodies/Create~0~1Subject/content/application~1json/schema",
+                ),
+            )
+        assertThat(
+            document.operations.reusableRequestBodies
+                .getValue("Alias")
+                .reference,
+        ).isEqualTo("#/components/requestBodies/Create~0~1Subject")
+
+        assertThat(document.operations.reusableMediaTypes).containsOnlyKeys("SubjectPayload")
+        val mediaType = document.operations.reusableMediaTypes.getValue("SubjectPayload")
+        assertThat(mediaType.location).isEqualTo("#/components/mediaTypes/SubjectPayload")
+        assertThat(mediaType.key).isEqualTo("SubjectPayload")
+        assertThat(mediaType.schema)
+            .isSameAs(document.schemaEntryPoints.getValue("#/components/mediaTypes/SubjectPayload/schema"))
+    }
+
+    @Test
+    fun `keeps component media types out of earlier OpenAPI versions`() {
+        val document =
+            SourceOpenApiDocumentParser.parse(
+                reusablePayloadOpenApi.replace("openapi: 3.2.0", "openapi: 3.1.2"),
+            )
+
+        assertThat(document.operations.reusableRequestBodies).containsOnlyKeys("Create~/Subject", "Alias")
+        assertThat(document.operations.reusableMediaTypes).isEmpty()
+    }
+
     private val requestBodyOpenApi =
         """
         openapi: 3.1.2
@@ -100,5 +138,28 @@ class SourceRequestBodyParserTest {
                 application/json:
                   schema:
                     type: object
+        """.trimIndent()
+
+    private val reusablePayloadOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          requestBodies:
+            Create~/Subject:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+            Alias:
+              ${'$'}ref: '#/components/requestBodies/Create~0~1Subject'
+          mediaTypes:
+            SubjectPayload:
+              schema:
+                type: object
         """.trimIndent()
 }
