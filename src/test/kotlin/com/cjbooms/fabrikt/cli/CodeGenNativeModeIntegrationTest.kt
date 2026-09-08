@@ -46,7 +46,9 @@ class CodeGenNativeModeIntegrationTest {
                 .joinToString("\n")
         assertThat(sources)
             .contains("public data class Subject(")
+            .contains("public val id: String? = null")
             .contains("public val label: String?")
+            .contains("public val secret: String? = null")
             .contains("public interface SubjectsController")
             .contains("public interface SubjectsClient")
             .contains("public fun createSubject(")
@@ -79,10 +81,15 @@ class CodeGenNativeModeIntegrationTest {
           schemas:
             Subject:
               type: object
-              required: [id]
+              required: [id, secret]
               properties:
-                id: { type: string }
+                id:
+                  type: string
+                  readOnly: true
                 label:
                   type: [string, 'null']
+                secret:
+                  type: string
+                  writeOnly: true
         """.trimIndent()
 }
