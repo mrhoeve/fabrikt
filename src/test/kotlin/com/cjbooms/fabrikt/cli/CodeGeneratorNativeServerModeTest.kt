@@ -74,21 +74,21 @@ class CodeGeneratorNativeServerModeTest {
             .contains("id: Int")
             .contains("includeInactive: Boolean?")
             .contains("sessionId: String?")
-            .contains("subject: Subject")
+            .contains("subjectRequest: SubjectRequest")
         when (target) {
             ControllerCodeGenTargetType.SPRING ->
                 assertThat(generated)
                     .contains("@RequestMapping(")
-                    .contains("ResponseEntity<Subject>")
+                    .contains("ResponseEntity<SubjectResponse>")
             ControllerCodeGenTargetType.MICRONAUT ->
                 assertThat(generated)
                     .contains("@Get(uri = \"/subjects/{id}\")")
-                    .contains("HttpResponse<Subject>")
+                    .contains("HttpResponse<SubjectResponse>")
             ControllerCodeGenTargetType.KTOR ->
                 assertThat(generated)
                     .contains("public fun Route.subjectsRoutes(")
                     .contains("call.request.cookies[\"session-id\"]")
-                    .contains("call: TypedApplicationCall<Subject>")
+                    .contains("call: TypedApplicationCall<SubjectResponse>")
         }
     }
 
@@ -132,9 +132,14 @@ class CodeGeneratorNativeServerModeTest {
           schemas:
             Subject:
               type: object
-              required: [id]
+              required: [id, secret]
               properties:
-                id: { type: string }
+                id:
+                  type: string
+                  readOnly: true
+                secret:
+                  type: string
+                  writeOnly: true
         """.trimIndent()
 
     private val inlineEndpointModelsOpenApi =
