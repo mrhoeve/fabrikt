@@ -42,6 +42,7 @@ class CodeGeneratorNativeClientModeTest {
             .contains("findSubject")
             .contains("id: Int")
             .contains("includeInactive: Boolean? = null")
+            .contains("sessionId: String? = null")
             .contains("subject: Subject")
         when (target) {
             ClientCodeGenTargetType.OK_HTTP ->
@@ -53,17 +54,20 @@ class CodeGeneratorNativeClientModeTest {
                 assertThat(generated)
                     .contains("public interface SubjectsClient")
                     .contains("@RequestLine(\"POST /subjects/{id}?includeInactive={includeInactive}\")")
+                    .contains("\"Cookie: {cookieHeader}\"")
                     .contains("): Subject")
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
                 assertThat(generated)
                     .contains("public interface SubjectsClient")
                     .contains("@HttpExchange(")
+                    .contains("@CookieValue(\"session-id\", required = false) sessionId: String?")
                     .contains("method=\"POST\"")
                     .contains("): Subject")
             ClientCodeGenTargetType.KTOR ->
                 assertThat(generated)
                     .contains("public class SubjectsClient")
                     .contains("NetworkResult<Subject>")
+                    .contains("cookie(\"session-id\", it.toString())")
                     .contains("basePath: String = \"https://example.test/api\"")
         }
     }
@@ -90,6 +94,9 @@ class CodeGeneratorNativeClientModeTest {
                 - name: includeInactive
                   in: query
                   schema: { type: boolean }
+                - name: session-id
+                  in: cookie
+                  schema: { type: string }
               requestBody:
                 required: true
                 content:

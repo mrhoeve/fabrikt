@@ -107,7 +107,7 @@ class OpenFeignInterfaceGenerator(
             context
                 .groupedPaths(strategy)
                 .map { (resourceName, paths) ->
-                    val functions = paths.flatMap { path -> path.operations.map { buildFunction(context, path, it, options) } }
+                    val functions = paths.flatMap { path -> path.operations.flatMap { buildFunctions(context, path, it, options) } }
                     val type =
                         TypeSpec
                             .interfaceBuilder(simpleClientName(resourceName))
@@ -338,21 +338,34 @@ class OpenFeignInterfaceGenerator(
         path: GeneratorPathItem,
         operation: GeneratorOperation,
         options: Set<ClientCodeGenOptionType>,
-    ): FunSpec {
-        val parameters = context.clientParameters(operation, path)
-        return FunSpec
-            .builder(context.functionName(operation, path.path))
+        parameters: List<IncomingParameter> = context.clientParameters(operation, path),
+        name: String = context.functionName(operation, path.path),
+        hasCookieHeader: Boolean = false,
+        cookieHeaderParameterName: String = "cookieHeader",
+    ): FunSpec =
+        FunSpec
+            .builder(name)
             .addModifiers(KModifier.ABSTRACT)
-            .addKdoc(context.toKdoc(operation, parameters))
+            .apply { if (!hasCookieHeader) addKdoc(context.toKdoc(operation, parameters)) }
             .addRequestLineAnnotation(path.path, operation.method, parameters)
-            .addHeadersAnnotation(parameters, context.primaryResponseContentType(operation))
+            .addHeadersAnnotation(parameters, context.primaryResponseContentType(operation), hasCookieHeader, cookieHeaderParameterName)
             .addSuspendModifier(options)
             .addIncomingParameters(
                 parameters,
                 annotateRequestParameterWith = { parameter ->
                     OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.name).build()
                 },
-            ).addParameter(
+            ).apply {
+                if (hasCookieHeader) {
+                    addAnnotation(JvmSynthetic::class)
+                    addParameter(
+                        ParameterSpec
+                            .builder(cookieHeaderParameterName, String::class)
+                            .addAnnotation(OpenFeignAnnotations.paramBuilder().addMember("%S", cookieHeaderParameterName).build())
+                            .build(),
+                    )
+                }
+            }.addParameter(
                 ParameterSpec
                     .builder(
                         ADDITIONAL_HEADERS_PARAMETER_NAME,
@@ -370,7 +383,92 @@ class OpenFeignInterfaceGenerator(
                     .build(),
             ).returns(context.successResponseType(operation, packages.base).optionallyParameterizeWithResponseEntity(options))
             .build()
+
+    private fun buildFunctions(
+        context: GeneratorEndpointContext,
+        path: GeneratorPathItem,
+        operation: GeneratorOperation,
+        options: Set<ClientCodeGenOptionType>,
+    ): List<FunSpec> {
+        val parameters = context.clientParameters(operation, path)
+        val cookieParameters = parameters.filterIsInstance<RequestParameter>().filter { it.parameterLocation is CookieParam }
+        if (cookieParameters.isEmpty()) return listOf(buildFunction(context, path, operation, options, parameters))
+
+        val functionName = context.functionName(operation, path.path)
+        val requestFunctionName = "${functionName}WithCookieHeader"
+        val cookieHeaderParameterName =
+            generateSequence("cookieHeader") { previous -> "${previous}Extra" }
+                .first { candidate -> parameters.none { it.name == candidate } }
+        return listOf(
+            buildCookieWrapperFunction(
+                context,
+                operation,
+                options,
+                parameters,
+                functionName,
+                requestFunctionName,
+                cookieHeaderParameterName,
+                cookieParameters,
+            ),
+            buildFunction(
+                context,
+                path,
+                operation,
+                options,
+                parameters.filterNot { it is RequestParameter && it.parameterLocation is CookieParam },
+                requestFunctionName,
+                hasCookieHeader = true,
+                cookieHeaderParameterName = cookieHeaderParameterName,
+            ),
+        )
     }
+
+    private fun buildCookieWrapperFunction(
+        context: GeneratorEndpointContext,
+        operation: GeneratorOperation,
+        options: Set<ClientCodeGenOptionType>,
+        parameters: List<IncomingParameter>,
+        name: String,
+        requestFunctionName: String,
+        cookieHeaderParameterName: String,
+        cookieParameters: List<RequestParameter>,
+    ): FunSpec =
+        FunSpec
+            .builder(name)
+            .addKdoc(context.toKdoc(operation, parameters))
+            .addSuspendModifier(options)
+            .addIncomingParameters(parameters)
+            .addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_HEADERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).defaultValue("emptyMap()")
+                    .build(),
+            ).addParameter(
+                ParameterSpec
+                    .builder(
+                        ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME,
+                        TypeFactory.createMapOfStringToNonNullType(String::class.asTypeName()),
+                    ).defaultValue("emptyMap()")
+                    .build(),
+            ).returns(context.successResponseType(operation, packages.base).optionallyParameterizeWithResponseEntity(options))
+            .addCode(
+                buildCodeBlock {
+                    add("return %N(\n", requestFunctionName)
+                    indent()
+                    parameters
+                        .filterNot { it is RequestParameter && it.parameterLocation is CookieParam }
+                        .forEach { add("%N = %N,\n", it.name, it.name) }
+                    add("%N = ", cookieHeaderParameterName)
+                    addCookieHeaderValue(cookieParameters)
+                    add(",\n")
+                    add("%N = %N,\n", ADDITIONAL_HEADERS_PARAMETER_NAME, ADDITIONAL_HEADERS_PARAMETER_NAME)
+                    add("%N = %N,\n", ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME, ADDITIONAL_QUERY_PARAMETERS_PARAMETER_NAME)
+                    unindent()
+                    add(")\n")
+                },
+            ).build()
 
     /**
      * Adds OpenFeign's @RequestLine annotation to the function spec
@@ -507,9 +605,13 @@ class OpenFeignInterfaceGenerator(
     private fun FunSpec.Builder.addHeadersAnnotation(
         parameters: List<IncomingParameter>,
         defaultAcceptContentType: String?,
+        hasCookieHeader: Boolean = false,
+        cookieHeaderParameterName: String = "cookieHeader",
     ): FunSpec.Builder =
         apply {
-            HeadersAnnotationBuilder(parameters, defaultAcceptContentType).build()?.let(::addAnnotation)
+            HeadersAnnotationBuilder(parameters, defaultAcceptContentType, hasCookieHeader, cookieHeaderParameterName)
+                .build()
+                ?.let(::addAnnotation)
         }
 
     private class HeadersAnnotationBuilder(
