@@ -171,8 +171,8 @@ class KtorControllerInterfaceGenerator(
                 .builder(context.methodName(operation, path.path))
                 .addModifiers(setOf(KModifier.SUSPEND, KModifier.ABSTRACT))
         val params = context.incomingParameters(operation, path.parameters)
-        val (pathParams, queryParams, headerParams, bodyParams) = params.splitByType()
-        headerParams.forEach { parameter ->
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
+        (headerParams + cookieParams).forEach { parameter ->
             builder.addParameter(
                 ParameterSpec
                     .builder(
@@ -224,7 +224,7 @@ class KtorControllerInterfaceGenerator(
         }
 
         val params = context.incomingParameters(operation, path.parameters)
-        val (pathParams, queryParams, headerParams, bodyParams) = params.splitByType()
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         builder
             .addStatement(
                 "%M(%S) {",
@@ -261,6 +261,20 @@ class KtorControllerInterfaceGenerator(
                 )
             }
         }
+        cookieParams.forEach { parameter ->
+            if (parameter.isRequired) {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.cookies[\"${parameter.originalName}\"] ?: throw %M(\"${parameter.originalName}\")",
+                    MemberName("io.ktor.server.application", "call"),
+                    MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
+                )
+            } else {
+                builder.addStatement(
+                    "val ${parameter.name} = %M.request.cookies[\"${parameter.originalName}\"]",
+                    MemberName("io.ktor.server.application", "call"),
+                )
+            }
+        }
         queryParams.forEach { parameter ->
             val type = parameter.type.copy(nullable = false)
             val method = if (parameter.isRequired) "getTypedOrFail" else "getTyped"
@@ -288,7 +302,7 @@ class KtorControllerInterfaceGenerator(
             )
         }
         val methodParameters =
-            listOf(headerParams, pathParams, queryParams, bodyParams).asSequence().flatten().joinToString(", ") { it.name }
+            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams).asSequence().flatten().joinToString(", ") { it.name }
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
             builder.addStatement(
