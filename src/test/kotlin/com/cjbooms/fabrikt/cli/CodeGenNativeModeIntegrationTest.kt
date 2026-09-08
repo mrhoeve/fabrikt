@@ -56,8 +56,8 @@ class CodeGenNativeModeIntegrationTest {
             .contains("public interface SubjectsController")
             .contains("public interface SubjectsClient")
             .contains("public fun createSubject(")
-            .contains("subject: Subject")
-            .contains("): Subject")
+            .contains("subjectRequest: SubjectRequest")
+            .contains("): SubjectResponse")
     }
 
     private val openApi =
