@@ -89,11 +89,12 @@ internal class NativeModelGenerator(
         properties.forEach { property ->
             val resolvedType = property.kotlinType.asResolvedFallback() ?: return@forEach
             val defaultCode = property.defaultCode(resolvedType)
-            val nullable = resolvedType.nullable || (!property.required && defaultCode == null)
+            val required = property.requiredInCombinedModel
+            val nullable = resolvedType.nullable || (!required && defaultCode == null)
             val propertyName = property.name.toKotlinParameterName()
             val typeName = ModelGenerator.toModelType(basePackage, resolvedType.typeInfo, nullable)
             val parameter = ParameterSpec.builder(propertyName, typeName)
-            if (!property.required) {
+            if (!required) {
                 defaultCode?.let(parameter::defaultValue) ?: parameter.defaultValue("null")
             }
             constructor.addParameter(parameter.build())
@@ -102,7 +103,7 @@ internal class NativeModelGenerator(
                     .builder(propertyName, typeName)
                     .initializer(propertyName)
                     .apply { property.description?.let { addKdoc("%L", it) } }
-            serializationAnnotations.addParameter(generatedProperty, property.name, property.required, resolvedType.typeInfo)
+            serializationAnnotations.addParameter(generatedProperty, property.name, required, resolvedType.typeInfo)
             serializationAnnotations.addProperty(generatedProperty, property.name, resolvedType.typeInfo)
             property.addValidationAnnotations(generatedProperty, resolvedType, nullable, validationAnnotations)
             type.addProperty(generatedProperty.build())
