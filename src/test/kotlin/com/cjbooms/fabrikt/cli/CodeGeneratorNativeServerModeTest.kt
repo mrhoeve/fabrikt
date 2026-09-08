@@ -37,6 +37,7 @@ class CodeGeneratorNativeServerModeTest {
             .contains("public interface SubjectsController")
             .contains("id: Int")
             .contains("includeInactive: Boolean?")
+            .contains("sessionId: String?")
             .contains("subject: Subject")
         when (target) {
             ControllerCodeGenTargetType.SPRING ->
@@ -50,6 +51,7 @@ class CodeGeneratorNativeServerModeTest {
             ControllerCodeGenTargetType.KTOR ->
                 assertThat(generated)
                     .contains("public fun Route.subjectsRoutes(")
+                    .contains("call.request.cookies[\"session-id\"]")
                     .contains("call: TypedApplicationCall<Subject>")
         }
     }
@@ -76,6 +78,9 @@ class CodeGeneratorNativeServerModeTest {
                 - name: includeInactive
                   in: query
                   schema: { type: boolean }
+                - name: session-id
+                  in: cookie
+                  schema: { type: string }
               requestBody:
                 required: true
                 content:
