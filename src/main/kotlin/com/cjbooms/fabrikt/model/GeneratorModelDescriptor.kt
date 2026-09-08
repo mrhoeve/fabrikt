@@ -234,21 +234,24 @@ internal object GeneratorModelDescriptorBuilder {
         val rootName: String,
     )
 
-    private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean =
-        when {
+    private fun GeneratorObjectSchema.requiresGeneratedModel(): Boolean {
+        val classification = GeneratorSchemaTypeClassifier.classify(this)
+        return when {
             this is GeneratorReferenceSiblingSchema && !changesGeneratedShape -> false
             location.contains("/additionalProperties") &&
                 properties.isEmpty() &&
-                (oneOf.isNotEmpty() || anyOf.isNotEmpty()) -> false
+                (oneOf.isNotEmpty() || anyOf.isNotEmpty()) &&
+                (classification as? GeneratorSchemaTypeClassification.Fallback)?.supportsGeneratedScalarUnion() != true -> false
             else ->
-                (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Fallback)
+                (classification as? GeneratorSchemaTypeClassification.Fallback)
                     ?.supportsGeneratedScalarUnion() == true ||
-                    (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
+                    (classification as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
                     allOf.isNotEmpty() ||
                     oneOf.isNotEmpty() ||
                     anyOf.isNotEmpty()
         }
+    }
 
     private fun OasType.scalarUnionVariantName(): String =
         when (this) {

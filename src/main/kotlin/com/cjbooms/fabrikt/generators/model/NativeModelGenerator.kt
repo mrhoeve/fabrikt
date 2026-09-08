@@ -46,6 +46,7 @@ internal class NativeModelGenerator(
                 val typeSpec =
                     when {
                         descriptor.scalarUnionVariants.isNotEmpty() -> descriptor.toScalarUnion()
+                        descriptor.resolvedType() == null -> null
                         descriptor.oneOfMembers.isNotEmpty() -> descriptor.toUnionInterface()
                         descriptor.resolvedType() == OasType.Object ->
                             descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
