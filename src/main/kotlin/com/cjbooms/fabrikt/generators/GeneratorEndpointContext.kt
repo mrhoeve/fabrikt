@@ -4,9 +4,11 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
+import com.cjbooms.fabrikt.model.GeneratorDirectionalModelPlan
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolver
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
+import com.cjbooms.fabrikt.model.GeneratorModelDirection
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -38,6 +40,8 @@ internal class GeneratorEndpointContext(
     private val basePackage: String,
 ) {
     private val typeResolver = GeneratorKotlinTypeResolver(schemas, GeneratorModelDescriptorBuilder.registeredModelNames(schemas))
+    private val directionalModels =
+        GeneratorDirectionalModelPlan.create(GeneratorModelDescriptorBuilder.build(schemas))
 
     fun groupedPaths(strategy: GroupingStrategy): Map<String, List<GeneratorPathItem>> =
         operations.paths.groupBy { path ->
@@ -183,7 +187,10 @@ internal class GeneratorEndpointContext(
             return if (responses.all { "json" in it.key.lowercase() }) JSON_NODE_CLASS else Any::class.asTypeName()
         }
         val schema = operation.primarySuccessResponse()?.content?.firstNotNullOfOrNull { it.effectiveSchema() }
-        return schema?.let { toModelType(basePackage, resolveType(it).typeInfo, resolveType(it).nullable) } ?: Unit::class.asTypeName()
+        return schema
+            ?.let { resolveType(it, GeneratorModelDirection.RESPONSE) }
+            ?.let { toModelType(basePackage, it.typeInfo, it.nullable) }
+            ?: Unit::class.asTypeName()
     }
 
     fun isSseResponse(operation: GeneratorOperation): Boolean {
@@ -209,7 +216,7 @@ internal class GeneratorEndpointContext(
                 MultipartParameter(
                     oasName = name,
                     description = resolved?.metadata?.description,
-                    type = typeName(property, name in schema.requiredProperties),
+                    type = typeName(property, name in schema.requiredProperties, GeneratorModelDirection.REQUEST),
                     partName = name,
                     isBinaryFile = binary,
                     contentType =
@@ -229,7 +236,7 @@ internal class GeneratorEndpointContext(
         val bodies =
             requestBody.content.mapNotNull { media ->
                 val schema = media.effectiveSchema() ?: return@mapNotNull null
-                val resolution = resolveType(schema)
+                val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
                 BodyParameter(
                     oasName = resolution.typeInfo.generatedModelClassName?.toKotlinParameterName() ?: "body",
                     description = requestBody.description,
@@ -251,7 +258,7 @@ internal class GeneratorEndpointContext(
         val parameterLocation = runCatching { RequestParameterLocation(placement) }.getOrNull() ?: return null
         val schema = parameter.schema ?: parameter.content.firstNotNullOfOrNull { it.effectiveSchema() } ?: return null
         val resolvedSchema = schemas.resolve(schema) as? GeneratorObjectSchema
-        val resolution = resolveType(schema)
+        val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
         return RequestParameter(
             oasName = name,
             description = parameter.description,
@@ -272,17 +279,25 @@ internal class GeneratorEndpointContext(
     private fun typeName(
         schema: GeneratorSchema,
         required: Boolean,
+        direction: GeneratorModelDirection,
     ): TypeName {
-        val resolution = resolveType(schema)
+        val resolution = resolveType(schema, direction)
         return toModelType(basePackage, resolution.typeInfo, !required || resolution.nullable)
     }
 
-    private fun resolveType(schema: GeneratorSchema): GeneratorKotlinTypeResolution.Resolved =
-        when (val resolution = typeResolver.resolve(schema)) {
-            is GeneratorKotlinTypeResolution.Resolved -> resolution
-            is GeneratorKotlinTypeResolution.Fallback -> GeneratorKotlinTypeResolution.Resolved(resolution.typeInfo, resolution.nullable)
-            is GeneratorKotlinTypeResolution.Unsupported -> GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, true)
-        }
+    private fun resolveType(
+        schema: GeneratorSchema,
+        direction: GeneratorModelDirection = GeneratorModelDirection.COMBINED,
+    ): GeneratorKotlinTypeResolution.Resolved {
+        val resolved =
+            when (val resolution = typeResolver.resolve(schema)) {
+                is GeneratorKotlinTypeResolution.Resolved -> resolution
+                is GeneratorKotlinTypeResolution.Fallback ->
+                    GeneratorKotlinTypeResolution.Resolved(resolution.typeInfo, resolution.nullable)
+                is GeneratorKotlinTypeResolution.Unsupported -> GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, true)
+            }
+        return directionalModels.resolve(resolved, direction)
+    }
 
     private fun avoidNameClashes(parameters: List<IncomingParameter>): List<IncomingParameter> {
         if (parameters.map(IncomingParameter::name).distinct().size == parameters.size) return parameters
