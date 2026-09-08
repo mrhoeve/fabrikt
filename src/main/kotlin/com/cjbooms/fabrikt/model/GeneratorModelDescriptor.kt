@@ -22,8 +22,15 @@ internal data class GeneratorModelDescriptor(
     val properties: List<GeneratorPropertyDescriptor>,
     val oneOfMembers: List<GeneratorUnionMemberDescriptor>,
     val anyOfMembers: List<GeneratorUnionMemberDescriptor>,
+    val scalarUnionVariants: List<GeneratorScalarUnionVariantDescriptor>,
     val discriminator: SourceSchemaDiscriminator?,
     val additionalPropertiesType: GeneratorKotlinTypeResolution.Resolved?,
+)
+
+internal data class GeneratorScalarUnionVariantDescriptor(
+    val name: String,
+    val type: OasType,
+    val kotlinType: GeneratorKotlinTypeResolution.Resolved,
 )
 
 internal data class GeneratorUnionMemberDescriptor(
@@ -88,6 +95,17 @@ internal object GeneratorModelDescriptorBuilder {
             properties = resolvedSchema.properties(name, document, typeResolver),
             oneOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.oneOf },
             anyOfMembers = resolvedSchema.unionMembers(document, typeResolver) { it.anyOf },
+            scalarUnionVariants =
+                (typeResolver.classify(resolvedSchema) as? GeneratorSchemaTypeClassification.Fallback)
+                    ?.takeIf(GeneratorSchemaTypeClassification.Fallback::supportsGeneratedScalarUnion)
+                    ?.types
+                    ?.map { type ->
+                        GeneratorScalarUnionVariantDescriptor(
+                            name = type.scalarUnionVariantName(),
+                            type = type,
+                            kotlinType = typeResolver.resolveUnionVariant(resolvedSchema, type),
+                        )
+                    }.orEmpty(),
             discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
             additionalPropertiesType =
                 (resolvedSchema as? GeneratorObjectSchema)
@@ -223,11 +241,25 @@ internal object GeneratorModelDescriptorBuilder {
                 properties.isEmpty() &&
                 (oneOf.isNotEmpty() || anyOf.isNotEmpty()) -> false
             else ->
-                (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
+                (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Fallback)
+                    ?.supportsGeneratedScalarUnion() == true ||
+                    (GeneratorSchemaTypeClassifier.classify(this) as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
                     allOf.isNotEmpty() ||
                     oneOf.isNotEmpty() ||
                     anyOf.isNotEmpty()
+        }
+
+    private fun OasType.scalarUnionVariantName(): String =
+        when (this) {
+            OasType.Text -> "StringValue"
+            OasType.Boolean -> "BooleanValue"
+            OasType.Integer, OasType.Int32 -> "IntegerValue"
+            OasType.Int64 -> "LongValue"
+            OasType.Number -> "NumberValue"
+            OasType.Float -> "FloatValue"
+            OasType.Double -> "DoubleValue"
+            else -> error("Unsupported scalar union type: $this")
         }
 
     private fun GeneratorSchema.unionMembers(

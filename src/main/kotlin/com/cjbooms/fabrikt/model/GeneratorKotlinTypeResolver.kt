@@ -57,7 +57,14 @@ internal class GeneratorKotlinTypeResolver(
             is GeneratorSchemaTypeClassification.Unsupported ->
                 GeneratorKotlinTypeResolution.Unsupported(classification.reason)
             is GeneratorSchemaTypeClassification.Fallback ->
-                GeneratorKotlinTypeResolution.Fallback(unionFallback(), classification.nullable, classification)
+                if (classification.supportsGeneratedScalarUnion()) {
+                    GeneratorKotlinTypeResolution.Resolved(
+                        KotlinTypeInfo.Object(modelName(resolvedSchema)),
+                        classification.nullable,
+                    )
+                } else {
+                    GeneratorKotlinTypeResolution.Fallback(unionFallback(), classification.nullable, classification)
+                }
             is GeneratorSchemaTypeClassification.Resolved ->
                 GeneratorKotlinTypeResolution.Resolved(
                     typeInfo = resolveTypeInfo(classification.type, objectSchema, resolvedSchema),
@@ -100,6 +107,17 @@ internal class GeneratorKotlinTypeResolver(
 
     fun classify(schema: GeneratorSchema): GeneratorSchemaTypeClassification =
         GeneratorSchemaTypeClassifier.classify(document.resolve(schema), document::resolve)
+
+    fun resolveUnionVariant(
+        schema: GeneratorSchema,
+        type: OasType,
+    ): GeneratorKotlinTypeResolution.Resolved {
+        val resolvedSchema = document.resolve(schema)
+        return GeneratorKotlinTypeResolution.Resolved(
+            resolveTypeInfo(type, resolvedSchema as? GeneratorObjectSchema, resolvedSchema),
+            nullable = false,
+        )
+    }
 
     fun resolveProperty(
         schema: GeneratorSchema,
@@ -253,6 +271,47 @@ internal class GeneratorKotlinTypeResolver(
             KotlinTypeInfo.AnyType
         }
 }
+
+internal fun GeneratorSchemaTypeClassification.Fallback.supportsGeneratedScalarUnion(): Boolean =
+    this !is GeneratorSchemaTypeClassification.ValueUnion &&
+        types.size > 1 &&
+        types.all(SCALAR_UNION_TYPES::contains) &&
+        types.map(OasType::scalarUnionTokenKind).distinct().size == types.size &&
+        !(this is GeneratorSchemaTypeClassification.CompositionUnion && types.hasOverlappingNumericTypes())
+
+private fun Set<OasType>.hasOverlappingNumericTypes(): Boolean = any(OasType::isIntegerScalar) && any(OasType::isNumberScalar)
+
+private fun OasType.isIntegerScalar(): Boolean = this == OasType.Integer || this == OasType.Int32 || this == OasType.Int64
+
+private fun OasType.isNumberScalar(): Boolean = this == OasType.Number || this == OasType.Float || this == OasType.Double
+
+private fun OasType.scalarUnionTokenKind(): ScalarUnionTokenKind =
+    when (this) {
+        OasType.Text -> ScalarUnionTokenKind.STRING
+        OasType.Boolean -> ScalarUnionTokenKind.BOOLEAN
+        OasType.Integer, OasType.Int32, OasType.Int64 -> ScalarUnionTokenKind.INTEGER
+        OasType.Number, OasType.Float, OasType.Double -> ScalarUnionTokenKind.NUMBER
+        else -> error("Unsupported scalar union type: $this")
+    }
+
+private enum class ScalarUnionTokenKind {
+    STRING,
+    BOOLEAN,
+    INTEGER,
+    NUMBER,
+}
+
+private val SCALAR_UNION_TYPES =
+    setOf(
+        OasType.Text,
+        OasType.Boolean,
+        OasType.Integer,
+        OasType.Int32,
+        OasType.Int64,
+        OasType.Number,
+        OasType.Float,
+        OasType.Double,
+    )
 
 internal fun GeneratorKotlinTypeResolution.asResolvedFallback(): GeneratorKotlinTypeResolution.Resolved? =
     when (this) {

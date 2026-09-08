@@ -107,50 +107,89 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `generates safe fallback properties for native multi-type schemas`(version: String) {
-        val subject = generateMultiTypes(version)
+    fun `generates closed scalar unions for native multi-type schemas`(version: String) {
+        val generated = generateMultiTypes(version)
+        val subject = generated.getValue("Subject")
 
         assertThat(subject)
-            .contains("public val `value`: Any?")
-            .contains("public val values: List<Any?>? = null")
-            .contains("public val valuesByKey: Map<String, Any?>? = null")
+            .contains("public val `value`: SubjectValue?")
+            .contains("public val values: List<SubjectValues?>? = null")
+            .contains("public val valuesByKey: Map<String, ValuesByKeyValue?>? = null")
+        assertThat(generated.getValue("SubjectValue"))
+            .contains("public sealed interface SubjectValue")
+            .contains("public data class StringValue(", "public val `value`: String", ") : SubjectValue")
+            .contains("public data class IntegerValue(", "public val `value`: Int", ") : SubjectValue")
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `generates serializable Kotlinx fallbacks for native multi-type schemas`(version: String) {
+    fun `generates serializable closed scalar unions for every serialization library`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generateMultiTypes(version)
+            val subject = generated.getValue("Subject")
+            val union = generated.getValue("SubjectValue")
+
+            assertThat(generated).containsKeys("SubjectValue", "SubjectValues", "ValuesByKeyValue")
+            assertThat(subject)
+                .contains("public val `value`: SubjectValue?")
+                .contains("public val values: List<SubjectValues?>? = null")
+                .contains("public val valuesByKey: Map<String, ValuesByKeyValue?>? = null")
+            assertThat(union)
+                .contains("public sealed interface SubjectValue")
+                .contains("is StringValue ->")
+                .contains("is IntegerValue ->")
+            when (library) {
+                SerializationLibrary.JACKSON ->
+                    assertThat(union)
+                        .contains("import com.fasterxml.jackson.databind.JsonSerializer")
+                        .contains("@JsonSerialize(using = SubjectValue.Serializer::class)")
+                        .contains("generator.writeString(value.value)")
+                        .contains("when (parser.currentToken())")
+                SerializationLibrary.JACKSON_3 ->
+                    assertThat(union)
+                        .contains("import tools.jackson.databind.ValueSerializer")
+                        .contains("@JsonSerialize(using = SubjectValue.Serializer::class)")
+                        .contains("generator.writeNumber(value.value)")
+                        .contains("when (parser.currentToken())")
+                SerializationLibrary.KOTLINX_SERIALIZATION ->
+                    assertThat(union)
+                        .contains("@Serializable(with = SubjectValue.Serializer::class)")
+                        .contains("public object Serializer : KSerializer<SubjectValue>")
+                        .contains("jsonEncoder.encodeJsonElement(primitive)")
+                        .contains("jsonDecoder.decodeJsonElement()")
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates closed scalar unions for native composition unions`(version: String) {
+        val generated = generateCompositionUnions(version)
+        val subject = generated.getValue("Subject")
+
+        assertThat(subject)
+            .contains("public val choice: SubjectChoice?")
+            .contains("public val alternative: SubjectAlternative? = null")
+            .contains("public val choices: List<SubjectChoices?>? = null")
+        assertThat(generated.getValue("SubjectChoice"))
+            .contains("public sealed interface SubjectChoice")
+            .contains("public data class StringValue(")
+            .contains("public data class IntegerValue(")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates closed Kotlinx scalar composition unions`(version: String) {
         MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
 
-        val subject = generateMultiTypes(version)
+        val subject = generateCompositionUnions(version).getValue("Subject")
 
         assertThat(subject)
-            .contains("public val `value`: JsonElement?")
-            .contains("public val values: List<JsonElement?>? = null")
-            .contains("public val valuesByKey: Map<String, JsonElement?>? = null")
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `generates safe fallback properties for native composition unions`(version: String) {
-        val subject = generateCompositionUnions(version)
-
-        assertThat(subject)
-            .contains("public val choice: Any?")
-            .contains("public val alternative: Any? = null")
-            .contains("public val choices: List<Any?>? = null")
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `generates serializable Kotlinx fallbacks for native composition unions`(version: String) {
-        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
-
-        val subject = generateCompositionUnions(version)
-
-        assertThat(subject)
-            .contains("public val choice: JsonElement?")
-            .contains("public val alternative: JsonElement? = null")
-            .contains("public val choices: List<JsonElement?>? = null")
+            .contains("public val choice: SubjectChoice?")
+            .contains("public val alternative: SubjectAlternative? = null")
+            .contains("public val choices: List<SubjectChoices?>? = null")
     }
 
     @ParameterizedTest
@@ -294,7 +333,7 @@ class NativeModelGeneratorTest {
         ).files
         .associateBy { it.name }
 
-    private fun generateMultiTypes(version: String): String =
+    private fun generateMultiTypes(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
                 GeneratorModelDescriptorBuilder.build(
@@ -303,10 +342,9 @@ class NativeModelGeneratorTest {
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
-            .single { it.name == "Subject" }
-            .toString()
+            .associate { it.name to it.toString() }
 
-    private fun generateCompositionUnions(version: String): String =
+    private fun generateCompositionUnions(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
                 GeneratorModelDescriptorBuilder.build(
@@ -315,8 +353,7 @@ class NativeModelGeneratorTest {
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
-            .single { it.name == "Subject" }
-            .toString()
+            .associate { it.name to it.toString() }
 
     private fun generateTuples(version: String): String =
         NativeModelGenerator("com.example")

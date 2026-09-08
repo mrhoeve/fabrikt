@@ -44,76 +44,57 @@ class GeneratorKotlinTypeResolverTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `resolves multi-type schemas to an explicit safe fallback`(version: String) {
+    fun `resolves multi-type schemas to generated union types`(version: String) {
         val parsed = OpenApiDocumentParser.parse(multiTypeOpenApi.replace("VERSION", version))
         val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
         val resolver = GeneratorKotlinTypeResolver(document)
 
         assertThat(resolver.resolve(document.componentSchemas.getValue("Value")))
-            .isEqualTo(
-                GeneratorKotlinTypeResolution.Fallback(
-                    typeInfo = KotlinTypeInfo.AnyType,
-                    nullable = true,
-                    classification =
-                        GeneratorSchemaTypeClassification.MultiType(
-                            linkedSetOf(OasType.Text, OasType.Integer),
-                            nullable = true,
-                        ),
-                ),
-            )
+            .isEqualTo(GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.Object("Value"), nullable = true))
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `uses serializable JSON fallbacks for nested Kotlinx multi-types`(version: String) {
+    fun `resolves nested Kotlinx multi-types to generated union types`(version: String) {
         MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
         val parsed = OpenApiDocumentParser.parse(multiTypeOpenApi.replace("VERSION", version))
         val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
         val resolver = GeneratorKotlinTypeResolver(document)
 
         assertThat(resolver.resolve(document.componentSchemas.getValue("Value")))
-            .isEqualTo(
-                GeneratorKotlinTypeResolution.Fallback(
-                    typeInfo = KotlinTypeInfo.JsonElement,
-                    nullable = true,
-                    classification =
-                        GeneratorSchemaTypeClassification.MultiType(
-                            linkedSetOf(OasType.Text, OasType.Integer),
-                            nullable = true,
-                        ),
-                ),
-            )
+            .isEqualTo(GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.Object("Value"), nullable = true))
         assertResolved(
             resolver,
             document,
             "Values",
-            KotlinTypeInfo.Array(KotlinTypeInfo.JsonElement, isParameterizedTypeNullable = true),
+            KotlinTypeInfo.Array(KotlinTypeInfo.Object("Items"), isParameterizedTypeNullable = true),
         )
         assertResolved(
             resolver,
             document,
             "ValuesByKey",
-            KotlinTypeInfo.Map(KotlinTypeInfo.JsonElement),
+            KotlinTypeInfo.Map(KotlinTypeInfo.Object("AdditionalProperties")),
         )
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
-    fun `resolves composition unions to explicit safe fallbacks`(version: String) {
+    fun `resolves scalar composition unions to generated union types`(version: String) {
         val parsed = OpenApiDocumentParser.parse(compositionUnionOpenApi.replace("VERSION", version))
         val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
         val resolver = GeneratorKotlinTypeResolver(document)
 
         assertThat(resolver.resolve(document.componentSchemas.getValue("Choice")))
+            .isEqualTo(GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.Object("Choice"), nullable = true))
+        assertThat(resolver.resolve(document.componentSchemas.getValue("OverlappingNumbers")))
             .isEqualTo(
                 GeneratorKotlinTypeResolution.Fallback(
-                    typeInfo = KotlinTypeInfo.AnyType,
-                    nullable = true,
-                    classification =
-                        GeneratorSchemaTypeClassification.CompositionUnion(
-                            linkedSetOf(OasType.Text, OasType.Integer),
-                            nullable = true,
-                        ),
+                    KotlinTypeInfo.AnyType,
+                    nullable = false,
+                    GeneratorSchemaTypeClassification.CompositionUnion(
+                        linkedSetOf(OasType.Int32, OasType.Int64),
+                        nullable = false,
+                    ),
                 ),
             )
     }
@@ -293,6 +274,10 @@ class GeneratorKotlinTypeResolverTest {
                 - { type: string }
                 - { type: integer }
                 - { type: 'null' }
+            OverlappingNumbers:
+              oneOf:
+                - { type: integer, format: int32 }
+                - { type: integer, format: int64 }
         """.trimIndent()
 
     private val tupleOpenApi =

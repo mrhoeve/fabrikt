@@ -27,10 +27,11 @@ class CodeGeneratorSchemaModeTest {
 
     @Test
     fun `routes model generation through the internal native mode`() {
-        assertThat(generate(SchemaGenerationMode.NATIVE).single())
+        assertThat(generate(SchemaGenerationMode.NATIVE).joinToString("\n"))
             .contains("public data class Subject(")
             .contains("public val id: String")
-            .contains("public val choice: Any? = null")
+            .contains("public val choice: SubjectChoice? = null")
+            .contains("public sealed interface SubjectChoice")
             .contains("public val tuple: List<Any?>? = null")
     }
 
