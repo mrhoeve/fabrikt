@@ -8,6 +8,7 @@ import com.cjbooms.fabrikt.generators.TypeFactory.maybeMakeMapValueNullable
 import com.cjbooms.fabrikt.generators.ValidationAnnotations
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptor
+import com.cjbooms.fabrikt.model.GeneratorModelDirection
 import com.cjbooms.fabrikt.model.GeneratorPropertyDescriptor
 import com.cjbooms.fabrikt.model.GeneratorScalarUnionVariantDescriptor
 import com.cjbooms.fabrikt.model.GeneratorUnionMemberDescriptor
@@ -39,7 +40,9 @@ internal class NativeModelGenerator(
             descriptors
                 .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
                 .flatMap { descriptor ->
-                    descriptor.oneOfMembers.map { member -> member.schemaIdentity to modelType(descriptor.name) }
+                    descriptor.oneOfMembers.map { member ->
+                        MemberDirection(member.schemaIdentity, descriptor.direction) to modelType(descriptor.name)
+                    }
                 }.groupBy({ it.first }, { it.second })
         return Models(
             descriptors.mapNotNull { descriptor ->
@@ -49,7 +52,9 @@ internal class NativeModelGenerator(
                         descriptor.resolvedType() == null -> null
                         descriptor.oneOfMembers.isNotEmpty() -> descriptor.toUnionInterface()
                         descriptor.resolvedType() == OasType.Object ->
-                            descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
+                            descriptor.toDataClass(
+                                interfacesByMember[MemberDirection(descriptor.schemaIdentity, descriptor.direction)].orEmpty(),
+                            )
                         descriptor.resolvedType() == OasType.Enum -> descriptor.toEnum()
                         else -> null
                     }
@@ -258,6 +263,11 @@ internal class NativeModelGenerator(
             isBoolean -> booleanValue()
             else -> null
         }
+
+    private data class MemberDirection(
+        val identity: com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity,
+        val direction: GeneratorModelDirection,
+    )
 
     private fun GeneratorPropertyDescriptor.addValidationAnnotations(
         property: PropertySpec.Builder,
