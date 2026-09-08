@@ -9,6 +9,7 @@ import com.cjbooms.fabrikt.generators.ValidationAnnotations
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptor
 import com.cjbooms.fabrikt.model.GeneratorPropertyDescriptor
+import com.cjbooms.fabrikt.model.GeneratorScalarUnionVariantDescriptor
 import com.cjbooms.fabrikt.model.GeneratorUnionMemberDescriptor
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.ModelType
@@ -19,6 +20,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.util.NormalisedString.toEnumName
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
 import com.fasterxml.jackson.databind.JsonNode
+import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterSpec
@@ -41,17 +43,39 @@ internal class NativeModelGenerator(
                 }.groupBy({ it.first }, { it.second })
         return Models(
             descriptors.mapNotNull { descriptor ->
-                val type = descriptor.resolvedType() ?: return@mapNotNull null
                 val typeSpec =
                     when {
+                        descriptor.scalarUnionVariants.isNotEmpty() -> descriptor.toScalarUnion()
                         descriptor.oneOfMembers.isNotEmpty() -> descriptor.toUnionInterface()
-                        type == OasType.Object -> descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
-                        type == OasType.Enum -> descriptor.toEnum()
+                        descriptor.resolvedType() == OasType.Object ->
+                            descriptor.toDataClass(interfacesByMember[descriptor.schemaIdentity].orEmpty())
+                        descriptor.resolvedType() == OasType.Enum -> descriptor.toEnum()
                         else -> null
                     }
                 typeSpec?.let { ModelType(it, basePackage) }
             },
         )
+    }
+
+    private fun GeneratorModelDescriptor.toScalarUnion(): TypeSpec {
+        val unionType = modelType(name)
+        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
+        description?.let { type.addKdoc("%L", it) }
+        scalarUnionVariants.forEach { variant -> type.addType(variant.toScalarUnionVariant(unionType)) }
+        NativeScalarUnionSerialization.apply(type, unionType, scalarUnionVariants, MutableSettings.serializationLibrary)
+        return type.build()
+    }
+
+    private fun GeneratorScalarUnionVariantDescriptor.toScalarUnionVariant(unionType: TypeName): TypeSpec {
+        val valueType = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
+        val constructor = FunSpec.constructorBuilder().addParameter("value", valueType).build()
+        return TypeSpec
+            .classBuilder(name)
+            .addModifiers(KModifier.DATA)
+            .addSuperinterface(unionType)
+            .primaryConstructor(constructor)
+            .addProperty(PropertySpec.builder("value", valueType).initializer("value").build())
+            .build()
     }
 
     private fun GeneratorModelDescriptor.toDataClass(superInterfaces: List<TypeName>): TypeSpec {
@@ -216,7 +240,7 @@ internal class NativeModelGenerator(
 
     private fun GeneratorUnionMemberDescriptor.modelName(): String = requireNotNull(kotlinType.typeInfo.generatedModelClassName)
 
-    private fun modelType(name: String): TypeName = ModelGenerator.generatedType(basePackage, name)
+    private fun modelType(name: String): ClassName = ModelGenerator.generatedType(basePackage, name)
 
     private fun GeneratorPropertyDescriptor.defaultCode(type: GeneratorKotlinTypeResolution.Resolved) =
         defaultValue
