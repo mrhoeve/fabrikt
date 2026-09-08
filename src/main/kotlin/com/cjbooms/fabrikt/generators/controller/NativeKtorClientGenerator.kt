@@ -69,7 +69,7 @@ internal class NativeKtorClientGenerator(
         operation: GeneratorOperation,
     ): FunSpec {
         val parameters = context.clientParameters(operation, path)
-        val (pathParams, queryParams, headerParams, bodyParams) = parameters.splitByType()
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parameters.splitByType()
         val responseType = context.successResponseType(operation, packages.base)
         val function =
             FunSpec
@@ -102,6 +102,7 @@ internal class NativeKtorClientGenerator(
                             headerParams.forEach {
                                 addStatement("%M(%S, %L)", MemberName("io.ktor.client.request", "header"), it.originalName, it.name)
                             }
+                            addCookies(cookieParams)
                             addStatement("%M {", MemberName("io.ktor.client.request", "headers"))
                             indent()
                             addStatement("apiConfiguration.customHeaders.forEach { (name, value) ->")
@@ -145,7 +146,7 @@ internal class NativeKtorClientGenerator(
                         .build(),
                 )
         bodyParams.firstOrNull()?.let { function.addParameter(it.toParameterSpecBuilder().build()) }
-        (pathParams + queryParams + headerParams).forEach { parameter ->
+        (pathParams + queryParams + headerParams + cookieParams).forEach { parameter ->
             function.addParameter(
                 parameter
                     .toParameterSpecBuilder()
@@ -157,6 +158,48 @@ internal class NativeKtorClientGenerator(
         function.addParameter(ParameterSpec.builder("apiConfiguration", apiConfiguration).defaultValue("%T()", apiConfiguration).build())
         function.addKdoc(context.toKdoc(operation, parameters))
         return function.build()
+    }
+
+    private fun CodeBlock.Builder.addCookies(parameters: List<RequestParameter>) {
+        parameters.forEach { parameter ->
+            val cookie = MemberName("io.ktor.client.request", "cookie")
+            when (val typeInfo = parameter.typeInfo) {
+                is KotlinTypeInfo.Array -> {
+                    val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                    if (parameter.explode == false) {
+                        val joinedValues =
+                            if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
+                                "%N.joinToString(%S) { it.value }"
+                            } else {
+                                "%N.joinToString(%S)"
+                            }
+                        if (parameter.isRequired) {
+                            addStatement("%M(%S, $joinedValues)", cookie, parameter.originalName, parameter.name, ",")
+                        } else {
+                            add("%N?.let { values -> %M(%S, ", parameter.name, cookie, parameter.originalName)
+                            if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
+                                add("values.joinToString(%S) { it.value }", ",")
+                            } else {
+                                add("values.joinToString(%S)", ",")
+                            }
+                            add(") }\n")
+                        }
+                    } else if (parameter.isRequired) {
+                        addStatement("%N.forEach { %M(%S, %L) }", parameter.name, cookie, parameter.originalName, itemValue)
+                    } else {
+                        addStatement("%N?.forEach { %M(%S, %L) }", parameter.name, cookie, parameter.originalName, itemValue)
+                    }
+                }
+                else -> {
+                    val valueSuffix = if (typeInfo is KotlinTypeInfo.Enum) ".value" else ".toString()"
+                    if (parameter.isRequired) {
+                        addStatement("%M(%S, %N%L)", cookie, parameter.originalName, parameter.name, valueSuffix)
+                    } else {
+                        addStatement("%N?.let { %M(%S, it%L) }", parameter.name, cookie, parameter.originalName, valueSuffix)
+                    }
+                }
+            }
+        }
     }
 
     private fun CodeBlock.Builder.addUrl(

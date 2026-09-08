@@ -214,6 +214,12 @@ class SpringHttpInterfaceGenerator(
                                     parameter.originalName,
                                 ).build()
                         is PathParam -> SpringHttpInterfaceAnnotations.pathVariableBuilder().addMember("%S", parameter.originalName).build()
+                        is CookieParam ->
+                            SpringHttpInterfaceAnnotations
+                                .cookieValueBuilder()
+                                .addMember("%S", parameter.originalName)
+                                .addMember("required = %L", parameter.isRequired)
+                                .build()
                     }
                 },
                 annotateBodyParameterWith = { SpringHttpInterfaceAnnotations.requestBodyBuilder().build() },
