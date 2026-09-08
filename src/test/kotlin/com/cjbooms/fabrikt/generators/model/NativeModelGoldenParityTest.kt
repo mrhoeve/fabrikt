@@ -38,9 +38,28 @@ class NativeModelGoldenParityTest {
                     ),
                 ).asComparableFiles()
 
-        assertThat(native)
-            .describedAs("Expected native output parity for $example")
-            .isEqualTo(legacy)
+        val intentionallyChangedModels =
+            when (example) {
+                "mapExamples" -> setOf("ContainsReferenceToPolymorphicMap", "PolymorphicMapDefinitionValue")
+                "anyOfOneOfAllOf" -> setOf("ContainsPrimitiveOneOf", "SimpleOneOfs")
+                else -> emptySet()
+            }
+        assertThat(native.filterKeys { it !in intentionallyChangedModels })
+            .describedAs("Expected native output parity for unaffected models in $example")
+            .isEqualTo(legacy.filterKeys { it !in intentionallyChangedModels })
+        when (example) {
+            "mapExamples" -> {
+                assertThat(native.keys - legacy.keys).containsExactly("PolymorphicMapDefinitionValue")
+                assertThat(native.getValue("ContainsReferenceToPolymorphicMap"))
+                    .contains("public val attributes: Map<String, PolymorphicMapDefinitionValue?>?")
+            }
+            "anyOfOneOfAllOf" -> {
+                assertThat(native.keys - legacy.keys).containsExactly("ContainsPrimitiveOneOf")
+                assertThat(native.getValue("SimpleOneOfs"))
+                    .contains("public val primitiveOneofProperty: ContainsPrimitiveOneOf? = null")
+            }
+            else -> Unit
+        }
     }
 
     @Test
