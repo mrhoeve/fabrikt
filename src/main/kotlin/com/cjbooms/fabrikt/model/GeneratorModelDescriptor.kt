@@ -25,7 +25,14 @@ internal data class GeneratorModelDescriptor(
     val scalarUnionVariants: List<GeneratorScalarUnionVariantDescriptor>,
     val discriminator: SourceSchemaDiscriminator?,
     val additionalPropertiesType: GeneratorKotlinTypeResolution.Resolved?,
+    val direction: GeneratorModelDirection = GeneratorModelDirection.COMBINED,
 )
+
+internal enum class GeneratorModelDirection {
+    COMBINED,
+    REQUEST,
+    RESPONSE,
+}
 
 internal data class GeneratorScalarUnionVariantDescriptor(
     val name: String,
