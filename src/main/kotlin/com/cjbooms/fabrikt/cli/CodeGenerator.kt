@@ -19,6 +19,7 @@ import com.cjbooms.fabrikt.generators.model.ModelGenerator
 import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
 import com.cjbooms.fabrikt.generators.model.QuarkusReflectionModelGenerator
 import com.cjbooms.fabrikt.model.GeneratedFile
+import com.cjbooms.fabrikt.model.GeneratorDirectionalModelPlan
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.model.KotlinSourceSet
 import com.cjbooms.fabrikt.model.Models
@@ -106,9 +107,12 @@ class CodeGenerator internal constructor(
             SchemaGenerationMode.LEGACY -> ModelGenerator(packages, sourceApi).generate()
             SchemaGenerationMode.NATIVE ->
                 NativeModelGenerator(packages.base).generate(
-                    GeneratorModelDescriptorBuilder.build(
-                        sourceApi.parsedDocument.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
-                    ),
+                    GeneratorDirectionalModelPlan
+                        .create(
+                            GeneratorModelDescriptorBuilder.build(
+                                sourceApi.parsedDocument.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                            ),
+                        ).descriptors,
                 )
         }
 
