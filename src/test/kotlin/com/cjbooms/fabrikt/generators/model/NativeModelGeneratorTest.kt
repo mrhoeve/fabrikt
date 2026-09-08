@@ -106,6 +106,22 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `makes required read-only and write-only properties optional in combined native models`(version: String) {
+        val generated = generateDirectionalProperties(version)
+
+        assertThat(generated.getValue("Credentials"))
+            .contains("public val username: String")
+            .contains("public val password: String? = null")
+            .contains("public val identifier: String? = null")
+        assertThat(generated.getValue("Account"))
+            .contains("public val credentials: Credentials")
+            .contains("public val audit: AccountAudit? = null")
+        assertThat(generated.getValue("AccountAudit"))
+            .contains("public val createdBy: String? = null")
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates closed scalar unions for native multi-type schemas`(version: String) {
         val generated = generateMultiTypes(version)
@@ -382,6 +398,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(referenceSiblingOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateDirectionalProperties(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(directionalPropertiesOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -666,5 +693,41 @@ class NativeModelGeneratorTest {
                 tags:
                   ${'$'}ref: '#/components/schemas/Tags'
                   maxItems: 4
+        """.trimIndent()
+
+    private val directionalPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Credentials:
+              type: object
+              required: [username, password, identifier]
+              properties:
+                username: { type: string }
+                password:
+                  type: string
+                  writeOnly: true
+                identifier:
+                  type: string
+                  readOnly: true
+            Account:
+              type: object
+              required: [credentials, audit]
+              properties:
+                credentials:
+                  ${'$'}ref: '#/components/schemas/Credentials'
+                audit:
+                  type: object
+                  readOnly: true
+                  required: [createdBy]
+                  properties:
+                    createdBy:
+                      type: string
+                      readOnly: true
         """.trimIndent()
 }

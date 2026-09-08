@@ -111,6 +111,7 @@ class NativeModelGoldenParityTest {
                 "mixingCamelSnakeLispCase",
                 "binary",
                 "optionalVsRequired",
+                "requiredReadOnly",
                 "validationAnnotations",
                 "arrays",
                 "mapExamples",

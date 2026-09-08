@@ -51,7 +51,10 @@ internal data class GeneratorPropertyDescriptor(
     val description: String?,
     val defaultValue: JsonNode?,
     val constraints: SourceSchemaConstraints?,
-)
+) {
+    val requiredInCombinedModel: Boolean
+        get() = required && !readOnly && !writeOnly
+}
 
 internal object GeneratorModelDescriptorBuilder {
     fun build(document: GeneratorSchemaDocument): List<GeneratorModelDescriptor> {
