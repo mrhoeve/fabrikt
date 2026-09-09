@@ -132,16 +132,16 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @Test
-    fun `rejects multipart methods unsupported by OkHttp clients`() {
+    fun `rejects multipart get requests unsupported by OkHttp clients`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
             clientTarget = ClientCodeGenTargetType.OK_HTTP,
         )
 
         assertThatIllegalArgumentException()
-            .isThrownBy { generator(multipartOpenApi.replace("post:", "delete:")).generate() }
+            .isThrownBy { generator(multipartOpenApi.replace("post:", "get:")).generate() }
             .withMessageContaining("OkHttp client")
-            .withMessageContaining("DELETE /subjects")
+            .withMessageContaining("GET /subjects")
     }
 
     private fun generator(openApi: String) =
