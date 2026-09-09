@@ -71,9 +71,8 @@ class CodeGenerator internal constructor(
                 endpointContext?.requireSupportedMethods("Ktor client", STANDARD_HTTP_METHODS)
                 endpointContext?.requireMultipartSupported("Ktor client")
             }
-            ClientCodeGenTargetType.OPEN_FEIGN,
-            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
-            -> endpointContext?.requireMultipartSupported("${MutableSettings.clientTarget.displayName} client")
+            ClientCodeGenTargetType.OPEN_FEIGN -> endpointContext?.requireMultipartSupported("Open feign client")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> Unit
         }
         val clientGenerator =
             when (MutableSettings.clientTarget) {

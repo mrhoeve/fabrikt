@@ -193,8 +193,13 @@ class SpringHttpInterfaceGenerator(
             .builder(context.functionName(operation, path.path))
             .addModifiers(KModifier.ABSTRACT)
             .addKdoc(context.toKdoc(operation, parameters))
-            .addHttpExchangeAnnotation(path.path, parameters, operation.method, context.primaryResponseContentType(operation))
-            .addSuspendModifier(options)
+            .addHttpExchangeAnnotation(
+                path.path,
+                parameters,
+                operation.method,
+                context.primaryResponseContentType(operation),
+                context.requestContentType(operation)?.takeIf { it.startsWith("multipart/form-data") },
+            ).addSuspendModifier(options)
             .addIncomingParameters(
                 parameters,
                 annotateRequestParameterWith = { parameter ->
@@ -223,6 +228,16 @@ class SpringHttpInterfaceGenerator(
                     }
                 },
                 annotateBodyParameterWith = { SpringHttpInterfaceAnnotations.requestBodyBuilder().build() },
+                multipartParameterToSpecBuilder = { parameter ->
+                    parameter
+                        .toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
+                        .addAnnotation(
+                            SpringHttpInterfaceAnnotations
+                                .requestPartBuilder()
+                                .addMember("%S", parameter.partName)
+                                .build(),
+                        )
+                },
             ).addParameter(
                 ParameterSpec
                     .builder(
@@ -265,14 +280,26 @@ class SpringHttpInterfaceGenerator(
         parameters: List<IncomingParameter>,
         verb: String,
         defaultAcceptContentType: String?,
+        defaultRequestContentType: String?,
     ): FunSpec.Builder =
-        apply { addAnnotation(HttpExchangeAnnotationBuilder(resource, parameters, verb, defaultAcceptContentType).build()) }
+        apply {
+            addAnnotation(
+                HttpExchangeAnnotationBuilder(
+                    resource,
+                    parameters,
+                    verb,
+                    defaultAcceptContentType,
+                    defaultRequestContentType,
+                ).build(),
+            )
+        }
 
     private class HttpExchangeAnnotationBuilder(
         private val resource: String,
         private val parameters: List<IncomingParameter>,
         private val verb: String,
         private val defaultAcceptContentType: String?,
+        private val defaultRequestContentType: String? = null,
     ) {
         fun build(): AnnotationSpec {
             val headerParams = parameters.getHeaderParameters()
@@ -302,9 +329,9 @@ class SpringHttpInterfaceGenerator(
                             header.name == ClientGeneratorUtils.CONTENT_TYPE_HEADER_NAME
                         }
 
-                if (contentType != null) {
-                    contentType.typeInfo as KotlinTypeInfo.Enum
-                    addMember("contentType=%S", contentType.typeInfo.entries.first())
+                val value = (contentType?.typeInfo as? KotlinTypeInfo.Enum)?.entries?.firstOrNull() ?: defaultRequestContentType
+                if (value != null) {
+                    addMember("contentType=%S", value)
                 }
             }
 
