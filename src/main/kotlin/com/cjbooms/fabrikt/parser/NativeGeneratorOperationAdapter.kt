@@ -68,7 +68,9 @@ internal class NativeGeneratorOperationAdapter(
             description = description,
             required = required,
             deprecated = deprecated,
+            style = style,
             explode = explode,
+            allowReserved = allowReserved,
             schema = schema?.let(resolveSchema),
             content = content.map { mediaType -> mediaType.resolve().toGeneratorMediaType(mediaType.key) },
         )

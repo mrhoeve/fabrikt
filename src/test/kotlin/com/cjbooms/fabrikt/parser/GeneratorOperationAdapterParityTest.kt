@@ -39,6 +39,8 @@ class GeneratorOperationAdapterParityTest {
         val legacyParameter = legacyOperation.parameters.single()
         val nativeParameter = nativeOperation.parameters.single()
         assertThat(nativeParameter.copy(schema = null)).isEqualTo(legacyParameter.copy(schema = null))
+        assertThat(nativeParameter.style).isEqualTo("form")
+        assertThat(nativeParameter.allowReserved).isTrue()
         assertThat(GeneratorSchemaTypeClassifier.classify(nativeParameter.schema!!))
             .isEqualTo(GeneratorSchemaTypeClassifier.classify(legacyParameter.schema!!))
 
@@ -149,6 +151,8 @@ class GeneratorOperationAdapterParityTest {
               parameters:
                 - name: verbose
                   in: query
+                  style: form
+                  allowReserved: true
                   schema: { type: boolean }
               requestBody:
                 ${'$'}ref: '#/components/requestBodies/ItemBody'
