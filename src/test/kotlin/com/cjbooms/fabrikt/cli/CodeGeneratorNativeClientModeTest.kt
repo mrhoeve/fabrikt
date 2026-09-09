@@ -125,6 +125,31 @@ class CodeGeneratorNativeClientModeTest {
             .contains("): Subject")
     }
 
+    @Test
+    fun `generates multipart Spring HTTP interface clients from native operations`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("contentType=\"multipart/form-data\"")
+            .contains("@RequestPart(\"document\") document: ByteArray")
+            .contains("@RequestPart(\"description\") description: String?")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -209,5 +234,30 @@ class CodeGeneratorNativeClientModeTest {
               type: object
               properties:
                 id: { type: string }
+        """.trimIndent()
+
+    private val multipartOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native multipart client
+          version: "1.0"
+        paths:
+          /documents:
+            post:
+              operationId: uploadDocument
+              requestBody:
+                required: true
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      required: [document]
+                      properties:
+                        document: { type: string, format: binary }
+                        description: { type: string }
+              responses:
+                '204':
+                  description: Uploaded
         """.trimIndent()
 }
