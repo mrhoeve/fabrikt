@@ -13,12 +13,14 @@ import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.SecuritySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.securitySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.toSuccessResponseType
+import com.cjbooms.fabrikt.generators.model.ModelGenerator
 import com.cjbooms.fabrikt.model.ControllerLibraryType
 import com.cjbooms.fabrikt.model.ControllerType
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
+import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
@@ -205,7 +207,10 @@ class KtorControllerInterfaceGenerator(
             builder.addParameter(parameter.toParameterSpecBuilder().build())
         }
         bodyParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
-        multipartParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
+        multipartParams.forEach { parameter ->
+            builder.addParameter(parameter.toParameterSpecBuilder().build())
+            parameter.headers.forEach { header -> builder.addParameter(header.toParameterSpecBuilder(parameter).build()) }
+        }
         formParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         builder.addKdoc(buildControllerFunKdoc(context, operation, params))
         val responseType = context.successResponseType(operation, packages.base)
@@ -391,7 +396,14 @@ class KtorControllerInterfaceGenerator(
             listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams, multipartParams, formParams)
                 .asSequence()
                 .flatten()
-                .joinToString(", ") { it.name }
+                .flatMap { parameter ->
+                    sequenceOf(parameter.name) +
+                        (parameter as? MultipartParameter)
+                            ?.headers
+                            .orEmpty()
+                            .asSequence()
+                            .map(MultipartHeaderParameter::name)
+                }.joinToString(", ")
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
             builder.addStatement(
@@ -434,6 +446,13 @@ class KtorControllerInterfaceGenerator(
             } else {
                 addStatement("var %NPart: %T? = null", parameter.name, itemType)
             }
+            parameter.headers.forEach { header ->
+                if (parameter.isArray) {
+                    addStatement("val %NRawParts = mutableListOf<String?>()", header.name)
+                } else {
+                    addStatement("var %NRawPart: String? = null", header.name)
+                }
+            }
         }
         addStatement(
             "val multipartData = %M.%M()",
@@ -445,26 +464,34 @@ class KtorControllerInterfaceGenerator(
         beginControlFlow("try")
         beginControlFlow("when (part.name)")
         parameters.forEach { parameter ->
-            add("%S -> ", parameter.partName)
+            if (parameter.headers.isEmpty()) {
+                add("%S -> ", parameter.partName)
+            } else {
+                beginControlFlow("%S ->", parameter.partName)
+            }
             when {
                 parameter.isBinaryFile -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FileItem"))
+                    addMultipartHeaderCapture(parameter)
                     val target = if (parameter.isArray) "%NParts += part.provider().%M()" else "%NPart = part.provider().%M()"
                     addStatement(target, parameter.name, MemberName("io.ktor.utils.io", "toByteArray"))
                     endControlFlow()
                 }
                 parameter.contentType == "application/json" -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
+                    addMultipartHeaderCapture(parameter)
                     val value = multipartJsonValue(parameter.multipartItemType())
                     addStatement(if (parameter.isArray) "%NParts += %L" else "%NPart = %L", parameter.name, value)
                     endControlFlow()
                 }
                 else -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
+                    addMultipartHeaderCapture(parameter)
                     addStatement("%NParts += part.value", parameter.name)
                     endControlFlow()
                 }
             }
+            if (parameter.headers.isNotEmpty()) endControlFlow()
         }
         addStatement("else -> Unit")
         endControlFlow()
@@ -473,7 +500,20 @@ class KtorControllerInterfaceGenerator(
         endControlFlow()
         unindent()
         addStatement("}")
-        parameters.forEach { parameter -> addResolvedMultipartParameter(parameter) }
+        parameters.forEach { parameter ->
+            addResolvedMultipartParameter(parameter)
+            parameter.headers.forEach { header -> addResolvedMultipartHeader(parameter, header) }
+        }
+    }
+
+    private fun CodeBlock.Builder.addMultipartHeaderCapture(parameter: MultipartParameter) {
+        parameter.headers.forEach { header ->
+            addStatement(
+                if (parameter.isArray) "%NRawParts += part.headers[%S]" else "%NRawPart = part.headers[%S]",
+                header.name,
+                header.originalName,
+            )
+        }
     }
 
     private fun CodeBlock.Builder.addResolvedMultipartParameter(parameter: MultipartParameter) {
@@ -513,6 +553,172 @@ class KtorControllerInterfaceGenerator(
                 )
             else -> addStatement("val %N = %NPart", parameter.name, parameter.name)
         }
+    }
+
+    private fun CodeBlock.Builder.addResolvedMultipartHeader(
+        parameter: MultipartParameter,
+        header: MultipartHeaderParameter,
+    ) {
+        if (parameter.isArray) {
+            add("val %N = ", header.name)
+            if (!parameter.isRequired) add("if (%N == null) null else ", parameter.name)
+            add("%NRawParts.map { rawValue ->\n", header.name)
+            indent()
+            if (header.isRequired) {
+                add("%L\n", multipartHeaderValue(header, requiredMultipartHeader(header, "rawValue")))
+            } else {
+                add("rawValue?.let { %L }\n", multipartHeaderValue(header, "it"))
+            }
+            unindent()
+            addStatement("}")
+            return
+        }
+
+        add("val %N = ", header.name)
+        when {
+            parameter.isRequired && header.isRequired ->
+                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, "${header.name}RawPart")))
+            !parameter.isRequired && header.isRequired -> {
+                add("if (%N == null) null else ", parameter.name)
+                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, "${header.name}RawPart")))
+            }
+            else -> addStatement("%NRawPart?.let { %L }", header.name, multipartHeaderValue(header, "it"))
+        }
+    }
+
+    private fun requiredMultipartHeader(
+        header: MultipartHeaderParameter,
+        expression: String,
+    ): CodeBlock =
+        CodeBlock.of(
+            "%L ?: throw %M(%S)",
+            expression,
+            MemberName("io.ktor.server.plugins", "BadRequestException"),
+            "Multipart part header ${header.originalName} is required",
+        )
+
+    private fun multipartHeaderValue(
+        header: MultipartHeaderParameter,
+        rawValue: Any,
+    ): CodeBlock =
+        when {
+            header.objectProperties.isNotEmpty() -> multipartObjectHeaderValue(header, rawValue)
+            header.typeInfo is KotlinTypeInfo.Map ||
+                header.typeInfo is KotlinTypeInfo.MapTypeAdditionalProperties ||
+                header.typeInfo is KotlinTypeInfo.SimpleTypedAdditionalProperties -> multipartMapHeaderValue(header, rawValue)
+            else -> convertedHeaderValue(header.originalName, rawValue, header.typeInfo, header.type.copy(nullable = false))
+        }
+
+    private fun multipartObjectHeaderValue(
+        header: MultipartHeaderParameter,
+        rawValue: Any,
+    ): CodeBlock {
+        val value = multipartHeaderFields(header, rawValue)
+        value.add("%T(\n", header.type.copy(nullable = false)).indent()
+        header.objectProperties.forEach { property ->
+            val propertyType = ModelGenerator.toModelType(packages.base, property.typeInfo)
+            value.add("%N = ", property.propertyName)
+            if (property.nullable) {
+                value.add(
+                    "headerFields[%S]?.let { %L },\n",
+                    property.fieldName,
+                    convertedHeaderValue(property.fieldName, "it", property.typeInfo, propertyType),
+                )
+            } else {
+                val required =
+                    CodeBlock.of(
+                        "headerFields[%S] ?: throw %M(%S)",
+                        property.fieldName,
+                        MemberName("io.ktor.server.plugins", "BadRequestException"),
+                        "Multipart part header ${header.originalName} is missing property ${property.fieldName}",
+                    )
+                value.add(
+                    "%L,\n",
+                    convertedHeaderValue(property.fieldName, required, property.typeInfo, propertyType),
+                )
+            }
+        }
+        return value
+            .unindent()
+            .add(")\n")
+            .unindent()
+            .add("}")
+            .build()
+    }
+
+    private fun multipartMapHeaderValue(
+        header: MultipartHeaderParameter,
+        rawValue: Any,
+    ): CodeBlock {
+        val valueType = (header.type as ParameterizedTypeName).typeArguments.last().copy(nullable = false)
+        val typeInfo =
+            when (val info = header.typeInfo) {
+                is KotlinTypeInfo.Map -> info.parameterizedType
+                is KotlinTypeInfo.MapTypeAdditionalProperties -> info.parameterizedType
+                is KotlinTypeInfo.SimpleTypedAdditionalProperties -> info.parameterizedType
+                else -> error("Expected a map header")
+            }
+        return multipartHeaderFields(header, rawValue)
+            .add(
+                "headerFields.mapValues { (_, fieldValue) -> %L }\n",
+                convertedHeaderValue(header.originalName, "fieldValue", typeInfo, valueType),
+            ).unindent()
+            .add("}")
+            .build()
+    }
+
+    private fun multipartHeaderFields(
+        header: MultipartHeaderParameter,
+        rawValue: Any,
+    ): CodeBlock.Builder =
+        CodeBlock
+            .builder()
+            .add("run {\n")
+            .indent()
+            .add("val encodedFields = (%L).split(%S)\n", rawValue, ",")
+            .apply {
+                if (header.explode) {
+                    add(
+                        "val headerFields = encodedFields.associate { field -> field.substringBefore(%S) to field.substringAfter(%S) }\n",
+                        "=",
+                        "=",
+                    )
+                } else {
+                    add("if (encodedFields.size %% 2 != 0) {\n")
+                    indent()
+                    add(
+                        "throw %M(%S)\n",
+                        MemberName("io.ktor.server.plugins", "BadRequestException"),
+                        "Multipart part header ${header.originalName} must contain name-value pairs",
+                    )
+                    unindent()
+                    add("}\n")
+                    add("val headerFields = encodedFields.chunked(2).associate { (name, value) -> name to value }\n")
+                }
+            }
+
+    private fun convertedHeaderValue(
+        name: String,
+        rawValue: Any,
+        typeInfo: KotlinTypeInfo,
+        type: TypeName,
+    ): CodeBlock {
+        val values =
+            if (typeInfo is KotlinTypeInfo.Array) {
+                CodeBlock.of("%L.split(%S)", rawValue, ",")
+            } else {
+                CodeBlock.of("listOf(%L)", rawValue)
+            }
+        return CodeBlock.of(
+            "%M(%S, %L).%M<%T>(%S, call.application.%M)",
+            MemberName("io.ktor.http", "parametersOf"),
+            name,
+            values,
+            MemberName(packages.controllers, "getTypedOrFail"),
+            type,
+            name,
+            MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+        )
     }
 
     private fun multipartJsonValue(type: TypeName): CodeBlock =
@@ -555,6 +761,9 @@ class KtorControllerInterfaceGenerator(
             )
         }
         parameters.forEach { kdoc.add("@param %L %L\n", it.name.toKCodeName(), it.description?.trimIndent().orEmpty()) }
+        parameters.filterIsInstance<MultipartParameter>().flatMap(MultipartParameter::headers).forEach { header ->
+            kdoc.add("@param %L %L\n", header.name.toKCodeName(), header.description?.trimIndent().orEmpty())
+        }
         kdoc.add(
             if (responseType.isUnit()) {
                 "@param call The Ktor application call\n"
