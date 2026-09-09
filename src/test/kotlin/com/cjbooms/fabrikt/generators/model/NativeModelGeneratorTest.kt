@@ -37,6 +37,7 @@ class NativeModelGeneratorTest {
 
         assertThat(generated.getValue("Status").toString())
             .contains("@JsonValue")
+            .contains("EMPTY(\"\")")
             .contains("IN_PROGRESS(\"in-progress\")")
             .contains("DONE(\"done\")")
             .contains("public fun fromValue(`value`: String): Status? = mapping[value]")
@@ -425,7 +426,7 @@ class NativeModelGeneratorTest {
           schemas:
             Status:
               type: string
-              enum: [in-progress, done]
+              enum: ['', in-progress, done]
             Subject:
               type: object
               description: A generated subject.

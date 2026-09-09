@@ -38,6 +38,7 @@ object NormalisedString {
         replaceSpecialCharacters()
             .camelToSnake()
             .toUpperCase()
+            .let { normalised -> normalised.ifEmpty { "EMPTY" } }
             .quoteIfNotValidIdentifier()
 
     fun String.toKotlinParameterName(): String = this.camelCase()
