@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.groupingStrategyFrom
@@ -8,6 +9,7 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.isUnit
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
+import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.SecuritySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.securitySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.toSuccessResponseType
@@ -16,6 +18,7 @@ import com.cjbooms.fabrikt.model.ControllerType
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
+import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.GeneratorOperation
@@ -36,6 +39,7 @@ import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.MemberName
 import com.squareup.kotlinpoet.ParameterSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
 import com.squareup.kotlinpoet.TypeName
@@ -173,6 +177,7 @@ class KtorControllerInterfaceGenerator(
                 .addModifiers(setOf(KModifier.SUSPEND, KModifier.ABSTRACT))
         val params = context.incomingParameters(operation, path.parameters)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
+        val multipartParams = params.filterIsInstance<MultipartParameter>()
         (headerParams + cookieParams).forEach { parameter ->
             builder.addParameter(
                 ParameterSpec
@@ -186,6 +191,7 @@ class KtorControllerInterfaceGenerator(
             builder.addParameter(parameter.toParameterSpecBuilder().build())
         }
         bodyParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
+        multipartParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         builder.addKdoc(buildControllerFunKdoc(context, operation, params))
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
@@ -226,6 +232,7 @@ class KtorControllerInterfaceGenerator(
 
         val params = context.incomingParameters(operation, path.parameters)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
+        val multipartParams = params.filterIsInstance<MultipartParameter>()
         val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
         if (customMethod) {
             builder
@@ -316,8 +323,12 @@ class KtorControllerInterfaceGenerator(
                 parameter.type,
             )
         }
+        builder.addMultipartParameters(multipartParams)
         val methodParameters =
-            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams).asSequence().flatten().joinToString(", ") { it.name }
+            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams, multipartParams)
+                .asSequence()
+                .flatten()
+                .joinToString(", ") { it.name }
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
             builder.addStatement(
@@ -340,6 +351,127 @@ class KtorControllerInterfaceGenerator(
         if (addAuth) builder.unindent().addStatement("}")
         return builder.build()
     }
+
+    private fun CodeBlock.Builder.addMultipartParameters(parameters: List<MultipartParameter>) {
+        if (parameters.isEmpty()) return
+        if (parameters.any { it.contentType == "application/json" } && MutableSettings.serializationLibrary.isJackson) {
+            val mapperPackage =
+                when (MutableSettings.serializationLibrary) {
+                    SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
+                    SerializationLibrary.JACKSON_3 -> "tools.jackson.databind.json"
+                    SerializationLibrary.KOTLINX_SERIALIZATION -> error("Kotlinx serialization does not use a Jackson mapper")
+                }
+            addStatement("val multipartObjectMapper = %T.builder().findAndAddModules().build()", ClassName(mapperPackage, "JsonMapper"))
+        }
+        parameters.forEach { parameter ->
+            val itemType = parameter.multipartItemType()
+            val storageType = if (parameter.contentType == "text/plain") String::class.asTypeName() else itemType
+            if (parameter.isArray || parameter.contentType == "text/plain") {
+                addStatement("val %NParts = mutableListOf<%T>()", parameter.name, storageType)
+            } else {
+                addStatement("var %NPart: %T? = null", parameter.name, itemType)
+            }
+        }
+        addStatement(
+            "val multipartData = %M.%M()",
+            MemberName("io.ktor.server.application", "call"),
+            MemberName("io.ktor.server.request", "receiveMultipart"),
+        )
+        addStatement("multipartData.%M { part ->", MemberName("io.ktor.http.content", "forEachPart"))
+        indent()
+        beginControlFlow("try")
+        beginControlFlow("when (part.name)")
+        parameters.forEach { parameter ->
+            add("%S -> ", parameter.partName)
+            when {
+                parameter.isBinaryFile -> {
+                    beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FileItem"))
+                    val target = if (parameter.isArray) "%NParts += part.provider().%M()" else "%NPart = part.provider().%M()"
+                    addStatement(target, parameter.name, MemberName("io.ktor.utils.io", "toByteArray"))
+                    endControlFlow()
+                }
+                parameter.contentType == "application/json" -> {
+                    beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
+                    val value = multipartJsonValue(parameter.multipartItemType())
+                    addStatement(if (parameter.isArray) "%NParts += %L" else "%NPart = %L", parameter.name, value)
+                    endControlFlow()
+                }
+                else -> {
+                    beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
+                    addStatement("%NParts += part.value", parameter.name)
+                    endControlFlow()
+                }
+            }
+        }
+        addStatement("else -> Unit")
+        endControlFlow()
+        nextControlFlow("finally")
+        addStatement("part.dispose()")
+        endControlFlow()
+        unindent()
+        addStatement("}")
+        parameters.forEach { parameter -> addResolvedMultipartParameter(parameter) }
+    }
+
+    private fun CodeBlock.Builder.addResolvedMultipartParameter(parameter: MultipartParameter) {
+        when {
+            parameter.contentType == "text/plain" -> {
+                addStatement(
+                    "val %N = %M(%S, %NParts).%M<%T>(%S)",
+                    parameter.name,
+                    MemberName("io.ktor.http", "parametersOf"),
+                    parameter.partName,
+                    parameter.name,
+                    MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
+                    parameter.type.copy(nullable = false),
+                    parameter.partName,
+                )
+            }
+            parameter.isArray -> {
+                if (parameter.isRequired) {
+                    addStatement(
+                        "val %N = %NParts.takeIf { it.isNotEmpty() } ?: throw %M(%S)",
+                        parameter.name,
+                        parameter.name,
+                        MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
+                        parameter.partName,
+                    )
+                } else {
+                    addStatement("val %N = %NParts.takeIf { it.isNotEmpty() }", parameter.name, parameter.name)
+                }
+            }
+            parameter.isRequired ->
+                addStatement(
+                    "val %N = %NPart ?: throw %M(%S)",
+                    parameter.name,
+                    parameter.name,
+                    MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
+                    parameter.partName,
+                )
+            else -> addStatement("val %N = %NPart", parameter.name, parameter.name)
+        }
+    }
+
+    private fun multipartJsonValue(type: TypeName): CodeBlock =
+        when (MutableSettings.serializationLibrary) {
+            SerializationLibrary.JACKSON,
+            SerializationLibrary.JACKSON_3,
+            -> CodeBlock.of("multipartObjectMapper.readValue(part.value, %T::class.java)", type)
+            SerializationLibrary.KOTLINX_SERIALIZATION ->
+                CodeBlock.of(
+                    "%T.%M<%T>(part.value)",
+                    ClassName("kotlinx.serialization.json", "Json"),
+                    MemberName("kotlinx.serialization", "decodeFromString"),
+                    type,
+                )
+        }
+
+    private fun MultipartParameter.multipartItemType(): TypeName =
+        if (isArray) {
+            (type as ParameterizedTypeName).typeArguments.single().copy(nullable = false)
+        } else {
+            type.copy(nullable = false)
+        }
 
     private fun buildControllerFunKdoc(
         context: GeneratorEndpointContext,
