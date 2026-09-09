@@ -5,6 +5,7 @@ import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.Destinations.clientPackage
+import com.cjbooms.fabrikt.model.FormObjectProperty
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratorDirectionalModelPlan
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
@@ -307,6 +308,24 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun requireNoObjectFormParameters(target: String) {
+        val unsupported =
+            operations.paths.flatMap { path ->
+                path.operations
+                    .flatMap { operation ->
+                        operation.requestBody
+                            ?.let(::bodyParameters)
+                            .orEmpty()
+                            .filterIsInstance<FormParameter>()
+                            .filter { it.objectProperties.isNotEmpty() }
+                            .map { parameter -> "${operation.method.uppercase()} ${path.path} (${parameter.fieldName})" }
+                    }
+            }
+        require(unsupported.isEmpty()) {
+            "$target does not support native object-valued form fields for: ${unsupported.joinToString()}."
+        }
+    }
+
     fun successResponseType(
         operation: GeneratorOperation,
         basePackage: String,
@@ -369,8 +388,10 @@ internal class GeneratorEndpointContext(
             val schema = form.effectiveSchema()?.let(schemas::resolve) as? GeneratorObjectSchema ?: return emptyList()
             return schema.properties.map { (name, property) ->
                 val resolution = resolveType(property, GeneratorModelDirection.REQUEST)
+                val resolved = schemas.resolve(property) as? GeneratorObjectSchema
                 val encoding = form.encoding[name]
-                require(resolution.typeInfo.supportsFormSerialization()) {
+                val objectProperties = resolved?.formObjectProperties().orEmpty()
+                require(resolution.typeInfo.supportsFormSerialization() || objectProperties.isNotEmpty()) {
                     "Native form generation does not yet support object-valued field '$name'."
                 }
                 FormParameter(
@@ -383,6 +404,7 @@ internal class GeneratorEndpointContext(
                     style = encoding?.style ?: "form",
                     explode = encoding?.explode ?: true,
                     allowReserved = encoding?.allowReserved ?: false,
+                    objectProperties = objectProperties,
                 )
             }
         }
@@ -468,6 +490,7 @@ internal class GeneratorEndpointContext(
                         style = parameter.style,
                         explode = parameter.explode,
                         allowReserved = parameter.allowReserved,
+                        objectProperties = parameter.objectProperties,
                     )
                 is MultipartParameter ->
                     MultipartParameter(
@@ -539,6 +562,20 @@ internal class GeneratorEndpointContext(
             is KotlinTypeInfo.Array -> !parameterizedType.isComplexType
             else -> !isComplexType
         }
+
+    private fun GeneratorObjectSchema.formObjectProperties(): List<FormObjectProperty>? {
+        if (SourceSchemaType.OBJECT !in types || properties.isEmpty()) return null
+        return properties.map { (name, property) ->
+            val resolution = resolveType(property, GeneratorModelDirection.REQUEST)
+            if (!resolution.typeInfo.supportsFormSerialization()) return null
+            FormObjectProperty(
+                fieldName = name,
+                propertyName = name.toKotlinParameterName(),
+                typeInfo = resolution.typeInfo,
+                nullable = name !in requiredProperties || resolution.nullable,
+            )
+        }
+    }
 
     private fun String.toResourceName(): String =
         split('/')
