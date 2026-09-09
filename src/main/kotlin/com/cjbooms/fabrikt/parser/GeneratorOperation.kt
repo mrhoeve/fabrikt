@@ -67,6 +67,21 @@ internal data class GeneratorMediaType(
     val key: String,
     val schema: GeneratorSchema?,
     val itemSchema: GeneratorSchema?,
+    val encoding: Map<String, GeneratorEncoding>,
+    val prefixEncoding: List<GeneratorEncoding>,
+    val itemEncoding: GeneratorEncoding?,
+)
+
+internal data class GeneratorEncoding(
+    val contentType: String?,
+    val headers: Map<String, GeneratorHeader>,
+    val style: String?,
+    val explode: Boolean?,
+    val allowReserved: Boolean?,
+    val encoding: Map<String, GeneratorEncoding>,
+    val prefixEncoding: List<GeneratorEncoding>,
+    val itemEncoding: GeneratorEncoding?,
+    val extensions: Map<String, JsonNode>,
 )
 
 internal data class GeneratorSecurityRequirements(
