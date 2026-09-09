@@ -55,7 +55,7 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ClientCodeGenTargetType::class, names = ["OPEN_FEIGN", "KTOR"])
+    @EnumSource(ClientCodeGenTargetType::class, names = ["KTOR"])
     fun `rejects multipart operations unsupported by client targets`(target: ClientCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
@@ -85,6 +85,12 @@ class CodeGeneratorNativeMethodValidationTest {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
             clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+        )
+        assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
+
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OPEN_FEIGN,
         )
         assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
     }
