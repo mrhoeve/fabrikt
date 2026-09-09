@@ -154,7 +154,15 @@ class FormParameter(
     val style: String,
     val explode: Boolean,
     val allowReserved: Boolean,
+    val objectProperties: List<FormObjectProperty> = emptyList(),
 ) : IncomingParameter(oasName, description, type, isRequired)
+
+data class FormObjectProperty(
+    val fieldName: String,
+    val propertyName: String,
+    val typeInfo: KotlinTypeInfo,
+    val nullable: Boolean,
+)
 
 class RequestParameter(
     oasName: String,
