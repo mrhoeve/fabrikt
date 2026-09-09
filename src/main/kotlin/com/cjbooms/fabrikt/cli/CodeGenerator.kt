@@ -16,6 +16,7 @@ import com.cjbooms.fabrikt.generators.controller.KtorControllerInterfaceGenerato
 import com.cjbooms.fabrikt.generators.controller.MicronautControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.controller.NativeKtorClientGenerator
 import com.cjbooms.fabrikt.generators.controller.SpringControllerInterfaceGenerator
+import com.cjbooms.fabrikt.generators.controller.WebhookHandlerGenerator
 import com.cjbooms.fabrikt.generators.model.ModelGenerator
 import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
 import com.cjbooms.fabrikt.generators.model.QuarkusReflectionModelGenerator
@@ -173,7 +174,17 @@ class CodeGenerator internal constructor(
                     .build()
             }
 
-        return controllerFiles.plus(libFiles)
+        val webhookFiles =
+            endpointContext
+                ?.let {
+                    WebhookHandlerGenerator(
+                        packages,
+                        it,
+                        suspending = MutableSettings.controllerTarget == ControllerCodeGenTargetType.KTOR,
+                    ).generate()
+                }.orEmpty()
+
+        return controllerFiles.plus(libFiles).plus(webhookFiles)
     }
 
     private fun nativeEndpointContext(): GeneratorEndpointContext? =
