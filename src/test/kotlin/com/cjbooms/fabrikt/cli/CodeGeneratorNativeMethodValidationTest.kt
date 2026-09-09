@@ -16,16 +16,23 @@ import java.nio.file.Paths
 class CodeGeneratorNativeMethodValidationTest {
     @ParameterizedTest
     @EnumSource(ControllerCodeGenTargetType::class, names = ["SPRING"])
-    fun `rejects OpenAPI 3_2 query operations unsupported by controller targets`(target: ControllerCodeGenTargetType) {
+    fun `generates unbound Spring contracts for OpenAPI 3_2 custom methods`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
             controllerTarget = target,
         )
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { generator(queryOpenApi).generate() }
-            .withMessageContaining("${target.name.lowercase().replaceFirstChar(Char::uppercase)} controller")
-            .withMessageContaining("QUERY")
+        val generated =
+            generator(queryOpenApi)
+                .generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("public interface CustomHttpMethodHandler")
+            .contains("Handles the `QUERY /subjects` operation using application-defined routing")
+            .contains("querySubjects(")
     }
 
     @ParameterizedTest
