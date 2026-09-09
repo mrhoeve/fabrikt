@@ -360,7 +360,8 @@ data class SimpleClientOperationStatement(
                 "PUT" -> this.add("\n.put(multipartBody)")
                 "POST" -> this.add("\n.post(multipartBody)")
                 "PATCH" -> this.add("\n.patch(multipartBody)")
-                else -> throw NotImplementedError("API operation $op is not supported for multipart")
+                "DELETE" -> this.add("\n.method(%S, multipartBody)", op)
+                else -> throw IllegalArgumentException("API operation $op is not supported for multipart")
             }
         } else {
             // Regular requests

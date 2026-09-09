@@ -218,6 +218,6 @@ class CodeGenerator internal constructor(
 
     private companion object {
         val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
-        val OK_HTTP_MULTIPART_METHODS = setOf("PUT", "POST", "PATCH")
+        val OK_HTTP_MULTIPART_METHODS = setOf("PUT", "POST", "PATCH", "DELETE")
     }
 }
