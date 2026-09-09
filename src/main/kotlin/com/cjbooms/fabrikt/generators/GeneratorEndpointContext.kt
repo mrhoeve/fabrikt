@@ -19,11 +19,14 @@ import com.cjbooms.fabrikt.parser.GeneratorMediaType
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorOperationDocument
+import com.cjbooms.fabrikt.parser.GeneratorOperationSecurity
 import com.cjbooms.fabrikt.parser.GeneratorParameter
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.parser.GeneratorResponse
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
+import com.cjbooms.fabrikt.parser.GeneratorSecurityAlternative
+import com.cjbooms.fabrikt.parser.GeneratorSecuritySelection
 import com.cjbooms.fabrikt.parser.SourceSchemaType
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.NormalisedString.camelCase
@@ -161,6 +164,24 @@ internal class GeneratorEndpointContext(
             ?.content
             ?.firstOrNull()
             ?.key
+
+    fun securityPlan(operation: GeneratorOperation): GeneratorOperationSecurity {
+        val requirements = operation.security ?: operations.security
+        return GeneratorOperationSecurity(
+            alternatives =
+                requirements
+                    ?.values
+                    .orEmpty()
+                    .map { requirement ->
+                        GeneratorSecurityAlternative(
+                            schemes =
+                                requirement.schemes.map { (name, scopes) ->
+                                    GeneratorSecuritySelection(name, scopes, operations.securitySchemes[name])
+                                },
+                        )
+                    },
+        )
+    }
 
     fun hasMultipartRequestBody(operation: GeneratorOperation): Boolean =
         operation.requestBody?.content?.any { it.key.startsWith("multipart/form-data") } == true

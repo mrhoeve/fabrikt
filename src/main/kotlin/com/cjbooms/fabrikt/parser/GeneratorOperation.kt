@@ -132,3 +132,17 @@ internal data class GeneratorSecurityRequirements(
 internal data class GeneratorSecurityRequirement(
     val schemes: Map<String, List<String>>,
 )
+
+internal data class GeneratorOperationSecurity(
+    val alternatives: List<GeneratorSecurityAlternative>,
+)
+
+internal data class GeneratorSecurityAlternative(
+    val schemes: List<GeneratorSecuritySelection>,
+)
+
+internal data class GeneratorSecuritySelection(
+    val name: String,
+    val scopes: List<String>,
+    val scheme: GeneratorSecurityScheme?,
+)
