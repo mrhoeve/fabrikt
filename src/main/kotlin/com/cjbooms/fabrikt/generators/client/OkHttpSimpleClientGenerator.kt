@@ -299,6 +299,8 @@ data class SimpleClientOperationStatement(
             return
         }
         val typeInfo = parameter.typeInfo
+        val method = parameter.queryParameterMethod()
+        val parameterName = parameter.queryParameterName()
         if (typeInfo is KotlinTypeInfo.Array) {
             val style = parameter.style ?: "form"
             val explode = parameter.explode ?: (style == "form")
@@ -316,10 +318,10 @@ data class SimpleClientOperationStatement(
             val valueName = if (optional) "values" else parameter.name
             val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
             if (explode) {
-                add("\n%N.forEach { builder.addQueryParameter(%S, %L) }", valueName, parameter.originalName, itemValue)
+                add("\n%N.forEach { builder.%L(%S, %L) }", valueName, method, parameterName, itemValue)
             } else {
                 val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
-                add("\nbuilder.addQueryParameter(%S, %N.joinToString(%S)$transform)", parameter.originalName, valueName, delimiter)
+                add("\nbuilder.%L(%S, %N.joinToString(%S)$transform)", method, parameterName, valueName, delimiter)
             }
             if (optional) add("\n}")
             add("\n}")
@@ -329,9 +331,17 @@ data class SimpleClientOperationStatement(
             val optional = !parameter.isRequired
             add("\n.also { builder ->")
             if (optional) {
-                add("\n%N?.let { builder.addQueryParameter(%S, it.value) }", parameter.name, parameter.originalName)
+                add("\n%N?.let { builder.%L(%S, it.value) }", parameter.name, method, parameterName)
             } else {
-                add("\nbuilder.addQueryParameter(%S, %N.value)", parameter.originalName, parameter.name)
+                add("\nbuilder.%L(%S, %N.value)", method, parameterName, parameter.name)
+            }
+            add("\n}")
+        } else if (parameter.allowReserved) {
+            add("\n.also { builder ->")
+            if (parameter.isRequired) {
+                add("\nbuilder.%L(%S, %N.toString())", method, parameterName, parameter.name)
+            } else {
+                add("\n%N?.let { builder.%L(%S, it.toString()) }", parameter.name, method, parameterName)
             }
             add("\n}")
         } else {
@@ -345,6 +355,7 @@ data class SimpleClientOperationStatement(
         if (optional) add("\n%N?.let { value ->", parameter.name)
         val valueName = if (optional) "value" else parameter.name
         val explode = parameter.explode ?: (parameter.style == null || parameter.style == "form")
+        val method = parameter.queryParameterMethod()
         if (explode) {
             parameter.objectProperties.forEach { property ->
                 val expression = "$valueName.${property.propertyName}"
@@ -355,13 +366,24 @@ data class SimpleClientOperationStatement(
                         property.fieldName
                     }
                 if (property.nullable) {
-                    add("\n%L?.let { builder.addQueryParameter(%S, %L) }", expression, fieldName, formValue("it", property.typeInfo))
+                    add(
+                        "\n%L?.let { builder.%L(%S, %L) }",
+                        expression,
+                        method,
+                        parameter.queryParameterName(fieldName),
+                        formValue("it", property.typeInfo),
+                    )
                 } else {
-                    add("\nbuilder.addQueryParameter(%S, %L)", fieldName, formValue(expression, property.typeInfo))
+                    add(
+                        "\nbuilder.%L(%S, %L)",
+                        method,
+                        parameter.queryParameterName(fieldName),
+                        formValue(expression, property.typeInfo),
+                    )
                 }
             }
         } else {
-            add("\nbuilder.addQueryParameter(%S, buildList {", parameter.originalName)
+            add("\nbuilder.%L(%S, buildList {", method, parameter.queryParameterName())
             parameter.objectProperties.forEach { property ->
                 val expression = "$valueName.${property.propertyName}"
                 if (property.nullable) {
@@ -376,6 +398,22 @@ data class SimpleClientOperationStatement(
         if (optional) add("\n}")
         add("\n}")
     }
+
+    private fun RequestParameter.queryParameterMethod(): String = if (allowReserved) "addEncodedQueryParameter" else "addQueryParameter"
+
+    private fun RequestParameter.queryParameterName(name: String = originalName): String =
+        if (allowReserved) name.percentEncodeQueryName() else name
+
+    private fun String.percentEncodeQueryName(): String =
+        toByteArray(Charsets.UTF_8).joinToString("") { byte ->
+            val value = byte.toInt() and 0xff
+            val character = value.toChar()
+            if (character in 'a'..'z' || character in 'A'..'Z' || character in '0'..'9' || character in "-._~") {
+                character.toString()
+            } else {
+                "%${value.toString(16).uppercase().padStart(2, '0')}"
+            }
+        }
 
     private fun CodeBlock.Builder.addHeaderParamStatement(): CodeBlock.Builder {
         this.add("\nval headerBuilder = Headers.Builder()")

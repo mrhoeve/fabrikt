@@ -470,13 +470,17 @@ internal class NativeKtorClientGenerator(
                 addStatement(
                     if (parameter.isRequired) "%N.forEach { add(%L) }" else "%N?.forEach { add(%L) }",
                     parameter.name,
-                    queryPart(parameter.originalName, CodeBlock.of("%L", itemValue)),
+                    queryPart(parameter.originalName, CodeBlock.of("%L", itemValue), parameter.allowReserved),
                 )
             } else if (parameter.isRequired) {
                 val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
                 addStatement(
                     "add(%L)",
-                    queryPart(parameter.originalName, CodeBlock.of("%N.joinToString(%S)$transform", parameter.name, delimiter)),
+                    queryPart(
+                        parameter.originalName,
+                        CodeBlock.of("%N.joinToString(%S)$transform", parameter.name, delimiter),
+                        parameter.allowReserved,
+                    ),
                 )
             } else {
                 addStatement("%N?.let { values ->", parameter.name)
@@ -484,7 +488,11 @@ internal class NativeKtorClientGenerator(
                 val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
                 addStatement(
                     "add(%L)",
-                    queryPart(parameter.originalName, CodeBlock.of("values.joinToString(%S)$transform", delimiter)),
+                    queryPart(
+                        parameter.originalName,
+                        CodeBlock.of("values.joinToString(%S)$transform", delimiter),
+                        parameter.allowReserved,
+                    ),
                 )
                 unindent()
                 addStatement("}")
@@ -492,9 +500,16 @@ internal class NativeKtorClientGenerator(
             return
         }
         if (parameter.isRequired) {
-            addStatement("add(%L)", queryPart(parameter.originalName, formValue(parameter.name, typeInfo)))
+            addStatement(
+                "add(%L)",
+                queryPart(parameter.originalName, formValue(parameter.name, typeInfo), parameter.allowReserved),
+            )
         } else {
-            addStatement("%N?.let { add(%L) }", parameter.name, queryPart(parameter.originalName, formValue("it", typeInfo)))
+            addStatement(
+                "%N?.let { add(%L) }",
+                parameter.name,
+                queryPart(parameter.originalName, formValue("it", typeInfo), parameter.allowReserved),
+            )
         }
     }
 
@@ -516,12 +531,25 @@ internal class NativeKtorClientGenerator(
                         property.fieldName
                     }
                 if (property.nullable) {
-                    addStatement("%L?.let { add(%L) }", expression, queryPart(fieldName, formValue("it", property.typeInfo)))
+                    addStatement(
+                        "%L?.let { add(%L) }",
+                        expression,
+                        queryPart(fieldName, formValue("it", property.typeInfo), parameter.allowReserved),
+                    )
                 } else {
-                    addStatement("add(%L)", queryPart(fieldName, formValue(expression, property.typeInfo)))
+                    addStatement(
+                        "add(%L)",
+                        queryPart(fieldName, formValue(expression, property.typeInfo), parameter.allowReserved),
+                    )
                 }
             }
         } else {
+            val valueEncoder =
+                if (parameter.allowReserved) {
+                    MemberName(packages.client, "encodeReservedQueryValue")
+                } else {
+                    MemberName("io.ktor.http", "encodeURLParameter")
+                }
             add("add(%S.%M() + \"=\" + buildList {\n", parameter.originalName, MemberName("io.ktor.http", "encodeURLParameter"))
             indent()
             parameter.objectProperties.forEach { property ->
@@ -534,7 +562,7 @@ internal class NativeKtorClientGenerator(
                 }
             }
             unindent()
-            addStatement("}.joinToString(%S).%M())", ",", MemberName("io.ktor.http", "encodeURLParameter"))
+            addStatement("}.joinToString(%S).%M())", ",", valueEncoder)
         }
         if (optional) {
             unindent()
@@ -545,9 +573,16 @@ internal class NativeKtorClientGenerator(
     private fun queryPart(
         name: String,
         value: CodeBlock,
+        allowReserved: Boolean,
     ): CodeBlock {
-        val encode = MemberName("io.ktor.http", "encodeURLParameter")
-        return CodeBlock.of("%S.%M() + \"=\" + (%L).%M()", name, encode, value, encode)
+        val nameEncoder = MemberName("io.ktor.http", "encodeURLParameter")
+        val valueEncoder =
+            if (allowReserved) {
+                MemberName(packages.client, "encodeReservedQueryValue")
+            } else {
+                MemberName("io.ktor.http", "encodeURLParameter")
+            }
+        return CodeBlock.of("%S.%M() + \"=\" + (%L).%M()", name, nameEncoder, value, valueEncoder)
     }
 
     private fun clientRequestFunctionName(
@@ -564,16 +599,30 @@ internal class NativeKtorClientGenerator(
 
     override fun generateLibrary(options: Set<ClientCodeGenOptionType>): Collection<GeneratedFile> {
         val clientDir = srcPath.resolve(CodeGenerationUtils.packageToPath(packages.base)).resolve("client")
-        return setOf(
-            SimpleFile(clientDir.resolve("KtorApiModels.kt"), KtorClientLibraryFiles.ktorApiModels(packages.client).toString()),
-            SimpleFile(
-                clientDir.resolve("KtorApiConfiguration.kt"),
-                KtorClientLibraryFiles.ktorApiConfiguration(packages.client, context.operations.serverUrl.orEmpty()).toString(),
-            ),
-        )
+        return buildSet {
+            add(SimpleFile(clientDir.resolve("KtorApiModels.kt"), KtorClientLibraryFiles.ktorApiModels(packages.client).toString()))
+            add(
+                SimpleFile(
+                    clientDir.resolve("KtorApiConfiguration.kt"),
+                    KtorClientLibraryFiles.ktorApiConfiguration(packages.client, context.operations.serverUrl.orEmpty()).toString(),
+                ),
+            )
+            if (context.usesAllowReservedQueryParameters()) {
+                add(SimpleFile(clientDir.resolve("KtorHttpUtil.kt"), KtorClientLibraryFiles.ktorHttpUtil(packages.client).toString()))
+            }
+        }
     }
 
     private companion object {
         val STANDARD_HTTP_METHODS = setOf("get", "put", "post", "delete", "options", "head", "patch")
     }
+
+    private fun GeneratorEndpointContext.usesAllowReservedQueryParameters(): Boolean =
+        operations.paths.any { path ->
+            path.operations.any { operation ->
+                (path.parameters + operation.parameters).any { parameter ->
+                    parameter.placement == "query" && parameter.allowReserved == true
+                }
+            }
+        }
 }
