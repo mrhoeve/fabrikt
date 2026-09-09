@@ -131,6 +131,87 @@ class OpenApiDocumentParserTest {
     }
 
     @Test
+    fun `inlines external operation references before collecting native schemas`() {
+        val pathsDirectory = Files.createDirectories(tempDir.resolve("paths"))
+        val componentsDirectory = Files.createDirectories(tempDir.resolve("components"))
+        Files.writeString(
+            pathsDirectory.resolve("subjects.yaml"),
+            """
+            description: External path item
+            get:
+              operationId: listSubjects
+              parameters:
+                - ${'$'}ref: ../components/filter.yaml
+              responses:
+                '200':
+                  ${'$'}ref: ../components/subjects-response.yaml
+            """.trimIndent(),
+        )
+        Files.writeString(
+            componentsDirectory.resolve("filter.yaml"),
+            """
+            name: filter
+            in: query
+            schema: { type: string }
+            """.trimIndent(),
+        )
+        Files.writeString(
+            componentsDirectory.resolve("subjects-response.yaml"),
+            """
+            description: Subjects
+            content:
+              application/json:
+                schema:
+                  ${'$'}ref: ./subject.yaml
+            """.trimIndent(),
+        )
+        val subjectFile = componentsDirectory.resolve("subject.yaml")
+        Files.writeString(
+            subjectFile,
+            """
+            type: object
+            required: [id]
+            properties:
+              id: { type: string }
+            """.trimIndent(),
+        )
+        val documentUri = tempDir.resolve("openapi.yaml").toUri()
+
+        val parsed =
+            OpenApiDocumentParser.parseSource(
+                input =
+                    """
+                    openapi: 3.1.2
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths:
+                      /subjects:
+                        ${'$'}ref: paths/subjects.yaml
+                        summary: Local summary
+                    """.trimIndent(),
+                baseUri = tempDir.toUri(),
+                documentUri = documentUri,
+            )
+
+        val pathItem = parsed.operations.paths.single()
+        assertThat(pathItem.summary).isEqualTo("Local summary")
+        assertThat(pathItem.description).isEqualTo("External path item")
+        assertThat(
+            pathItem.operations
+                .single()
+                .parameters
+                .single()
+                .name,
+        ).isEqualTo("filter")
+        assertThat(parsed.source.modelSchemas).isNotEmpty
+        val loadedDocumentPaths =
+            parsed.sourceGraph.documentsByUri.keys
+                .map(URI::getPath)
+        assertThat(loadedDocumentPaths).contains(subjectFile.toUri().path)
+    }
+
+    @Test
     fun `exposes native operations before parsing the Kaizen compatibility model`() {
         val parsed =
             OpenApiDocumentParser.parse(
