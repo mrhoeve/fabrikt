@@ -182,21 +182,21 @@ internal class GeneratorEndpointContext(
         val required = alternatives.none { it.schemes.isEmpty() }
         val declaredParameters = pathParameters + operation.parameters
         return securedAlternatives
-            .first()
-            .schemes
-            .filter { it.name in commonSchemeNames }
+            .flatMap(GeneratorSecurityAlternative::schemes)
+            .distinctBy(GeneratorSecuritySelection::name)
             .mapNotNull { selection ->
                 val scheme = selection.scheme ?: return@mapNotNull null
+                val schemeRequired = required && selection.name in commonSchemeNames
                 val parameter =
                     when {
-                        scheme.type.equals("apiKey", ignoreCase = true) -> apiKeyParameter(selection.name, scheme, required)
+                        scheme.type.equals("apiKey", ignoreCase = true) -> apiKeyParameter(selection.name, scheme, schemeRequired)
                         scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("basic", ignoreCase = true) ->
-                            authorizationParameter(selection.name, "BasicCredentials", scheme.description, required)
+                            authorizationParameter(selection.name, "BasicCredentials", scheme.description, schemeRequired)
                         scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("bearer", ignoreCase = true) ->
-                            authorizationParameter(selection.name, "BearerToken", scheme.description, required)
+                            authorizationParameter(selection.name, "BearerToken", scheme.description, schemeRequired)
                         scheme.type.equals("oauth2", ignoreCase = true) ||
                             scheme.type.equals("openIdConnect", ignoreCase = true) ->
-                            authorizationParameter(selection.name, "BearerToken", scheme.description, required)
+                            authorizationParameter(selection.name, "BearerToken", scheme.description, schemeRequired)
                         else -> null
                     } ?: return@mapNotNull null
                 if (
