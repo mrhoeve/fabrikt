@@ -17,6 +17,7 @@ import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ControllerLibraryType
 import com.cjbooms.fabrikt.model.ControllerType
 import com.cjbooms.fabrikt.model.CookieParam
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
@@ -145,6 +146,16 @@ class SpringControllerInterfaceGenerator(
         parameters
             .map {
                 when (it) {
+                    is FormParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(
+                                SpringAnnotations
+                                    .requestParamBuilder()
+                                    .addMember("value = %S", it.fieldName)
+                                    .addMember("required = %L", it.isRequired)
+                                    .build(),
+                            ).build()
                     is MultipartParameter ->
                         toParameterSpecBuilder(it)
                             .addSpringParamAnnotation(it)
@@ -218,6 +229,16 @@ class SpringControllerInterfaceGenerator(
         parameters
             .map {
                 when (it) {
+                    is FormParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(
+                                SpringAnnotations
+                                    .requestParamBuilder()
+                                    .addMember("value = %S", it.fieldName)
+                                    .addMember("required = %L", it.isRequired)
+                                    .build(),
+                            ).build()
                     is MultipartParameter ->
                         toParameterSpecBuilder(it)
                             .addSpringParamAnnotation(it)

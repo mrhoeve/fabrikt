@@ -18,6 +18,7 @@ import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ControllerLibraryType
 import com.cjbooms.fabrikt.model.ControllerType
 import com.cjbooms.fabrikt.model.CookieParam
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.KotlinTypes
 import com.cjbooms.fabrikt.model.MultipartParameter
@@ -136,6 +137,15 @@ class MicronautControllerInterfaceGenerator(
         parameters
             .map {
                 when (it) {
+                    is FormParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(
+                                AnnotationSpec
+                                    .builder(MicronautImports.BODY)
+                                    .addMember("%S", it.fieldName)
+                                    .build(),
+                            ).build()
                     is MultipartParameter ->
                         throw UnsupportedOperationException("Multipart parameters are not supported for Micronaut controllers")
 
@@ -196,6 +206,15 @@ class MicronautControllerInterfaceGenerator(
         parameters
             .map {
                 when (it) {
+                    is FormParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(
+                                AnnotationSpec
+                                    .builder(MicronautImports.BODY)
+                                    .addMember("%S", it.fieldName)
+                                    .build(),
+                            ).build()
                     is MultipartParameter ->
                         it
                             .toParameterSpecBuilder()
