@@ -45,6 +45,7 @@ import com.squareup.kotlinpoet.asTypeName
 import kotlin.reflect.KClass
 
 private const val TYPED_APPLICATION_CALL_CLASS_NAME = "TypedApplicationCall"
+private val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
 
 /**
  * Generates controller interface and routing functions for Ktor.
@@ -225,12 +226,26 @@ class KtorControllerInterfaceGenerator(
 
         val params = context.incomingParameters(operation, path.parameters)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
-        builder
-            .addStatement(
-                "%M(%S) {",
-                MemberName("io.ktor.server.routing", operation.method),
-                path.path,
-            ).indent()
+        val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
+        if (customMethod) {
+            builder
+                .addStatement(
+                    "%M(%S, %T(%S)) {",
+                    MemberName("io.ktor.server.routing", "route"),
+                    path.path,
+                    ClassName("io.ktor.http", "HttpMethod"),
+                    operation.method.uppercase(),
+                ).indent()
+                .addStatement("handle {")
+                .indent()
+        } else {
+            builder
+                .addStatement(
+                    "%M(%S) {",
+                    MemberName("io.ktor.server.routing", operation.method),
+                    path.path,
+                ).indent()
+        }
         pathParams.forEach { parameter ->
             val type = parameter.type.copy(nullable = false)
             if (parameter.requiresKtorDataConversionPlugin()) {
@@ -321,6 +336,7 @@ class KtorControllerInterfaceGenerator(
             )
         }
         builder.unindent().addStatement("}")
+        if (customMethod) builder.unindent().addStatement("}")
         if (addAuth) builder.unindent().addStatement("}")
         return builder.build()
     }

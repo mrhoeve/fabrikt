@@ -118,15 +118,9 @@ class CodeGenerator internal constructor(
 
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
-        endpointContext?.requireSupportedMethods(
-            "${MutableSettings.controllerTarget.displayName} controller",
-            when (MutableSettings.controllerTarget) {
-                ControllerCodeGenTargetType.MICRONAUT -> MICRONAUT_HTTP_METHODS
-                ControllerCodeGenTargetType.SPRING,
-                ControllerCodeGenTargetType.KTOR,
-                -> STANDARD_HTTP_METHODS
-            },
-        )
+        if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.SPRING) {
+            endpointContext?.requireSupportedMethods("Spring controller", STANDARD_HTTP_METHODS)
+        }
         if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.SPRING) {
             endpointContext?.requireMultipartSupported("${MutableSettings.controllerTarget.displayName} controller")
         }
@@ -199,7 +193,6 @@ class CodeGenerator internal constructor(
 
     private companion object {
         val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
-        val MICRONAUT_HTTP_METHODS = STANDARD_HTTP_METHODS - "TRACE"
         val OK_HTTP_MULTIPART_METHODS = setOf("PUT", "POST", "PATCH")
     }
 }
