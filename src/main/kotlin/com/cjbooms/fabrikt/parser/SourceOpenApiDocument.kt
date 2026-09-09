@@ -25,8 +25,13 @@ internal object SourceOpenApiDocumentParser {
     fun parse(
         input: String,
         baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
+    ): SourceOpenApiDocument = parse(input, YamlObjectMapper.instance.readTree(input), baseUri)
+
+    fun parse(
+        input: String,
+        root: JsonNode,
+        baseUri: URI,
     ): SourceOpenApiDocument {
-        val root = YamlObjectMapper.instance.readTree(input)
         val version = OpenApiVersion.parse(root["openapi"]?.asText())
         val schemaEntryPoints =
             SourceSchemaEntryPointCollector
