@@ -179,6 +179,7 @@ class RequestParameter(
     val style: String? = null,
     val explode: Boolean? = null,
     val allowReserved: Boolean = false,
+    val objectProperties: List<FormObjectProperty> = emptyList(),
     val defaultValue: Any? = null,
 ) : IncomingParameter(oasName, description, type, isRequired) {
     init {

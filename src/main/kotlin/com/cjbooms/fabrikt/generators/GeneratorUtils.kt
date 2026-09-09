@@ -348,6 +348,7 @@ object GeneratorUtils {
                         style = p.style,
                         explode = p.explode,
                         allowReserved = p.allowReserved,
+                        objectProperties = p.objectProperties,
                         defaultValue = p.defaultValue,
                     )
             }
