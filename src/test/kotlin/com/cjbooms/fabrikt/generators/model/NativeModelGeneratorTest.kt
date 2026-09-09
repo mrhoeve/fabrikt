@@ -45,6 +45,17 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `normalises and disambiguates component model names`(version: String) {
+        val generated = generateComponentNames(version)
+
+        assertThat(generated).containsOnlyKeys("AppsSecret", "AppsSecretExtra", "Envelope")
+        assertThat(generated.getValue("Envelope"))
+            .contains("public val dotted: AppsSecret")
+            .contains("public val hyphenated: AppsSecretExtra")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates defaults documentation serialization and validation metadata`(version: String) {
         val subject = generate(version).getValue("Subject").toString()
 
@@ -356,6 +367,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(multiTypeOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateComponentNames(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(componentNamesOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -694,6 +716,33 @@ class NativeModelGeneratorTest {
                 tags:
                   ${'$'}ref: '#/components/schemas/Tags'
                   maxItems: 4
+        """.trimIndent()
+
+    private val componentNamesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            apps.secret:
+              type: object
+              properties:
+                id: { type: string }
+            apps-secret:
+              type: object
+              properties:
+                value: { type: string }
+            Envelope:
+              type: object
+              required: [dotted, hyphenated]
+              properties:
+                dotted:
+                  ${'$'}ref: '#/components/schemas/apps.secret'
+                hyphenated:
+                  ${'$'}ref: '#/components/schemas/apps-secret'
         """.trimIndent()
 
     private val directionalPropertiesOpenApi =
