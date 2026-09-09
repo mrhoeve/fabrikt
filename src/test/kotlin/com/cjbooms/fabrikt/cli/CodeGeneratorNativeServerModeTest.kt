@@ -92,6 +92,34 @@ class CodeGeneratorNativeServerModeTest {
         }
     }
 
+    @Test
+    fun `generates multipart Micronaut controllers from native operations`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.MICRONAUT,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("@Consumes(value = [\"multipart/form-data\"])")
+            .contains("@Part(value = \"document\") @Valid document: ByteArray")
+            .contains("@Part(value = \"attachments\") @Valid attachments: List<ByteArray>?")
+            .contains("@Part(value = \"description\") @Valid description: String?")
+            .contains("@Part(value = \"subject-metadata\") @Valid subjectMetadata: SubjectMetadata")
+            .doesNotContain("@Body")
+    }
+
     private val openApi =
         """
         openapi: VERSION
@@ -184,6 +212,42 @@ class CodeGeneratorNativeServerModeTest {
                         required: [access_token]
                         properties:
                           access_token: { type: string }
+        """.trimIndent()
+
+    private val multipartOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native multipart server
+          version: "1.0"
+        paths:
+          /subjects:
+            post:
+              operationId: createSubject
+              requestBody:
+                required: true
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      required: [document, subject-metadata]
+                      properties:
+                        document: { type: string, format: binary }
+                        attachments:
+                          type: array
+                          items: { type: string, format: binary }
+                        description: { type: string }
+                        subject-metadata:
+                          ${'$'}ref: '#/components/schemas/SubjectMetadata'
+              responses:
+                '204': { description: Created }
+        components:
+          schemas:
+            SubjectMetadata:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
         """.trimIndent()
 
     companion object {
