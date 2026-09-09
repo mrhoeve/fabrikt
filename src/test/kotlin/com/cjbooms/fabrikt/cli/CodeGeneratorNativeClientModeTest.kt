@@ -169,6 +169,89 @@ class CodeGeneratorNativeClientModeTest {
         }
     }
 
+    @ParameterizedTest
+    @MethodSource("nativeMultipartHeaderClientConfigurations")
+    fun `writes typed native multipart part headers`(
+        version: String,
+        target: ClientCodeGenTargetType,
+    ) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartHeaderOpenApi.replace("VERSION", version)),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("documentXChecksum: String")
+            .contains("metadataXTraceIds: List<String>? = null")
+            .contains("attachmentsXSequence: List<Int>? = null")
+            .contains("attachmentsXNote: List<String?>? = null")
+            .contains("thumbnailXChecksum: String? = null")
+            .doesNotContain("documentContentType")
+            .contains("\"X-Checksum\"")
+            .contains("documentXChecksum.toString()")
+            .contains("\"X-Trace-Ids\"")
+            .contains("it.joinToString(\",\")")
+            .contains("documentXMode.value")
+            .contains("\"code=\"")
+            .contains("it.entries.flatMap")
+
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains("documentPartHeadersBuilder.add")
+                    .contains("multipartBuilder.addPart(documentPartHeaders, document.requestBody)")
+                    .contains("requireNotNull(attachmentsXSequence?.getOrNull(index))")
+                    .contains("attachmentsXNote?.getOrNull(index)?.let")
+                    .contains("requireNotNull(thumbnailXChecksum)")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("Headers.build {")
+                    .contains("append(\"X-Checksum\", documentXChecksum.toString())")
+                    .contains("attachments?.forEachIndexed { index, part ->")
+                    .contains("requireNotNull(attachmentsXSequence?.getOrNull(index))")
+                    .contains("attachmentsXNote?.getOrNull(index)?.let")
+                    .contains("requireNotNull(thumbnailXChecksum)")
+            else -> error("Unsupported test target $target")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["OPEN_FEIGN", "SPRING_HTTP_INTERFACE"])
+    fun `rejects native multipart part headers for declarative clients`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        assertThatThrownBy {
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartHeaderOpenApi.replace("VERSION", "3.2.0")),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("cannot represent native multipart part headers")
+            .hasMessageContaining("POST /documents")
+    }
+
     @Test
     fun `uses a successful response body instead of informational redirects or empty responses`() {
         MutableSettings.updateSettings(
@@ -673,6 +756,82 @@ class CodeGeneratorNativeClientModeTest {
                   description: Uploaded
         """.trimIndent()
 
+    private val multipartHeaderOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Native multipart part headers
+          version: "1.0"
+        paths:
+          /documents:
+            post:
+              operationId: uploadDocument
+              requestBody:
+                required: true
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      required: [document, metadata]
+                      properties:
+                        document: { type: string, format: binary }
+                        attachments:
+                          type: array
+                          items: { type: string, format: binary }
+                        thumbnail: { type: string, format: binary }
+                        metadata:
+                          type: object
+                          properties:
+                            title: { type: string }
+                    encoding:
+                      document:
+                        headers:
+                          X-Checksum:
+                            required: true
+                            schema: { type: string }
+                          X-Mode:
+                            required: true
+                            schema:
+                              type: string
+                              enum: [fast-mode, safe]
+                          Content-Type:
+                            schema: { type: string }
+                      metadata:
+                        contentType: application/json
+                        headers:
+                          X-Trace-Ids:
+                            schema:
+                              type: array
+                              items: { type: string }
+                          X-Attributes:
+                            required: true
+                            explode: true
+                            schema:
+                              type: object
+                              required: [code]
+                              properties:
+                                code: { type: integer }
+                                note: { type: string }
+                          X-Tags:
+                            schema:
+                              type: object
+                              additionalProperties: { type: string }
+                      attachments:
+                        headers:
+                          X-Sequence:
+                            required: true
+                            schema: { type: integer }
+                          X-Note:
+                            schema: { type: string }
+                      thumbnail:
+                        headers:
+                          X-Checksum:
+                            required: true
+                            schema: { type: string }
+              responses:
+                '204': { description: Uploaded }
+        """.trimIndent()
+
     private val formOpenApi =
         """
         openapi: 3.1.1
@@ -877,6 +1036,12 @@ class CodeGeneratorNativeClientModeTest {
     companion object {
         @JvmStatic
         fun nativeCookieClientConfigurations(): Stream<Arguments> =
+            Stream.of("3.0.4", "3.1.2", "3.2.0").flatMap { version ->
+                Stream.of(ClientCodeGenTargetType.OK_HTTP, ClientCodeGenTargetType.KTOR).map { target -> Arguments.of(version, target) }
+            }
+
+        @JvmStatic
+        fun nativeMultipartHeaderClientConfigurations(): Stream<Arguments> =
             Stream.of("3.0.4", "3.1.2", "3.2.0").flatMap { version ->
                 Stream.of(ClientCodeGenTargetType.OK_HTTP, ClientCodeGenTargetType.KTOR).map { target -> Arguments.of(version, target) }
             }

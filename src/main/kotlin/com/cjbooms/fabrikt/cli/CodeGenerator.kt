@@ -74,9 +74,12 @@ class CodeGenerator internal constructor(
             ClientCodeGenTargetType.OPEN_FEIGN -> {
                 endpointContext?.requireScalarFormParameters("OpenFeign client")
                 endpointContext?.requireNoObjectFormParameters("OpenFeign client")
+                endpointContext?.requireNoMultipartEncodingHeaders("OpenFeign client")
             }
-            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> {
                 endpointContext?.requireNoObjectFormParameters("Spring HTTP interface client")
+                endpointContext?.requireNoMultipartEncodingHeaders("Spring HTTP interface client")
+            }
         }
         val clientGenerator =
             when (MutableSettings.clientTarget) {

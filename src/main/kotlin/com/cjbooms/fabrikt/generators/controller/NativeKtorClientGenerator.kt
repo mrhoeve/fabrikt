@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.client.ClientGenerator
+import com.cjbooms.fabrikt.generators.toWireValue
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
 import com.cjbooms.fabrikt.model.Destinations
@@ -157,6 +158,9 @@ internal class NativeKtorClientGenerator(
                         .build(),
                 )
         requestBodies.forEach { function.addParameter(it.toParameterSpecBuilder().build()) }
+        multipartParams.forEach { part ->
+            part.headers.forEach { header -> function.addParameter(header.toParameterSpecBuilder(part).build()) }
+        }
         (pathParams + queryParams + headerParams + cookieParams).forEach { parameter ->
             function.addParameter(
                 parameter
@@ -357,12 +361,13 @@ internal class NativeKtorClientGenerator(
     private fun CodeBlock.Builder.addMultipartParameter(parameter: MultipartParameter) {
         val wrapped = parameter.isArray || !parameter.isRequired
         if (wrapped) {
-            addStatement(
-                "%N%L.%L { part ->",
-                parameter.name,
-                if (parameter.isRequired) "" else "?",
-                if (parameter.isArray) "forEach" else "let",
-            )
+            val iteration =
+                if (parameter.isArray && parameter.headers.isNotEmpty()) {
+                    "forEachIndexed { index, part ->"
+                } else {
+                    "${if (parameter.isArray) "forEach" else "let"} { part ->"
+                }
+            addStatement("%N%L.%L", parameter.name, if (parameter.isRequired) "" else "?", iteration)
             indent()
         }
         val valueName = if (wrapped) "part" else parameter.name
@@ -388,6 +393,14 @@ internal class NativeKtorClientGenerator(
                 "filename=\"${parameter.partName}\"",
             )
         }
+        parameter.headers.forEach { header ->
+            val headerValue = parameter.headerValue(header.name)
+            if (header.isRequired) {
+                addStatement("append(%S, %L)", header.originalName, header.toWireValue(headerValue.requiredValue))
+            } else {
+                addStatement("%L?.let { append(%S, %L) }", headerValue.expression, header.originalName, header.toWireValue("it"))
+            }
+        }
         unindent()
         addStatement("}")
         unindent()
@@ -397,6 +410,19 @@ internal class NativeKtorClientGenerator(
             addStatement("}")
         }
     }
+
+    private fun MultipartParameter.headerValue(name: String): MultipartHeaderValue =
+        when {
+            isArray && isRequired -> MultipartHeaderValue("$name.getOrNull(index)", "requireNotNull($name.getOrNull(index))")
+            isArray -> MultipartHeaderValue("$name?.getOrNull(index)", "requireNotNull($name?.getOrNull(index))")
+            isRequired -> MultipartHeaderValue(name, name)
+            else -> MultipartHeaderValue(name, "requireNotNull($name)")
+        }
+
+    private data class MultipartHeaderValue(
+        val expression: String,
+        val requiredValue: String,
+    )
 
     private fun multipartJsonValue(valueName: String): CodeBlock =
         when (MutableSettings.serializationLibrary) {
