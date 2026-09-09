@@ -10,6 +10,7 @@ import com.cjbooms.fabrikt.generators.client.ClientGenerator
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
 import com.cjbooms.fabrikt.model.Destinations
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
@@ -74,7 +75,8 @@ internal class NativeKtorClientGenerator(
         val parameters = context.clientParameters(operation, path)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parameters.splitByType()
         val multipartParams = parameters.filterIsInstance<MultipartParameter>()
-        val requestBodies = bodyParams + multipartParams
+        val formParams = parameters.filterIsInstance<FormParameter>()
+        val requestBodies = bodyParams + multipartParams + formParams
         val responseType = context.successResponseType(operation, packages.base)
         val function =
             FunSpec
@@ -99,7 +101,9 @@ internal class NativeKtorClientGenerator(
                                     MemberName("io.ktor.client.request", "header"),
                                     context.requestContentType(operation) ?: "application/json",
                                 )
-                                if (multipartParams.isEmpty()) {
+                                if (formParams.isNotEmpty()) {
+                                    addFormBody(formParams)
+                                } else if (multipartParams.isEmpty()) {
                                     addStatement("%M(%L)", MemberName("io.ktor.client.request", "setBody"), bodyParams.first().name)
                                 } else {
                                     addMultipartBody(multipartParams)
@@ -231,6 +235,56 @@ internal class NativeKtorClientGenerator(
         addStatement(")")
         unindent()
         addStatement(")")
+    }
+
+    private fun CodeBlock.Builder.addFormBody(parameters: List<FormParameter>) {
+        addStatement("%M(", MemberName("io.ktor.client.request", "setBody"))
+        indent()
+        addStatement("%T(", ClassName("io.ktor.client.request.forms", "FormDataContent"))
+        indent()
+        addStatement("%M {", MemberName("io.ktor.http", "parameters"))
+        indent()
+        parameters.forEach { parameter -> addFormParameter(parameter) }
+        unindent()
+        addStatement("}")
+        unindent()
+        addStatement(")")
+        unindent()
+        addStatement(")")
+    }
+
+    private fun CodeBlock.Builder.addFormParameter(parameter: FormParameter) {
+        val optional = !parameter.isRequired
+        if (optional) {
+            addStatement("%N?.let { value ->", parameter.name)
+            indent()
+        }
+        val valueName = if (optional) "value" else parameter.name
+        when (val typeInfo = parameter.typeInfo) {
+            is KotlinTypeInfo.Array -> {
+                val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                if (parameter.explode) {
+                    addStatement("%N.forEach { append(%S, %L) }", valueName, parameter.fieldName, itemValue)
+                } else {
+                    val delimiter =
+                        when (parameter.style) {
+                            "spaceDelimited" -> " "
+                            "pipeDelimited" -> "|"
+                            else -> ","
+                        }
+                    val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
+                    addStatement("append(%S, %N.joinToString(%S)$transform)", parameter.fieldName, valueName, delimiter)
+                }
+            }
+            else -> {
+                val suffix = if (typeInfo is KotlinTypeInfo.Enum) ".value" else ".toString()"
+                addStatement("append(%S, %N%L)", parameter.fieldName, valueName, suffix)
+            }
+        }
+        if (optional) {
+            unindent()
+            addStatement("}")
+        }
     }
 
     private fun CodeBlock.Builder.addMultipartParameter(parameter: MultipartParameter) {

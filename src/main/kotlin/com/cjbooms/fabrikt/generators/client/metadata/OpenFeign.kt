@@ -13,6 +13,8 @@ object OpenFeignImports {
 
     val HEADERS = ClassName(Packages.FEIGN, "Headers")
 
+    val BODY = ClassName(Packages.FEIGN, "Body")
+
     val HEADER_MAP = ClassName(Packages.FEIGN, "HeaderMap")
 
     val QUERY_MAP = ClassName(Packages.FEIGN, "QueryMap")
@@ -42,6 +44,10 @@ object OpenFeignAnnotations {
     fun headersBuilder(): AnnotationSpec.Builder =
         AnnotationSpec
             .builder(OpenFeignImports.HEADERS)
+
+    fun bodyBuilder(): AnnotationSpec.Builder =
+        AnnotationSpec
+            .builder(OpenFeignImports.BODY)
 
     fun paramBuilder(): AnnotationSpec.Builder =
         AnnotationSpec

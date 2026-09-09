@@ -67,7 +67,7 @@ class CodeGenerator internal constructor(
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)
             }
             ClientCodeGenTargetType.KTOR -> Unit
-            ClientCodeGenTargetType.OPEN_FEIGN,
+            ClientCodeGenTargetType.OPEN_FEIGN -> endpointContext?.requireScalarFormParameters("OpenFeign client")
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
             -> Unit
         }

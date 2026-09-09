@@ -22,6 +22,7 @@ import com.cjbooms.fabrikt.generators.client.metadata.OpenFeignImports
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
 import com.cjbooms.fabrikt.model.CookieParam
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
@@ -355,10 +356,14 @@ class OpenFeignInterfaceGenerator(
                 hasCookieHeader,
                 cookieHeaderParameterName,
             ).addSuspendModifier(options)
+            .addFormBodyAnnotation(parameters)
             .addIncomingParameters(
                 parameters,
                 annotateRequestParameterWith = { parameter ->
                     OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.name).build()
+                },
+                annotateFormParameterWith = { parameter ->
+                    OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.fieldName).build()
                 },
                 multipartParameterToSpecBuilder = { parameter ->
                     parameter
@@ -393,6 +398,21 @@ class OpenFeignInterfaceGenerator(
                     .build(),
             ).returns(context.successResponseType(operation, packages.base).optionallyParameterizeWithResponseEntity(options))
             .build()
+
+    private fun FunSpec.Builder.addFormBodyAnnotation(parameters: List<IncomingParameter>): FunSpec.Builder =
+        apply {
+            val formParameters = parameters.filterIsInstance<FormParameter>()
+            if (formParameters.isNotEmpty()) {
+                addAnnotation(
+                    OpenFeignAnnotations
+                        .bodyBuilder()
+                        .addMember(
+                            "%S",
+                            formParameters.joinToString("&") { "${it.fieldName}={${it.fieldName}}" },
+                        ).build(),
+                )
+            }
+        }
 
     private fun buildFunctions(
         context: GeneratorEndpointContext,

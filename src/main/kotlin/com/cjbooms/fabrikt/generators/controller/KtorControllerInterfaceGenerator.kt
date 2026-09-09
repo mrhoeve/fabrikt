@@ -15,6 +15,7 @@ import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.securi
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.toSuccessResponseType
 import com.cjbooms.fabrikt.model.ControllerLibraryType
 import com.cjbooms.fabrikt.model.ControllerType
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
@@ -178,6 +179,7 @@ class KtorControllerInterfaceGenerator(
         val params = context.incomingParameters(operation, path.parameters)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         val multipartParams = params.filterIsInstance<MultipartParameter>()
+        val formParams = params.filterIsInstance<FormParameter>()
         (headerParams + cookieParams).forEach { parameter ->
             builder.addParameter(
                 ParameterSpec
@@ -192,6 +194,7 @@ class KtorControllerInterfaceGenerator(
         }
         bodyParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         multipartParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
+        formParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         builder.addKdoc(buildControllerFunKdoc(context, operation, params))
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
@@ -233,6 +236,7 @@ class KtorControllerInterfaceGenerator(
         val params = context.incomingParameters(operation, path.parameters)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         val multipartParams = params.filterIsInstance<MultipartParameter>()
+        val formParams = params.filterIsInstance<FormParameter>()
         val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
         if (customMethod) {
             builder
@@ -323,9 +327,26 @@ class KtorControllerInterfaceGenerator(
                 parameter.type,
             )
         }
+        if (formParams.isNotEmpty()) {
+            builder.addStatement(
+                "val formFields = %M.%M()",
+                MemberName("io.ktor.server.application", "call"),
+                MemberName("io.ktor.server.request", "receiveParameters"),
+            )
+            formParams.forEach { parameter ->
+                builder.addStatement(
+                    "val %N = formFields.%M<%T>(%S, call.application.%M)",
+                    parameter.name,
+                    MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
+                    parameter.type.copy(nullable = false),
+                    parameter.fieldName,
+                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                )
+            }
+        }
         builder.addMultipartParameters(multipartParams)
         val methodParameters =
-            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams, multipartParams)
+            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams, multipartParams, formParams)
                 .asSequence()
                 .flatten()
                 .joinToString(", ") { it.name }
