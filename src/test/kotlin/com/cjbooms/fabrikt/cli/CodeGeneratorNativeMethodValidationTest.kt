@@ -55,7 +55,7 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ClientCodeGenTargetType::class, names = ["OPEN_FEIGN", "SPRING_HTTP_INTERFACE", "KTOR"])
+    @EnumSource(ClientCodeGenTargetType::class, names = ["OPEN_FEIGN", "KTOR"])
     fun `rejects multipart operations unsupported by client targets`(target: ClientCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
@@ -69,7 +69,7 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @Test
-    fun `allows multipart generation for Spring controllers and OkHttp clients`() {
+    fun `allows multipart generation for Spring controllers and supported clients`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
             controllerTarget = ControllerCodeGenTargetType.SPRING,
@@ -79,6 +79,12 @@ class CodeGeneratorNativeMethodValidationTest {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
             clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+        assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
+
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
         )
         assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
     }
