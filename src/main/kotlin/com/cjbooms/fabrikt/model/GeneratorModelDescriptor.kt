@@ -154,8 +154,10 @@ internal object GeneratorModelDescriptorBuilder {
                 allocateRootName(name.toModelClassName(), allocatedRootNames)
             }
         val rootNamesByIdentity =
-            document.modelSchemas.entries.associate { (name, schema) ->
-                document.resolve(schema).identity to rootNames.getValue(name)
+            buildMap {
+                document.modelSchemas.forEach { (name, schema) ->
+                    putIfAbsent(document.resolve(schema).identity, rootNames.getValue(name))
+                }
             }
 
         fun register(
@@ -203,6 +205,17 @@ internal object GeneratorModelDescriptorBuilder {
             objectSchema.properties.forEach { (propertyName, property) ->
                 visit(property, rootName + propertyName.toModelClassName(), rootName)
             }
+
+            fun visitCompositionProperties(member: GeneratorSchema) {
+                val composedObject = document.resolve(member) as? GeneratorObjectSchema ?: return
+                composedObject.properties.forEach { (propertyName, property) ->
+                    visit(property, rootName + propertyName.toModelClassName(), rootName)
+                }
+                composedObject.allOf.forEach(::visitCompositionProperties)
+                composedObject.anyOf.forEach(::visitCompositionProperties)
+            }
+            objectSchema.allOf.forEach(::visitCompositionProperties)
+            objectSchema.anyOf.forEach(::visitCompositionProperties)
             objectSchema.items?.let { items ->
                 val itemType =
                     GeneratorSchemaTypeClassifier.classify(
