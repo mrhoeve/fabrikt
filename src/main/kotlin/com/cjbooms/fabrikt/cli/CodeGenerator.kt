@@ -119,7 +119,7 @@ class CodeGenerator internal constructor(
         if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.SPRING) {
             endpointContext?.requireSupportedMethods("Spring controller", STANDARD_HTTP_METHODS)
         }
-        if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.SPRING) {
+        if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.KTOR) {
             endpointContext?.requireMultipartSupported("${MutableSettings.controllerTarget.displayName} controller")
         }
         val generator =
