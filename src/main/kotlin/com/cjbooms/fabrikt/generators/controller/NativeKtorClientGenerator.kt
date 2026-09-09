@@ -81,10 +81,7 @@ internal class NativeKtorClientGenerator(
                         .builder()
                         .addUrl(path.path, pathParams, queryParams)
                         .beginControlFlow("return try")
-                        .addStatement(
-                            "val response = httpClient.%M(url) {",
-                            MemberName("io.ktor.client.request", operation.method, isExtension = true),
-                        ).indent()
+                        .addRequestStart(operation.method)
                         .apply {
                             addStatement(
                                 "%M(\"Accept\", %S)",
@@ -202,6 +199,23 @@ internal class NativeKtorClientGenerator(
         }
     }
 
+    private fun CodeBlock.Builder.addRequestStart(method: String): CodeBlock.Builder {
+        val normalisedMethod = method.lowercase()
+        if (normalisedMethod in STANDARD_HTTP_METHODS) {
+            addStatement(
+                "val response = httpClient.%M(url) {",
+                MemberName("io.ktor.client.request", normalisedMethod, isExtension = true),
+            )
+        } else {
+            addStatement("val response = httpClient.%M(url) {", MemberName("io.ktor.client.request", "request", isExtension = true))
+            indent()
+            addStatement("method = %T(%S)", ClassName("io.ktor.http", "HttpMethod"), method.uppercase())
+            return this
+        }
+        indent()
+        return this
+    }
+
     private fun CodeBlock.Builder.addUrl(
         path: String,
         pathParams: List<RequestParameter>,
@@ -268,5 +282,9 @@ internal class NativeKtorClientGenerator(
                 KtorClientLibraryFiles.ktorApiConfiguration(packages.client, context.operations.serverUrl.orEmpty()).toString(),
             ),
         )
+    }
+
+    private companion object {
+        val STANDARD_HTTP_METHODS = setOf("get", "put", "post", "delete", "options", "head", "patch")
     }
 }

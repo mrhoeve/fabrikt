@@ -64,11 +64,9 @@ class CodeGenerator internal constructor(
         val endpointContext = nativeEndpointContext()
         when (MutableSettings.clientTarget) {
             ClientCodeGenTargetType.OK_HTTP -> {
-                endpointContext?.requireSupportedMethods("OkHttp client", OK_HTTP_METHODS)
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)
             }
             ClientCodeGenTargetType.KTOR -> {
-                endpointContext?.requireSupportedMethods("Ktor client", STANDARD_HTTP_METHODS)
                 endpointContext?.requireMultipartSupported("Ktor client")
             }
             ClientCodeGenTargetType.OPEN_FEIGN,
@@ -202,7 +200,6 @@ class CodeGenerator internal constructor(
     private companion object {
         val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
         val MICRONAUT_HTTP_METHODS = STANDARD_HTTP_METHODS - "TRACE"
-        val OK_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "HEAD", "PATCH")
         val OK_HTTP_MULTIPART_METHODS = setOf("PUT", "POST", "PATCH")
     }
 }
