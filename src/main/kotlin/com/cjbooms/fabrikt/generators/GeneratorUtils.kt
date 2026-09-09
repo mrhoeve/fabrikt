@@ -4,6 +4,7 @@ import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.CookieParam
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -299,6 +300,18 @@ object GeneratorUtils {
 
         return parameters.map { p ->
             when (p) {
+                is FormParameter ->
+                    FormParameter(
+                        oasName = "form_${p.oasName}".toKotlinParameterName(),
+                        description = p.description,
+                        type = p.type,
+                        isRequired = p.isRequired,
+                        fieldName = p.fieldName,
+                        typeInfo = p.typeInfo,
+                        style = p.style,
+                        explode = p.explode,
+                        allowReserved = p.allowReserved,
+                    )
                 is MultipartParameter ->
                     MultipartParameter(
                         oasName = "multipart_${p.oasName}".toKotlinParameterName(),
