@@ -148,6 +148,15 @@ internal object GeneratorModelDescriptorBuilder {
     private fun collectModelSchemas(document: GeneratorSchemaDocument): List<RegisteredModel> {
         val models = mutableListOf<RegisteredModel>()
         val visited = mutableSetOf<VisitKey>()
+        val allocatedRootNames = mutableSetOf<String>()
+        val rootNames =
+            document.modelSchemas.mapValues { (name, _) ->
+                allocateRootName(name.toModelClassName(), allocatedRootNames)
+            }
+        val rootNamesByIdentity =
+            document.modelSchemas.entries.associate { (name, schema) ->
+                document.resolve(schema).identity to rootNames.getValue(name)
+            }
 
         fun register(
             name: String,
@@ -177,7 +186,8 @@ internal object GeneratorModelDescriptorBuilder {
                 } else if (document.isExternal(objectSchema)) {
                     suggestedName
                 } else if ((schema as? GeneratorObjectSchema)?.reference != null || componentName != null) {
-                    (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
+                    rootNamesByIdentity[resolved.identity]
+                        ?: (componentName ?: objectSchema.canonicalReference.substringAfterLast('/')).toModelClassName()
                 } else {
                     suggestedName
                 }
@@ -221,7 +231,8 @@ internal object GeneratorModelDescriptorBuilder {
         }
 
         val registeredRootIdentities = mutableSetOf<GeneratorSchemaIdentity>()
-        document.modelSchemas.forEach { (name, schema) ->
+        document.modelSchemas.forEach { (sourceName, schema) ->
+            val name = rootNames.getValue(sourceName)
             val resolved = document.resolve(schema)
             val isComponentSchema = schema.location.startsWith("#/components/schemas/")
             if (
@@ -232,8 +243,25 @@ internal object GeneratorModelDescriptorBuilder {
             }
             if (isComponentSchema) registeredRootIdentities.add(resolved.identity)
         }
-        document.modelSchemas.forEach { (name, schema) -> visit(schema, name, name, isRoot = true) }
+        document.modelSchemas.forEach { (sourceName, schema) ->
+            val name = rootNames.getValue(sourceName)
+            visit(schema, name, name, isRoot = true)
+        }
         return models
+    }
+
+    private fun allocateRootName(
+        preferredName: String,
+        allocatedNames: MutableSet<String>,
+    ): String {
+        if (allocatedNames.add(preferredName)) return preferredName
+        var index = 1
+        while (true) {
+            val numericSuffix = if (index == 1) "" else index.toString()
+            val suggestion = "${preferredName}Extra$numericSuffix"
+            if (allocatedNames.add(suggestion)) return suggestion
+            index++
+        }
     }
 
     private data class RegisteredModel(
