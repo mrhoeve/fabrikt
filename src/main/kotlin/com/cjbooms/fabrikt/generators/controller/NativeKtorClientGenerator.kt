@@ -172,22 +172,28 @@ internal class NativeKtorClientGenerator(
     }
 
     private fun CodeBlock.Builder.addCookies(parameters: List<RequestParameter>) {
+        if (parameters.isEmpty()) return
+
+        addStatement("val cookieValues = buildList {")
+        indent()
         parameters.forEach { parameter ->
-            val cookie = MemberName("io.ktor.client.request", "cookie")
             when (val typeInfo = parameter.typeInfo) {
                 is KotlinTypeInfo.Array -> {
-                    val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                    val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it"
                     if (parameter.explode == false) {
-                        val joinedValues =
-                            if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
-                                "%N.joinToString(%S) { it.value }"
-                            } else {
-                                "%N.joinToString(%S)"
-                            }
                         if (parameter.isRequired) {
-                            addStatement("%M(%S, $joinedValues)", cookie, parameter.originalName, parameter.name, ",")
+                            if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
+                                addStatement(
+                                    "add(%S + %N.joinToString(%S) { it.value })",
+                                    "${parameter.originalName}=",
+                                    parameter.name,
+                                    ",",
+                                )
+                            } else {
+                                addStatement("add(%S + %N.joinToString(%S))", "${parameter.originalName}=", parameter.name, ",")
+                            }
                         } else {
-                            add("%N?.let { values -> %M(%S, ", parameter.name, cookie, parameter.originalName)
+                            add("%N?.let { values -> add(%S + ", parameter.name, "${parameter.originalName}=")
                             if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
                                 add("values.joinToString(%S) { it.value }", ",")
                             } else {
@@ -196,21 +202,29 @@ internal class NativeKtorClientGenerator(
                             add(") }\n")
                         }
                     } else if (parameter.isRequired) {
-                        addStatement("%N.forEach { %M(%S, %L) }", parameter.name, cookie, parameter.originalName, itemValue)
+                        addStatement("%N.forEach { add(%S + %L) }", parameter.name, "${parameter.originalName}=", itemValue)
                     } else {
-                        addStatement("%N?.forEach { %M(%S, %L) }", parameter.name, cookie, parameter.originalName, itemValue)
+                        addStatement("%N?.forEach { add(%S + %L) }", parameter.name, "${parameter.originalName}=", itemValue)
                     }
                 }
                 else -> {
-                    val valueSuffix = if (typeInfo is KotlinTypeInfo.Enum) ".value" else ".toString()"
+                    val valueSuffix = if (typeInfo is KotlinTypeInfo.Enum) ".value" else ""
                     if (parameter.isRequired) {
-                        addStatement("%M(%S, %N%L)", cookie, parameter.originalName, parameter.name, valueSuffix)
+                        addStatement("add(%S + %N%L)", "${parameter.originalName}=", parameter.name, valueSuffix)
                     } else {
-                        addStatement("%N?.let { %M(%S, it%L) }", parameter.name, cookie, parameter.originalName, valueSuffix)
+                        addStatement("%N?.let { add(%S + it%L) }", parameter.name, "${parameter.originalName}=", valueSuffix)
                     }
                 }
             }
         }
+        unindent()
+        addStatement("}")
+        addStatement(
+            "if (cookieValues.isNotEmpty()) %M(%S, cookieValues.joinToString(%S))",
+            MemberName("io.ktor.client.request", "header"),
+            "Cookie",
+            "; ",
+        )
     }
 
     private fun CodeBlock.Builder.addMultipartBody(parameters: List<MultipartParameter>) {

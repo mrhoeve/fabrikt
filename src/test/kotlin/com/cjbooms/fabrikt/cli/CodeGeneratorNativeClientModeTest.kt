@@ -10,9 +10,12 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Paths
+import java.util.stream.Stream
 
 class CodeGeneratorNativeClientModeTest {
     @Test
@@ -98,8 +101,71 @@ class CodeGeneratorNativeClientModeTest {
                 assertThat(generated)
                     .contains("public class SubjectsClient")
                     .contains("NetworkResult<SubjectResponse>")
-                    .contains("cookie(\"session-id\", it.toString())")
+                    .contains("add(\"session-id=\" + it)")
+                    .contains("`header`(\"Cookie\", cookieValues.joinToString(\"; \"))")
                     .contains("basePath: String = \"https://example.test/api\"")
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("nativeCookieClientConfigurations")
+    fun `serializes native cookie parameters without changing their wire values`(
+        version: String,
+        target: ClientCodeGenTargetType,
+    ) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(
+                    cookieOpenApi.replace("VERSION", version).replace(
+                        "STYLE",
+                        if (version ==
+                            "3.2.0"
+                        ) {
+                            "style: cookie"
+                        } else {
+                            "style: form"
+                        },
+                    ),
+                ),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("tenantId: Int")
+            .contains("mode: Mode? = null")
+            .contains("scopes: List<String>")
+            .contains("labels: List<Labels>? = null")
+            .contains("mode?.let { add(\"mode=\" + it.value) }")
+            .contains("labels?.forEach { add(\"labels=\" + it.value) }")
+
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains("tenantId.let { add(\"tenant-id=\" + it) }")
+                    .contains("scopes.let { add(\"scopes=\" + it.joinToString(\",\")) }")
+                    .contains("headerBuilder.add(\"Cookie\", cookieValues.joinToString(\"; \"))")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("add(\"tenant-id=\" + tenantId)")
+                    .contains("add(\"scopes=\" + scopes.joinToString(\",\"))")
+                    .contains("`header`(\"Cookie\", cookieValues.joinToString(\"; \"))")
+                    .doesNotContain("cookie(\"tenant-id\"")
+            else -> error("Unsupported test target $target")
         }
     }
 
@@ -400,7 +466,7 @@ class CodeGeneratorNativeClientModeTest {
                 assertThat(generated)
                     .contains("`header`(\"X-API-Key\", headerKey)")
                     .contains("\"api_key\".encodeURLParameter()")
-                    .contains("cookie(\"session_key\", cookieKey.toString())")
+                    .contains("add(\"session_key=\" + cookieKey)")
         }
     }
 
@@ -690,6 +756,48 @@ class CodeGeneratorNativeClientModeTest {
               in: cookie
         """.trimIndent()
 
+    private val cookieOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Native cookie serialization
+          version: "1.0"
+        paths:
+          /preferences:
+            get:
+              parameters:
+                - name: tenant-id
+                  in: cookie
+                  required: true
+                  STYLE
+                  schema: { type: integer }
+                - name: mode
+                  in: cookie
+                  STYLE
+                  schema:
+                    type: string
+                    enum: [fast-mode, safe]
+                - name: scopes
+                  in: cookie
+                  required: true
+                  STYLE
+                  explode: false
+                  schema:
+                    type: array
+                    items: { type: string }
+                - name: labels
+                  in: cookie
+                  STYLE
+                  explode: true
+                  schema:
+                    type: array
+                    items:
+                      type: string
+                      enum: [primary-label, secondary]
+              responses:
+                '204': { description: Accepted }
+        """.trimIndent()
+
     private val explicitApiKeyParameter =
         "parameters:\n" +
             "              - name: X-API-Key\n" +
@@ -765,4 +873,12 @@ class CodeGeneratorNativeClientModeTest {
               name: X-API-Key
               in: header
         """.trimIndent()
+
+    companion object {
+        @JvmStatic
+        fun nativeCookieClientConfigurations(): Stream<Arguments> =
+            Stream.of("3.0.4", "3.1.2", "3.2.0").flatMap { version ->
+                Stream.of(ClientCodeGenTargetType.OK_HTTP, ClientCodeGenTargetType.KTOR).map { target -> Arguments.of(version, target) }
+            }
+    }
 }
