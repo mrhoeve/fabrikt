@@ -140,6 +140,9 @@ class CodeGenerator internal constructor(
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
         endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
+        if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.KTOR) {
+            endpointContext?.requireNoMultipartEncodingHeaders("${MutableSettings.controllerTarget.displayName} controller")
+        }
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->

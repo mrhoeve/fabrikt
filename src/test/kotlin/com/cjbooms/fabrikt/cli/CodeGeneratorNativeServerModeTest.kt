@@ -6,6 +6,7 @@ import com.cjbooms.fabrikt.model.KotlinSourceSet
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -282,6 +283,27 @@ class CodeGeneratorNativeServerModeTest {
             .contains("headerFields[\"code\"]")
             .contains("metadataXTags: Map<String, String?>?")
             .doesNotContain("documentContentType")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["SPRING", "MICRONAUT"])
+    fun `rejects multipart part headers for native annotation based controllers`(target: ControllerCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = target,
+        )
+
+        assertThatThrownBy {
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartHeaderOpenApi.replace("VERSION", "3.2.0")),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("cannot represent native multipart part headers")
+            .hasMessageContaining("POST /documents")
     }
 
     @ParameterizedTest
