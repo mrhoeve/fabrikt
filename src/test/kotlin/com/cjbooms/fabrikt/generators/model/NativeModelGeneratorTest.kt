@@ -56,6 +56,17 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `ignores non-model members while matching discriminator mappings`(version: String) {
+        val generated = generateDiscriminatorMappings(version)
+
+        assertThat(generated.getValue("Pet"))
+            .contains("public sealed interface Pet")
+            .contains("value = Cat::class", "name = \"cat\"")
+        assertThat(generated.getValue("Cat")).contains(") : Pet")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates defaults documentation serialization and validation metadata`(version: String) {
         val subject = generate(version).getValue("Subject").toString()
 
@@ -378,6 +389,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(componentNamesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateDiscriminatorMappings(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(discriminatorMappingsOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -743,6 +765,31 @@ class NativeModelGeneratorTest {
                   ${'$'}ref: '#/components/schemas/apps.secret'
                 hyphenated:
                   ${'$'}ref: '#/components/schemas/apps-secret'
+        """.trimIndent()
+
+    private val discriminatorMappingsOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Pet:
+              type: object
+              discriminator:
+                propertyName: kind
+                mapping:
+                  cat: '#/components/schemas/Cat'
+              oneOf:
+                - type: string
+                - ${'$'}ref: '#/components/schemas/Cat'
+            Cat:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
         """.trimIndent()
 
     private val directionalPropertiesOpenApi =
