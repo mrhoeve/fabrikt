@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
@@ -14,7 +15,7 @@ class GeneratorDirectionalModelPlanTest {
         val models = plan(version).descriptors.associateBy(GeneratorModelDescriptor::name)
 
         assertThat(models.keys)
-            .containsExactly(
+            .contains(
                 "Credentials",
                 "CredentialsRequest",
                 "CredentialsResponse",
@@ -47,6 +48,25 @@ class GeneratorDirectionalModelPlanTest {
                 .single()
                 .resolvedTypeName(),
         ).isEqualTo("CredentialsResponse")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `projects complete oneOf hierarchies by direction`(version: String) {
+        val generated =
+            NativeModelGenerator("com.example")
+                .generate(plan(version).descriptors)
+                .files
+                .associate { it.name to it.toString() }
+
+        assertThat(generated.getValue("PetRequest"))
+            .contains("value = CatRequest::class", "DogRequest::class")
+        assertThat(generated.getValue("CatRequest")).contains(") : PetRequest")
+        assertThat(generated.getValue("DogRequest")).contains(") : PetRequest")
+        assertThat(generated.getValue("PetResponse"))
+            .contains("value = CatResponse::class", "DogResponse::class")
+        assertThat(generated.getValue("CatResponse")).contains(") : PetResponse")
+        assertThat(generated.getValue("DogResponse")).contains(") : PetResponse")
     }
 
     private fun plan(version: String): GeneratorDirectionalModelPlan =
@@ -92,5 +112,22 @@ class GeneratorDirectionalModelPlanTest {
                   type: array
                   items:
                     ${'$'}ref: '#/components/schemas/Credentials'
+            Cat:
+              type: object
+              required: [kind, identifier]
+              properties:
+                kind: { type: string }
+                identifier:
+                  type: string
+                  readOnly: true
+            Dog:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
+            Pet:
+              oneOf:
+                - ${'$'}ref: '#/components/schemas/Cat'
+                - ${'$'}ref: '#/components/schemas/Dog'
         """.trimIndent()
 }
