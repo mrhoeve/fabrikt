@@ -133,7 +133,7 @@ internal class GeneratorEndpointContext(
                 it.placement == "header" && it.name.equals("Accept", ignoreCase = true)
             }
         val primaryResponse = operation.responses.firstOrNull { it.status != "default" && it.content.isNotEmpty() }
-        val extra =
+        val acceptParameter =
             if (primaryResponse?.content?.size.orZero() > 1 && !hasAcceptParameter) {
                 listOf(
                     RequestParameter(
@@ -150,7 +150,41 @@ internal class GeneratorEndpointContext(
             } else {
                 emptyList()
             }
-        return incomingParameters(operation, path.parameters, extra)
+        return incomingParameters(operation, path.parameters, securityParameters(operation, path.parameters) + acceptParameter)
+    }
+
+    private fun securityParameters(
+        operation: GeneratorOperation,
+        pathParameters: List<GeneratorParameter>,
+    ): List<RequestParameter> {
+        val alternatives = securityPlan(operation).alternatives
+        val securedAlternatives = alternatives.filter { it.schemes.isNotEmpty() }
+        if (securedAlternatives.isEmpty()) return emptyList()
+        val commonSchemeNames =
+            securedAlternatives
+                .map { alternative -> alternative.schemes.map { it.name }.toSet() }
+                .reduce(Set<String>::intersect)
+        val required = alternatives.none { it.schemes.isEmpty() }
+        val declaredParameters = pathParameters + operation.parameters
+        return securedAlternatives
+            .first()
+            .schemes
+            .filter { it.name in commonSchemeNames && it.scheme?.type.equals("apiKey", ignoreCase = true) }
+            .mapNotNull { selection ->
+                val scheme = selection.scheme ?: return@mapNotNull null
+                val wireName = scheme.parameterName ?: return@mapNotNull null
+                val placement = scheme.placement?.let { runCatching { RequestParameterLocation(it) }.getOrNull() } ?: return@mapNotNull null
+                if (declaredParameters.any { it.name == wireName && it.placement == scheme.placement }) return@mapNotNull null
+                RequestParameter(
+                    oasName = selection.name,
+                    description = scheme.description,
+                    type = String::class.asTypeName(),
+                    isRequired = required,
+                    originalName = wireName,
+                    parameterLocation = placement,
+                    typeInfo = KotlinTypeInfo.Text,
+                )
+            }
     }
 
     fun primaryResponseContentType(operation: GeneratorOperation): String? =
