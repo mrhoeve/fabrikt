@@ -197,6 +197,7 @@ class OkHttpSimpleClientGenerator(
                     returnType,
                     parameters,
                     options,
+                    nativeGeneration = true,
                 ).toStatement(),
             ).returns("ApiResponse".toClassName(packages.client).parameterizedBy(returnType))
             .build()
@@ -229,6 +230,7 @@ data class SimpleClientOperationStatement(
     private val returnType: com.squareup.kotlinpoet.TypeName,
     private val parameters: List<IncomingParameter>,
     private val options: Set<ClientCodeGenOptionType>,
+    private val nativeGeneration: Boolean = false,
 ) {
     fun toStatement(): CodeBlock =
         CodeBlock
@@ -462,6 +464,22 @@ data class SimpleClientOperationStatement(
                             "\n    multipartBuilder.addFormDataPart(%S, %N.filename, %N.requestBody)",
                             param.partName,
                             param.name,
+                            param.name,
+                        )
+                    }
+
+                    !nativeGeneration && param.contentType == "application/json" -> {
+                        this.add(
+                            "\n    multipartBuilder.addFormDataPart(%S, objectMapper.writeValueAsString(%N))",
+                            param.partName,
+                            param.name,
+                        )
+                    }
+
+                    !nativeGeneration -> {
+                        this.add(
+                            "\n    multipartBuilder.addFormDataPart(%S, %N.toString())",
+                            param.partName,
                             param.name,
                         )
                     }
