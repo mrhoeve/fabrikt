@@ -11,6 +11,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Paths
 import java.util.stream.Stream
 
@@ -88,9 +89,55 @@ class CodeGeneratorNativeServerModeTest {
             ControllerCodeGenTargetType.KTOR ->
                 assertThat(generated)
                     .contains("public fun Route.subjectsRoutes(")
-                    .contains("call.request.cookies[\"session-id\"]")
+                    .contains("call.request.headers.getTypedCookie<kotlin.String>(\"session-id\"")
                     .contains("call: TypedApplicationCall<SubjectResponse>")
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `parses typed native Ktor cookie parameters from their raw wire values`(version: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(
+                    cookieOpenApi.replace("VERSION", version).replace(
+                        "STYLE",
+                        if (version ==
+                            "3.2.0"
+                        ) {
+                            "style: cookie"
+                        } else {
+                            "style: form"
+                        },
+                    ),
+                ),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("tenantId: Int")
+            .contains("mode: Mode?")
+            .contains("scopes: List<String>")
+            .contains("labels: List<Labels>?")
+            .contains("getTypedCookieOrFail<kotlin.Int>(\"tenant-id\"")
+            .contains("getTypedCookie<com.example.models.Mode>(\"mode\"")
+            .contains("getTypedCookieOrFail<kotlin.collections.List<kotlin.String>>(\"scopes\"")
+            .contains("getTypedCookie<kotlin.collections.List<com.example.models.Labels>>(\"labels\"")
+            .contains("getAll(HttpHeaders.Cookie).orEmpty()")
+            .contains("header.split(\";\")")
+            .contains("cookie.substring(separator + 1).trim()")
+            .doesNotContain("call.request.cookies[\"tenant-id\"]")
     }
 
     @ParameterizedTest
@@ -414,6 +461,48 @@ class CodeGeneratorNativeServerModeTest {
               summary: Returns names with spaces encoded as %20.
               responses:
                 '204': { description: No content }
+        """.trimIndent()
+
+    private val cookieOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Native cookie serialization
+          version: "1.0"
+        paths:
+          /preferences:
+            get:
+              parameters:
+                - name: tenant-id
+                  in: cookie
+                  required: true
+                  STYLE
+                  schema: { type: integer }
+                - name: mode
+                  in: cookie
+                  STYLE
+                  schema:
+                    type: string
+                    enum: [fast-mode, safe]
+                - name: scopes
+                  in: cookie
+                  required: true
+                  STYLE
+                  explode: false
+                  schema:
+                    type: array
+                    items: { type: string }
+                - name: labels
+                  in: cookie
+                  STYLE
+                  explode: true
+                  schema:
+                    type: array
+                    items:
+                      type: string
+                      enum: [primary-label, secondary]
+              responses:
+                '204': { description: Accepted }
         """.trimIndent()
 
     companion object {
