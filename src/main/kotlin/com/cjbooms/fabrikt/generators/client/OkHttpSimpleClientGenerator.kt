@@ -24,6 +24,7 @@ import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.CookieParam
 import com.cjbooms.fabrikt.model.Destinations
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
@@ -337,7 +338,18 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addRequestStatement(): CodeBlock.Builder {
-        if (multipartRequestBody) {
+        val formParameters = parameters.filterIsInstance<FormParameter>()
+        if (formParameters.isNotEmpty()) {
+            addFormBodyStatement(formParameters)
+            add("\nval request: %T = Request.Builder()", "Request".toClassName("okhttp3"))
+            add("\n.url(httpUrl)\n.headers(httpHeaders)")
+            when (val op = verb.uppercase(getDefault())) {
+                "PUT" -> add("\n.put(formBody)")
+                "POST" -> add("\n.post(formBody)")
+                "PATCH" -> add("\n.patch(formBody)")
+                else -> add("\n.method(%S, formBody)", op)
+            }
+        } else if (multipartRequestBody) {
             // For multipart requests, build the multipart body first, then the request
             this.addMultipartBodyStatement()
             this.add("\nval request: %T = Request.Builder()", "Request".toClassName("okhttp3"))
@@ -474,5 +486,38 @@ data class SimpleClientOperationStatement(
             }
 
         this.add("\nval multipartBody = multipartBuilder.build()")
+    }
+
+    private fun CodeBlock.Builder.addFormBodyStatement(parameters: List<FormParameter>) {
+        add("\nval formBuilder = %T.Builder()", "FormBody".toClassName("okhttp3"))
+        parameters.forEach { parameter ->
+            val method = if (parameter.allowReserved) "addEncoded" else "add"
+            val optional = !parameter.isRequired
+            if (optional) add("\n%N?.let { value ->", parameter.name)
+            val valueName = if (optional) "value" else parameter.name
+            when (val typeInfo = parameter.typeInfo) {
+                is KotlinTypeInfo.Array -> {
+                    val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                    if (parameter.explode) {
+                        add("\n%N.forEach { formBuilder.%L(%S, %L) }", valueName, method, parameter.fieldName, itemValue)
+                    } else {
+                        val delimiter =
+                            when (parameter.style) {
+                                "spaceDelimited" -> " "
+                                "pipeDelimited" -> "|"
+                                else -> ","
+                            }
+                        val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
+                        add("\nformBuilder.%L(%S, %N.joinToString(%S)$transform)", method, parameter.fieldName, valueName, delimiter)
+                    }
+                }
+                else -> {
+                    val suffix = if (typeInfo is KotlinTypeInfo.Enum) ".value" else ".toString()"
+                    add("\nformBuilder.%L(%S, %N%L)", method, parameter.fieldName, valueName, suffix)
+                }
+            }
+            if (optional) add("\n}")
+        }
+        add("\nval formBody = formBuilder.build()")
     }
 }
