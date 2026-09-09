@@ -309,6 +309,76 @@ class CodeGeneratorNativeClientModeTest {
             .hasMessageContaining("POST /tokens (scopes)")
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `generates required API key credentials from native security schemes`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(apiKeyOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("headerKey: String")
+            .contains("queryKey: String")
+            .contains("cookieKey: String")
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains(".queryParam(\"api_key\", queryKey)")
+                    .contains(".`header`(\"X-API-Key\", headerKey)")
+                    .contains("\"session_key=\"")
+            ClientCodeGenTargetType.OPEN_FEIGN ->
+                assertThat(generated)
+                    .contains("api_key={queryKey}")
+                    .contains("\"X-API-Key: {headerKey}\"")
+                    .contains("\"Cookie: {cookieHeader}\"")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                assertThat(generated)
+                    .contains("@RequestHeader(\"X-API-Key\") headerKey: String")
+                    .contains("@RequestParam(\"api_key\") queryKey: String")
+                    .contains("@CookieValue(\"session_key\", required = true) cookieKey: String")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("`header`(\"X-API-Key\", headerKey)")
+                    .contains("api_key=${'$'}{queryKey}")
+                    .contains("cookie(\"session_key\", cookieKey.toString())")
+        }
+    }
+
+    @Test
+    fun `does not duplicate explicitly declared API key parameters`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(apiKeyOpenApi.replace("parameters: []", explicitApiKeyParameter)),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated).containsOnlyOnce("@RequestHeader(\"X-API-Key\"")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -477,4 +547,43 @@ class CodeGeneratorNativeClientModeTest {
               responses:
                 '204': { description: Created }
         """.trimIndent()
+
+    private val apiKeyOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native API keys
+          version: "1.0"
+        security:
+          - HeaderKey: []
+            QueryKey: []
+            CookieKey: []
+        paths:
+          /secured:
+            get:
+              parameters: []
+              responses:
+                '204': { description: ok }
+        components:
+          securitySchemes:
+            HeaderKey:
+              type: apiKey
+              name: X-API-Key
+              in: header
+            QueryKey:
+              type: apiKey
+              name: api_key
+              in: query
+            CookieKey:
+              type: apiKey
+              name: session_key
+              in: cookie
+        """.trimIndent()
+
+    private val explicitApiKeyParameter =
+        "parameters:\n" +
+            "              - name: X-API-Key\n" +
+            "                in: header\n" +
+            "                required: true\n" +
+            "                schema: { type: string }"
 }
