@@ -256,9 +256,7 @@ internal class GeneratorKotlinTypeResolver(
     ): KotlinTypeInfo = if (override in MutableSettings.typeOverrides) KotlinTypeInfo.Text else default
 
     private fun anyType(): KotlinTypeInfo =
-        if (CodeGenTypeOverride.ANY_AS_JSONELEMENT in MutableSettings.typeOverrides &&
-            MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION
-        ) {
+        if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
             KotlinTypeInfo.JsonElement
         } else {
             KotlinTypeInfo.AnyType
