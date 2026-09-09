@@ -68,11 +68,17 @@ internal class GeneratorDirectionalModelPlan private constructor(
                     .mapTo(mutableSetOf(), GeneratorModelDescriptor::name)
             var changed: Boolean
             do {
-                val discovered =
+                val referencedDirectionalModels =
                     descriptors
                         .filterNot { it.name in directional }
                         .filter { descriptor -> descriptor.referencedModelNames().any(directional::contains) }
                         .map(GeneratorModelDescriptor::name)
+                val directionalUnionMembers =
+                    descriptors
+                        .filter { it.name in directional }
+                        .flatMap(GeneratorModelDescriptor::oneOfModelNames)
+                        .filter { it in knownNames && it !in directional }
+                val discovered = referencedDirectionalModels + directionalUnionMembers
                 changed = discovered.isNotEmpty()
                 directional.addAll(discovered)
             } while (changed)
@@ -143,6 +149,11 @@ private fun GeneratorModelDescriptor.referencedModelNames(): Set<String> =
         oneOfMembers.forEach { member -> member.kotlinType.typeInfo.collectModelNames(this) }
         anyOfMembers.forEach { member -> member.kotlinType.typeInfo.collectModelNames(this) }
         additionalPropertiesType?.typeInfo?.collectModelNames(this)
+    }
+
+private fun GeneratorModelDescriptor.oneOfModelNames(): Set<String> =
+    buildSet {
+        oneOfMembers.forEach { member -> member.kotlinType.typeInfo.collectModelNames(this) }
     }
 
 private fun GeneratorKotlinTypeResolution.typeInfoOrNull(): KotlinTypeInfo? =
