@@ -2,8 +2,10 @@ package com.cjbooms.fabrikt.cli
 
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.model.KotlinSourceSet
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
+import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.assertj.core.api.Assertions.assertThatNoException
 import org.junit.jupiter.api.Test
@@ -27,17 +29,33 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ClientCodeGenTargetType::class, names = ["OK_HTTP", "KTOR"])
-    fun `rejects OpenAPI 3_2 query operations unsupported by client targets`(target: ClientCodeGenTargetType) {
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `generates OpenAPI 3_2 query operations for client targets`(target: ClientCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
             clientTarget = target,
         )
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { generator(queryOpenApi).generate() }
-            .withMessageContaining("client")
-            .withMessageContaining("QUERY")
+        val generated =
+            generator(queryOpenApi)
+                .generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains("\"QUERY\",")
+                    .contains("objectMapper.writeValueAsString(querySubjectsRequest)")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("httpClient.request(url)")
+                    .contains("method = HttpMethod(\"QUERY\")")
+                    .contains("setBody(querySubjectsRequest)")
+            ClientCodeGenTargetType.OPEN_FEIGN -> assertThat(generated).contains("@RequestLine(\"QUERY /subjects\")")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> assertThat(generated).contains("method=\"QUERY\"")
+        }
     }
 
     @ParameterizedTest
@@ -127,9 +145,23 @@ class CodeGeneratorNativeMethodValidationTest {
           /subjects:
             query:
               operationId: querySubjects
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [filter]
+                      properties:
+                        filter: { type: string }
               responses:
                 '200':
                   description: Found
+                  content:
+                    application/json:
+                      schema:
+                        type: array
+                        items: { type: string }
         """.trimIndent()
 
     private val multipartOpenApi =
