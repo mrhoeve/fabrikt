@@ -198,7 +198,9 @@ class SpringHttpInterfaceGenerator(
                 parameters,
                 operation.method,
                 context.primaryResponseContentType(operation),
-                context.requestContentType(operation)?.takeIf { it.startsWith("multipart/form-data") },
+                context.requestContentType(operation)?.takeIf {
+                    it.startsWith("multipart/form-data") || it.startsWith("application/x-www-form-urlencoded")
+                },
             ).addSuspendModifier(options)
             .addIncomingParameters(
                 parameters,
@@ -228,6 +230,13 @@ class SpringHttpInterfaceGenerator(
                     }
                 },
                 annotateBodyParameterWith = { SpringHttpInterfaceAnnotations.requestBodyBuilder().build() },
+                annotateFormParameterWith = { parameter ->
+                    SpringHttpInterfaceAnnotations
+                        .requestParamBuilder()
+                        .addMember("%S", parameter.fieldName)
+                        .addMember("required = %L", parameter.isRequired)
+                        .build()
+                },
                 multipartParameterToSpecBuilder = { parameter ->
                     parameter
                         .toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
