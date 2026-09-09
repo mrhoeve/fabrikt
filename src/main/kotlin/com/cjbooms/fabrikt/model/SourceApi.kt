@@ -26,11 +26,12 @@ class SourceApi private constructor(
     val baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
     private val jsonLoader: JsonLoader?,
     private val documentUri: URI,
+    private val sourceOnly: Boolean,
 ) {
     constructor(
         rawApiSpec: String,
         baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
-    ) : this(rawApiSpec, baseUri, null, baseUri)
+    ) : this(rawApiSpec, baseUri, null, baseUri, false)
 
     companion object {
         fun create(
@@ -42,15 +43,37 @@ class SourceApi private constructor(
         ): SourceApi {
             val combinedApi =
                 apiFragments.fold(YamlUtils.expandYamlAliases(baseApi)) { acc: String, fragment -> YamlUtils.mergeYamlTrees(acc, fragment) }
-            return SourceApi(combinedApi, baseUri, jsonLoader, documentUri)
+            return SourceApi(combinedApi, baseUri, jsonLoader, documentUri, false)
+        }
+
+        internal fun createNative(
+            baseApi: String,
+            apiFragments: Collection<String>,
+            baseUri: URI = Paths.get("").toAbsolutePath().toUri(),
+            jsonLoader: JsonLoader? = null,
+            documentUri: URI = baseUri,
+        ): SourceApi {
+            val combinedApi =
+                apiFragments.fold(YamlUtils.expandYamlAliases(baseApi)) { acc: String, fragment -> YamlUtils.mergeYamlTrees(acc, fragment) }
+            return SourceApi(combinedApi, baseUri, jsonLoader, documentUri, true)
         }
     }
 
-    internal val parsedDocument = OpenApiDocumentParser.parse(rawApiSpec, baseUri, jsonLoader, documentUri)
-    val openApi3: OpenApi3 = parsedDocument.kaizenModel
-    val allSchemas: List<SchemaInfo>
+    internal val parsedDocument =
+        if (sourceOnly) {
+            OpenApiDocumentParser.parseSource(rawApiSpec, baseUri, jsonLoader, documentUri)
+        } else {
+            OpenApiDocumentParser.parse(rawApiSpec, baseUri, jsonLoader, documentUri)
+        }
+    val openApi3: OpenApi3
+        get() = parsedDocument.kaizenModel
+    val allSchemas: List<SchemaInfo> by lazy(::initialiseLegacySchemas)
 
     init {
+        if (!sourceOnly) allSchemas
+    }
+
+    private fun initialiseLegacySchemas(): List<SchemaInfo> {
         validateSchemaObjects(openApi3).let {
             if (it.isNotEmpty()) throw ParameterException("Invalid models or api file:\n${it.joinToString("\n\t")}")
         }
@@ -103,7 +126,7 @@ class SourceApi private constructor(
             ModelNameRegistry.preRegisterByReference(schema, name)
         }
 
-        allSchemas =
+        return (
             openApi3.schemas.entries
                 .map { it.key to it.value }
                 .plus(openApi3.parameters.entries.map { it.key to it.value.schema })
@@ -111,6 +134,7 @@ class SourceApi private constructor(
                 .plus(inlineRequestBodySchemas)
                 .plus(inlineEnumParams)
                 .map { (key, schema) -> SchemaInfo(key, schema) }
+        )
     }
 
     private fun isInlineEnum(schema: Schema?): Boolean =

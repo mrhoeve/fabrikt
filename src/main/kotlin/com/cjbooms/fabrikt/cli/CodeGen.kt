@@ -66,13 +66,24 @@ object CodeGen {
         val jsonLoader = if (resolvedAuth.isNotEmpty()) AuthJsonLoader(resolvedAuth) else null
         val packages = Packages(basePackage)
         val sourceApi =
-            SourceApi.create(
-                baseApi = suppliedApi.content,
-                apiFragments = fragments,
-                baseUri = suppliedApi.baseUri,
-                jsonLoader = jsonLoader,
-                documentUri = suppliedApi.documentUri,
-            )
+            when (schemaGenerationMode) {
+                SchemaGenerationMode.LEGACY ->
+                    SourceApi.create(
+                        baseApi = suppliedApi.content,
+                        apiFragments = fragments,
+                        baseUri = suppliedApi.baseUri,
+                        jsonLoader = jsonLoader,
+                        documentUri = suppliedApi.documentUri,
+                    )
+                SchemaGenerationMode.NATIVE ->
+                    SourceApi.createNative(
+                        baseApi = suppliedApi.content,
+                        apiFragments = fragments,
+                        baseUri = suppliedApi.baseUri,
+                        jsonLoader = jsonLoader,
+                        documentUri = suppliedApi.documentUri,
+                    )
+            }
         val generator = CodeGenerator(packages, sourceApi, srcPath, resourcesPath, schemaGenerationMode.toParserMode())
         generator.generate().forEach { it.writeFileTo(outputDir.toFile()) }
     }

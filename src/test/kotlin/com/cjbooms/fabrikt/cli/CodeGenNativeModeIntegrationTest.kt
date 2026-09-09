@@ -9,6 +9,40 @@ import kotlin.io.path.readText
 
 class CodeGenNativeModeIntegrationTest {
     @Test
+    fun `generates native models without initialising the legacy Kaizen model`(
+        @TempDir directory: Path,
+    ) {
+        val api = directory.resolve("api.yaml")
+        val output = directory.resolve("generated")
+        Files.writeString(api, sourceNativeOpenApi)
+
+        CodeGen.main(
+            arrayOf(
+                "--api-file",
+                api.toString(),
+                "--output-directory",
+                output.toString(),
+                "--base-package",
+                "com.example",
+                "--targets",
+                "http_models",
+                "--schema-generation-mode",
+                "native",
+            ),
+        )
+
+        val sources =
+            Files
+                .walk(output)
+                .use { paths -> paths.filter { it.toString().endsWith(".kt") }.map(Path::readText).toList() }
+                .joinToString("\n")
+        assertThat(sources)
+            .contains("public data class Subject(")
+            .contains("public val id: String")
+            .contains("public val label: String")
+    }
+
+    @Test
     fun `generates native models server contracts and clients through the CLI`(
         @TempDir directory: Path,
     ) {
@@ -95,5 +129,28 @@ class CodeGenNativeModeIntegrationTest {
                 secret:
                   type: string
                   writeOnly: true
+        """.trimIndent()
+
+    private val sourceNativeOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Source-native CLI
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Identified:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+            Subject:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string }
+              allOf:
+                - ${'$'}ref: '#/components/schemas/Identified'
         """.trimIndent()
 }
