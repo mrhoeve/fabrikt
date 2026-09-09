@@ -444,12 +444,22 @@ data class SimpleClientOperationStatement(
         add("\nval cookieValues = buildList {")
         cookieParameters.forEach { parameter ->
             val receiver = parameter.name + if (parameter.isRequired) "" else "?"
-            when (parameter.typeInfo) {
+            when (val typeInfo = parameter.typeInfo) {
                 is KotlinTypeInfo.Array ->
                     if (parameter.explode == false) {
-                        add("\n%L.let { add(%S + it.joinToString(%S)) }", receiver, "${parameter.originalName}=", ",")
+                        if (nativeGeneration && typeInfo.parameterizedType is KotlinTypeInfo.Enum) {
+                            add(
+                                "\n%L.let { add(%S + it.joinToString(%S) { value -> value.value }) }",
+                                receiver,
+                                "${parameter.originalName}=",
+                                ",",
+                            )
+                        } else {
+                            add("\n%L.let { add(%S + it.joinToString(%S)) }", receiver, "${parameter.originalName}=", ",")
+                        }
                     } else {
-                        add("\n%L.forEach { add(%S + it) }", receiver, "${parameter.originalName}=")
+                        val value = if (nativeGeneration && typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it"
+                        add("\n%L.forEach { add(%S + %L) }", receiver, "${parameter.originalName}=", value)
                     }
 
                 else -> {
