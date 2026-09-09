@@ -22,6 +22,10 @@ internal class NativeGeneratorOperationAdapter(
                     .orEmpty()
                     .removeSuffix("/"),
             security = document.security?.toGeneratorSecurityRequirements(),
+            securitySchemes =
+                document.reusableSecuritySchemes.mapValues { (name, scheme) ->
+                    scheme.resolve().toGeneratorSecurityScheme(name)
+                },
             paths = document.paths.map { path -> path.resolve().toGeneratorPathItem(path.key) },
             webhooks = document.webhooks.map { path -> path.resolve().toGeneratorPathItem(path.key) },
         )
@@ -121,6 +125,33 @@ internal class NativeGeneratorOperationAdapter(
     private fun SourceSecurityRequirements.toGeneratorSecurityRequirements(): GeneratorSecurityRequirements =
         GeneratorSecurityRequirements(values.map { GeneratorSecurityRequirement(it.schemes) })
 
+    private fun SourceSecurityScheme.toGeneratorSecurityScheme(name: String): GeneratorSecurityScheme =
+        GeneratorSecurityScheme(
+            name = name,
+            type = type?.value,
+            description = description,
+            parameterName = this.name,
+            placement = placement?.value,
+            scheme = scheme,
+            bearerFormat = bearerFormat,
+            flows = flows?.values.orEmpty().map { it.toGeneratorOAuthFlow() },
+            openIdConnectUrl = openIdConnectUrl,
+            oauth2MetadataUrl = oauth2MetadataUrl,
+            deprecated = deprecated,
+            extensions = extensions,
+        )
+
+    private fun SourceOAuthFlow.toGeneratorOAuthFlow(): GeneratorOAuthFlow =
+        GeneratorOAuthFlow(
+            type = type.value,
+            authorizationUrl = authorizationUrl,
+            deviceAuthorizationUrl = deviceAuthorizationUrl,
+            tokenUrl = tokenUrl,
+            refreshUrl = refreshUrl,
+            scopes = scopes,
+            extensions = extensions,
+        )
+
     private fun SourcePathItem.resolve(): SourcePathItem =
         resolveLocal(this, "#/components/pathItems/", SourcePathItem::reference, document.reusablePathItems)
 
@@ -141,6 +172,9 @@ internal class NativeGeneratorOperationAdapter(
 
     private fun SourceMediaType.resolve(): SourceMediaType =
         resolveLocal(this, "#/components/mediaTypes/", SourceMediaType::reference, document.reusableMediaTypes)
+
+    private fun SourceSecurityScheme.resolve(): SourceSecurityScheme =
+        resolveLocal(this, "#/components/securitySchemes/", SourceSecurityScheme::reference, document.reusableSecuritySchemes)
 
     private fun <T> resolveLocal(
         value: T,

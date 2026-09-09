@@ -6,8 +6,34 @@ internal data class GeneratorOperationDocument(
     val serverUrl: String?,
     val basePath: String,
     val security: GeneratorSecurityRequirements?,
+    val securitySchemes: Map<String, GeneratorSecurityScheme>,
     val paths: List<GeneratorPathItem>,
     val webhooks: List<GeneratorPathItem>,
+)
+
+internal data class GeneratorSecurityScheme(
+    val name: String,
+    val type: String?,
+    val description: String?,
+    val parameterName: String?,
+    val placement: String?,
+    val scheme: String?,
+    val bearerFormat: String?,
+    val flows: List<GeneratorOAuthFlow>,
+    val openIdConnectUrl: String?,
+    val oauth2MetadataUrl: String?,
+    val deprecated: Boolean,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class GeneratorOAuthFlow(
+    val type: String,
+    val authorizationUrl: String?,
+    val deviceAuthorizationUrl: String?,
+    val tokenUrl: String?,
+    val refreshUrl: String?,
+    val scopes: Map<String, String>,
+    val extensions: Map<String, JsonNode>,
 )
 
 internal data class GeneratorPathItem(

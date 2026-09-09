@@ -5,6 +5,7 @@ import com.reprezen.jsonoverlay.Overlay
 import com.reprezen.kaizen.oasparser.model3.Callback
 import com.reprezen.kaizen.oasparser.model3.Header
 import com.reprezen.kaizen.oasparser.model3.MediaType
+import com.reprezen.kaizen.oasparser.model3.OAuthFlow
 import com.reprezen.kaizen.oasparser.model3.OpenApi3
 import com.reprezen.kaizen.oasparser.model3.Operation
 import com.reprezen.kaizen.oasparser.model3.Parameter
@@ -13,6 +14,7 @@ import com.reprezen.kaizen.oasparser.model3.RequestBody
 import com.reprezen.kaizen.oasparser.model3.Response
 import com.reprezen.kaizen.oasparser.model3.Schema
 import com.reprezen.kaizen.oasparser.model3.SecurityRequirement
+import com.reprezen.kaizen.oasparser.model3.SecurityScheme
 import java.net.URI
 
 internal class LegacyGeneratorOperationAdapter {
@@ -29,6 +31,7 @@ internal class LegacyGeneratorOperationAdapter {
                     .orEmpty()
                     .removeSuffix("/"),
             security = api.securityRequirements.takeIf(List<SecurityRequirement>::isNotEmpty)?.toGeneratorSecurityRequirements(),
+            securitySchemes = api.securitySchemes.mapValues { (name, scheme) -> scheme.toGeneratorSecurityScheme(name) },
             paths = api.paths.map { (path, value) -> value.toGeneratorPathItem(path) },
             webhooks = emptyList(),
         )
@@ -142,7 +145,49 @@ internal class LegacyGeneratorOperationAdapter {
             },
         )
 
+    private fun SecurityScheme.toGeneratorSecurityScheme(name: String): GeneratorSecurityScheme =
+        GeneratorSecurityScheme(
+            name = name,
+            type = type,
+            description = description,
+            parameterName = this.name,
+            placement = `in`,
+            scheme = scheme,
+            bearerFormat = bearerFormat,
+            flows =
+                listOfNotNull(
+                    implicitOAuthFlow.takeIfContent()?.toGeneratorOAuthFlow("implicit"),
+                    passwordOAuthFlow.takeIfContent()?.toGeneratorOAuthFlow("password"),
+                    clientCredentialsOAuthFlow.takeIfContent()?.toGeneratorOAuthFlow("clientCredentials"),
+                    authorizationCodeOAuthFlow.takeIfContent()?.toGeneratorOAuthFlow("authorizationCode"),
+                ),
+            openIdConnectUrl = openIdConnectUrl,
+            oauth2MetadataUrl = null,
+            deprecated = false,
+            extensions = extensions.mapValues { (_, value) -> YamlUtils.objectMapper.valueToTree(value) },
+        )
+
+    private fun OAuthFlow.toGeneratorOAuthFlow(type: String): GeneratorOAuthFlow =
+        GeneratorOAuthFlow(
+            type = type,
+            authorizationUrl = authorizationUrl,
+            deviceAuthorizationUrl = null,
+            tokenUrl = tokenUrl,
+            refreshUrl = refreshUrl,
+            scopes = scopes,
+            extensions = extensions.mapValues { (_, value) -> YamlUtils.objectMapper.valueToTree(value) },
+        )
+
     private fun RequestBody?.takeIfPresent(): RequestBody? = this?.takeIf { Overlay.of(it).isPresent }
+
+    private fun OAuthFlow?.takeIfContent(): OAuthFlow? =
+        this?.takeIf {
+            it.authorizationUrl != null ||
+                it.tokenUrl != null ||
+                it.refreshUrl != null ||
+                it.scopes.isNotEmpty() ||
+                it.extensions.isNotEmpty()
+        }
 
     private fun Schema?.takeIfPresent(): Schema? = this?.takeIf { Overlay.of(it).isPresent }
 }
