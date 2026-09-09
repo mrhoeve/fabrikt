@@ -205,6 +205,7 @@ class CodeGeneratorNativeClientModeTest {
             .contains("description?.let { part ->")
             .contains("documents?.forEach { part ->")
             .contains("filename=\\\"document\\\"")
+            .contains("application/merge-patch+json")
         when (serializationLibrary) {
             SerializationLibrary.JACKSON ->
                 assertThat(generated)
@@ -219,6 +220,30 @@ class CodeGeneratorNativeClientModeTest {
                     .contains("Json.encodeToString(part)")
                     .doesNotContain("multipartObjectMapper")
         }
+    }
+
+    @Test
+    fun `applies multipart encoding content types to native OkHttp clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("objectMapper.writeValueAsString(metadata)")
+            .contains("\"application/merge-patch+json\".toMediaType()")
     }
 
     @ParameterizedTest
@@ -552,6 +577,9 @@ class CodeGeneratorNativeClientModeTest {
                           type: object
                           properties:
                             title: { type: string }
+                    encoding:
+                      metadata:
+                        contentType: application/merge-patch+json
               responses:
                 '204':
                   description: Uploaded
