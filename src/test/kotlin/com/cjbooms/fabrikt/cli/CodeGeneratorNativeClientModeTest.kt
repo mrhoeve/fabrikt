@@ -411,6 +411,34 @@ class CodeGeneratorNativeClientModeTest {
             .contains("Authorization")
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `generates optional credentials for native security alternatives`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(authenticationAlternativesOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("basicAuth: BasicCredentials? = null")
+            .contains("bearerAuth: BearerToken? = null")
+            .contains("apiKey: String? = null")
+            .contains("Authorization")
+            .contains("X-API-Key")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -657,5 +685,34 @@ class CodeGeneratorNativeClientModeTest {
                   tokenUrl: https://example.test/token
                   scopes:
                     read: Read access
+        """.trimIndent()
+
+    private val authenticationAlternativesOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native authentication alternatives
+          version: "1.0"
+        paths:
+          /secured:
+            get:
+              security:
+                - BasicAuth: []
+                - BearerAuth: []
+                  ApiKey: []
+              responses:
+                '204': { description: ok }
+        components:
+          securitySchemes:
+            BasicAuth:
+              type: http
+              scheme: basic
+            BearerAuth:
+              type: http
+              scheme: bearer
+            ApiKey:
+              type: apiKey
+              name: X-API-Key
+              in: header
         """.trimIndent()
 }
