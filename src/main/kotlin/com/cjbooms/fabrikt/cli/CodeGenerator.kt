@@ -12,6 +12,7 @@ import com.cjbooms.fabrikt.generators.client.ClientAuthenticationGenerator
 import com.cjbooms.fabrikt.generators.client.OkHttpClientGenerator
 import com.cjbooms.fabrikt.generators.client.OpenFeignInterfaceGenerator
 import com.cjbooms.fabrikt.generators.client.SpringHttpInterfaceGenerator
+import com.cjbooms.fabrikt.generators.controller.CustomHttpMethodHandlerGenerator
 import com.cjbooms.fabrikt.generators.controller.KtorClientGenerator
 import com.cjbooms.fabrikt.generators.controller.KtorControllerInterfaceGenerator
 import com.cjbooms.fabrikt.generators.controller.MicronautControllerInterfaceGenerator
@@ -136,9 +137,6 @@ class CodeGenerator internal constructor(
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
         endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
-        if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.SPRING) {
-            endpointContext?.requireSupportedMethods("Spring controller", STANDARD_HTTP_METHODS)
-        }
         val generator =
             when (MutableSettings.controllerTarget) {
                 ControllerCodeGenTargetType.SPRING ->
@@ -197,8 +195,13 @@ class CodeGenerator internal constructor(
                         suspending = MutableSettings.controllerTarget == ControllerCodeGenTargetType.KTOR,
                     ).generate()
                 }.orEmpty()
+        val customMethodFiles =
+            endpointContext
+                ?.takeIf { MutableSettings.controllerTarget == ControllerCodeGenTargetType.SPRING }
+                ?.let { listOfNotNull(CustomHttpMethodHandlerGenerator(packages, it).generate()) }
+                .orEmpty()
 
-        return controllerFiles.plus(libFiles).plus(webhookFiles)
+        return controllerFiles.plus(libFiles).plus(webhookFiles).plus(customMethodFiles)
     }
 
     private fun nativeEndpointContext(): GeneratorEndpointContext? =
@@ -217,7 +220,6 @@ class CodeGenerator internal constructor(
         get() = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
     private companion object {
-        val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
         val OK_HTTP_MULTIPART_METHODS = setOf("PUT", "POST", "PATCH", "DELETE")
     }
 }

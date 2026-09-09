@@ -53,6 +53,7 @@ class SpringControllerInterfaceGenerator(
     ControllerInterfaceGenerator {
     companion object {
         private const val EXTENSION_ASYNC_SUPPORT = "x-async-support"
+        private val SPRING_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "PATCH", "TRACE")
     }
 
     private val addAuthenticationParameter: Boolean
@@ -91,6 +92,7 @@ class SpringControllerInterfaceGenerator(
                     .flatMap { path ->
                         path.operations
                             .filterNot { it.method.equals("HEAD", ignoreCase = true) }
+                            .filter { it.method.uppercase() in SPRING_HTTP_METHODS }
                             .map { operation -> buildFunction(context, path, operation) }
                     }.forEach(builder::addFunction)
                 ControllerType(builder.build(), packages.base)
