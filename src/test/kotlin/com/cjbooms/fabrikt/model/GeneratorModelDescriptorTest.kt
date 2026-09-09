@@ -7,8 +7,10 @@ import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.function.ThrowingSupplier
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
 
 class GeneratorModelDescriptorTest {
     @Test
@@ -51,6 +53,22 @@ class GeneratorModelDescriptorTest {
         val models = GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
 
         assertThat(models.map(GeneratorModelDescriptor::name)).containsExactly("Subject")
+    }
+
+    @Test
+    fun `visits shared composition branches once per model root`() {
+        val depth = 24
+        val parsed = OpenApiDocumentParser.parse(compositionGraphOpenApi(depth))
+
+        val models =
+            org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                Duration.ofSeconds(5),
+                ThrowingSupplier {
+                    GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
+                },
+            )
+
+        assertThat(models.map(GeneratorModelDescriptor::name)).contains("Composition$depth", "Leaf")
     }
 
     private fun List<GeneratorModelDescriptor>.withoutIdentities() =
@@ -128,4 +146,31 @@ class GeneratorModelDescriptorTest {
               properties:
                 id: { type: string }
         """.trimIndent()
+
+    private fun compositionGraphOpenApi(depth: Int): String {
+        val schemas =
+            buildString {
+                appendLine("    Leaf:")
+                appendLine("      type: object")
+                appendLine("      properties:")
+                appendLine("        value: { type: string }")
+                (1..depth).forEach { index ->
+                    val parent = if (index == 1) "Leaf" else "Composition${index - 1}"
+                    appendLine("    Composition$index:")
+                    appendLine("      allOf:")
+                    appendLine("        - ${'$'}ref: '#/components/schemas/$parent'")
+                    appendLine("        - ${'$'}ref: '#/components/schemas/$parent'")
+                }
+            }
+        return buildString {
+            appendLine("openapi: 3.1.1")
+            appendLine("info:")
+            appendLine("  title: Composition graph")
+            appendLine("  version: \"1.0\"")
+            appendLine("paths: {}")
+            appendLine("components:")
+            appendLine("  schemas:")
+            append(schemas)
+        }
+    }
 }

@@ -43,29 +43,47 @@ internal object GeneratorSchemaTypeClassifier {
     fun classify(
         schema: GeneratorSchema,
         resolve: (GeneratorSchema) -> GeneratorSchema = { it },
-    ): GeneratorSchemaTypeClassification =
-        when (schema) {
-            is GeneratorBooleanSchema ->
-                if (schema.allowsAnyValue) {
-                    GeneratorSchemaTypeClassification.Resolved(OasType.Any, false)
-                } else {
-                    GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
-                }
-            is GeneratorObjectSchema -> classifyObjectSchema(schema, resolve)
-            else -> error("Unknown generator schema implementation: ${schema::class.qualifiedName}")
-        }
+    ): GeneratorSchemaTypeClassification = classify(schema, resolve, mutableMapOf())
+
+    fun cachingClassifier(resolve: (GeneratorSchema) -> GeneratorSchema): (GeneratorSchema) -> GeneratorSchemaTypeClassification {
+        val classifications = mutableMapOf<ClassificationKey, GeneratorSchemaTypeClassification>()
+        return { schema -> classify(schema, resolve, classifications) }
+    }
+
+    private fun classify(
+        schema: GeneratorSchema,
+        resolve: (GeneratorSchema) -> GeneratorSchema,
+        classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
+    ): GeneratorSchemaTypeClassification {
+        val key = ClassificationKey(schema.identity, schema is GeneratorReferenceSiblingSchema)
+        classifications[key]?.let { return it }
+        val classification =
+            when (schema) {
+                is GeneratorBooleanSchema ->
+                    if (schema.allowsAnyValue) {
+                        GeneratorSchemaTypeClassification.Resolved(OasType.Any, false)
+                    } else {
+                        GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
+                    }
+                is GeneratorObjectSchema -> classifyObjectSchema(schema, resolve, classifications)
+                else -> error("Unknown generator schema implementation: ${schema::class.qualifiedName}")
+            }
+        classifications[key] = classification
+        return classification
+    }
 
     private fun classifyObjectSchema(
         schema: GeneratorObjectSchema,
         resolve: (GeneratorSchema) -> GeneratorSchema,
+        classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
     ): GeneratorSchemaTypeClassification {
         val valueConstraint = schema.valueConstraint()
         if (valueConstraint is GeneratorSchemaValueConstraint.Impossible) {
             return GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
         }
         if (schema is GeneratorReferenceSiblingSchema) {
-            val referencedClassification = classify(resolve(schema.referencedSchema), resolve)
-            val siblingClassification = classifyObjectSchema(schema.siblingSchema, resolve)
+            val referencedClassification = classify(resolve(schema.referencedSchema), resolve, classifications)
+            val siblingClassification = classifyObjectSchema(schema.siblingSchema, resolve, classifications)
             return intersect(
                 referencedClassification,
                 schema.refineUnconstrainedSibling(referencedClassification, siblingClassification),
@@ -93,11 +111,11 @@ internal object GeneratorSchemaTypeClassifier {
         }
 
         if (nonNullTypes.isEmpty()) {
-            schema.classifyCompositionUnion(resolve)?.let { return it }
+            schema.classifyCompositionUnion(resolve, classifications)?.let { return it }
         }
 
-        val type = nonNullTypes.singleOrNull() ?: inferType(schema, resolve)
-        if (type == null && schema.hasInconsistentCompositionTypes(resolve)) {
+        val type = nonNullTypes.singleOrNull() ?: inferType(schema, resolve, classifications)
+        if (type == null && schema.hasInconsistentCompositionTypes(resolve, classifications)) {
             return GeneratorSchemaTypeClassification.Unsupported(
                 GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
             )
@@ -177,6 +195,7 @@ internal object GeneratorSchemaTypeClassifier {
 
     private fun GeneratorObjectSchema.classifyCompositionUnion(
         resolve: (GeneratorSchema) -> GeneratorSchema,
+        classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
     ): GeneratorSchemaTypeClassification? {
         if (allOf.isNotEmpty() || properties.isNotEmpty() || items != null || prefixItems.isNotEmpty()) return null
         val members =
@@ -188,7 +207,7 @@ internal object GeneratorSchemaTypeClassifier {
         val types = linkedSetOf<OasType>()
         var nullable = false
         members.forEach { member ->
-            when (val memberClassification = classify(resolve(member), resolve)) {
+            when (val memberClassification = classify(resolve(member), resolve, classifications)) {
                 is GeneratorSchemaTypeClassification.Resolved -> {
                     if (memberClassification.type != OasType.Any || !memberClassification.nullable) {
                         types.add(memberClassification.type)
@@ -213,14 +232,16 @@ internal object GeneratorSchemaTypeClassifier {
     private fun inferType(
         schema: GeneratorObjectSchema,
         resolve: (GeneratorSchema) -> GeneratorSchema,
+        classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
     ): SourceSchemaType? {
         if (schema.properties.isNotEmpty() || schema.hasAdditionalProperties()) return SourceSchemaType.OBJECT
         if (schema.items != null || schema.prefixItems.isNotEmpty()) return SourceSchemaType.ARRAY
 
         return schema
             .compositionSchemas()
-            .mapNotNull { (classify(resolve(it), resolve) as? GeneratorSchemaTypeClassification.Resolved)?.type?.type }
-            .distinct()
+            .mapNotNull {
+                (classify(resolve(it), resolve, classifications) as? GeneratorSchemaTypeClassification.Resolved)?.type?.type
+            }.distinct()
             .singleOrNull()
             ?.let(SourceSchemaType::from)
     }
@@ -276,13 +297,17 @@ internal object GeneratorSchemaTypeClassifier {
             else -> true
         }
 
-    private fun GeneratorObjectSchema.hasInconsistentCompositionTypes(resolve: (GeneratorSchema) -> GeneratorSchema): Boolean {
+    private fun GeneratorObjectSchema.hasInconsistentCompositionTypes(
+        resolve: (GeneratorSchema) -> GeneratorSchema,
+        classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
+    ): Boolean {
         val schemas = compositionSchemas().toList()
         if (schemas.isEmpty()) return false
         val types =
             schemas
-                .mapNotNull { (classify(resolve(it), resolve) as? GeneratorSchemaTypeClassification.Resolved)?.type?.type }
-                .distinct()
+                .mapNotNull {
+                    (classify(resolve(it), resolve, classifications) as? GeneratorSchemaTypeClassification.Resolved)?.type?.type
+                }.distinct()
         return types.size > 1
     }
 
@@ -299,4 +324,9 @@ internal object GeneratorSchemaTypeClassifier {
         } else {
             this
         }
+
+    private data class ClassificationKey(
+        val identity: GeneratorSchemaIdentity,
+        val referenceSibling: Boolean,
+    )
 }

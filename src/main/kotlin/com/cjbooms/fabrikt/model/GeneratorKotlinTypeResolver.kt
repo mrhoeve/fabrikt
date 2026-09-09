@@ -41,6 +41,7 @@ internal class GeneratorKotlinTypeResolver(
     private val document: GeneratorSchemaDocument,
     registeredModelNames: Map<GeneratorSchemaIdentity, String> = emptyMap(),
 ) {
+    private val classifySchema = GeneratorSchemaTypeClassifier.cachingClassifier(document::resolve)
     private val componentNames =
         buildMap {
             putAll(registeredModelNames)
@@ -105,8 +106,7 @@ internal class GeneratorKotlinTypeResolver(
             else -> anyType()
         }
 
-    fun classify(schema: GeneratorSchema): GeneratorSchemaTypeClassification =
-        GeneratorSchemaTypeClassifier.classify(document.resolve(schema), document::resolve)
+    fun classify(schema: GeneratorSchema): GeneratorSchemaTypeClassification = classifySchema(document.resolve(schema))
 
     fun resolveUnionVariant(
         schema: GeneratorSchema,

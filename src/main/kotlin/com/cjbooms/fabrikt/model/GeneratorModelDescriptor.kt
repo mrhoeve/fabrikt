@@ -147,7 +147,10 @@ internal object GeneratorModelDescriptorBuilder {
 
     private fun collectModelSchemas(document: GeneratorSchemaDocument): List<RegisteredModel> {
         val models = mutableListOf<RegisteredModel>()
+        val registeredModels = mutableSetOf<RegisteredModelKey>()
+        val registeredModelIdentities = mutableSetOf<GeneratorSchemaIdentity>()
         val visited = mutableSetOf<VisitKey>()
+        val visitedCompositionProperties = mutableSetOf<CompositionVisitKey>()
         val allocatedRootNames = mutableSetOf<String>()
         val rootNames =
             document.modelSchemas.mapValues { (name, _) ->
@@ -164,8 +167,9 @@ internal object GeneratorModelDescriptorBuilder {
             name: String,
             schema: GeneratorSchema,
         ) {
-            if (models.none { it.name == name && it.schema.identity == schema.identity }) {
+            if (registeredModels.add(RegisteredModelKey(name, schema.identity))) {
                 models.add(RegisteredModel(name, schema))
+                registeredModelIdentities.add(schema.identity)
             }
         }
 
@@ -177,7 +181,7 @@ internal object GeneratorModelDescriptorBuilder {
         ) {
             val resolved = document.resolve(schema)
             val objectSchema = resolved as? GeneratorObjectSchema ?: return
-            if (!isRoot && document.isExternal(resolved) && models.any { it.schema.identity == resolved.identity }) return
+            if (!isRoot && document.isExternal(resolved) && resolved.identity in registeredModelIdentities) return
             val componentName =
                 objectSchema.canonicalReference
                     .substringAfter("#/components/schemas/", missingDelimiterValue = "")
@@ -193,23 +197,27 @@ internal object GeneratorModelDescriptorBuilder {
                 } else {
                     suggestedName
                 }
+            val contextualArrayItem = (schema as? GeneratorObjectSchema)?.reference != null && objectSchema.items != null
+            val modelRootName = if (contextualArrayItem) rootName else rootNamesByIdentity[resolved.identity] ?: rootName
             if (!isRoot && objectSchema.requiresGeneratedModel()) register(name, resolved)
-            if (!visited.add(VisitKey(resolved.identity, name, rootName))) return
+            if (!visited.add(VisitKey(resolved.identity, name, modelRootName))) return
 
             val parentName =
                 if ((schema as? GeneratorObjectSchema)?.reference != null) {
                     name
                 } else {
-                    models.firstOrNull { it.schema.identity == resolved.identity && it.name == name }?.name ?: suggestedName
+                    if (RegisteredModelKey(name, resolved.identity) in registeredModels) name else suggestedName
                 }
             objectSchema.properties.forEach { (propertyName, property) ->
-                visit(property, rootName + propertyName.toModelClassName(), rootName)
+                visit(property, modelRootName + propertyName.toModelClassName(), modelRootName)
             }
 
             fun visitCompositionProperties(member: GeneratorSchema) {
                 val composedObject = document.resolve(member) as? GeneratorObjectSchema ?: return
+                val compositionRootName = rootNamesByIdentity[composedObject.identity] ?: modelRootName
+                if (!visitedCompositionProperties.add(CompositionVisitKey(composedObject.identity, compositionRootName))) return
                 composedObject.properties.forEach { (propertyName, property) ->
-                    visit(property, rootName + propertyName.toModelClassName(), rootName)
+                    visit(property, compositionRootName + propertyName.toModelClassName(), compositionRootName)
                 }
                 composedObject.allOf.forEach(::visitCompositionProperties)
                 composedObject.anyOf.forEach(::visitCompositionProperties)
@@ -222,15 +230,15 @@ internal object GeneratorModelDescriptorBuilder {
                         document.resolve(items),
                     ) as? GeneratorSchemaTypeClassification.Resolved
                 val itemName =
-                    if ((schema as? GeneratorObjectSchema)?.reference != null && itemType?.type == OasType.Enum && name != rootName) {
-                        rootName + name
+                    if ((schema as? GeneratorObjectSchema)?.reference != null && itemType?.type == OasType.Enum && name != modelRootName) {
+                        modelRootName + name
                     } else {
                         parentName
                     }
-                visit(items, itemName, rootName)
+                visit(items, itemName, modelRootName)
             }
-            objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}", rootName) }
-            objectSchema.oneOf.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", rootName) }
+            objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}", modelRootName) }
+            objectSchema.oneOf.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", modelRootName) }
             objectSchema.additionalProperties?.let { additionalProperties ->
                 val containerName =
                     objectSchema.location
@@ -239,7 +247,7 @@ internal object GeneratorModelDescriptorBuilder {
                         .replace("~1", "-")
                         .replace("~0", "~")
                         .toModelClassName()
-                visit(additionalProperties, containerName + "Value", rootName)
+                visit(additionalProperties, containerName + "Value", modelRootName)
             }
         }
 
@@ -282,9 +290,19 @@ internal object GeneratorModelDescriptorBuilder {
         val schema: GeneratorSchema,
     )
 
+    private data class RegisteredModelKey(
+        val name: String,
+        val identity: GeneratorSchemaIdentity,
+    )
+
     private data class VisitKey(
         val identity: GeneratorSchemaIdentity,
         val name: String,
+        val rootName: String,
+    )
+
+    private data class CompositionVisitKey(
+        val identity: GeneratorSchemaIdentity,
         val rootName: String,
     )
 
