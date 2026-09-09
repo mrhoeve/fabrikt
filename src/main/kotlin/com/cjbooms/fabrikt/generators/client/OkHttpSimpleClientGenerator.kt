@@ -24,6 +24,7 @@ import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.CookieParam
 import com.cjbooms.fabrikt.model.Destinations
+import com.cjbooms.fabrikt.model.FormObjectProperty
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.HeaderParam
@@ -556,10 +557,11 @@ data class SimpleClientOperationStatement(
         if (parameter.explode) {
             parameter.objectProperties.forEach { property ->
                 val expression = "$valueName.${property.propertyName}"
+                val fieldName = parameter.formObjectFieldName(property)
                 if (property.nullable) {
-                    add("\n%L?.let { formBuilder.%L(%S, %L) }", expression, method, property.fieldName, formValue("it", property.typeInfo))
+                    add("\n%L?.let { formBuilder.%L(%S, %L) }", expression, method, fieldName, formValue("it", property.typeInfo))
                 } else {
-                    add("\nformBuilder.%L(%S, %L)", method, property.fieldName, formValue(expression, property.typeInfo))
+                    add("\nformBuilder.%L(%S, %L)", method, fieldName, formValue(expression, property.typeInfo))
                 }
             }
         } else {
@@ -576,6 +578,9 @@ data class SimpleClientOperationStatement(
             add("\n}.joinToString(%S))", ",")
         }
     }
+
+    private fun FormParameter.formObjectFieldName(property: FormObjectProperty): String =
+        if (style == "deepObject") "$fieldName[${property.fieldName}]" else property.fieldName
 
     private fun formValue(
         expression: String,
