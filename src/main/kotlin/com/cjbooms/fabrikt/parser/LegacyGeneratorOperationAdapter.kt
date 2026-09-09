@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.parser
 
 import com.cjbooms.fabrikt.util.YamlUtils
 import com.reprezen.jsonoverlay.Overlay
+import com.reprezen.kaizen.oasparser.model3.Callback
 import com.reprezen.kaizen.oasparser.model3.Header
 import com.reprezen.kaizen.oasparser.model3.MediaType
 import com.reprezen.kaizen.oasparser.model3.OpenApi3
@@ -29,11 +30,16 @@ internal class LegacyGeneratorOperationAdapter {
                     .removeSuffix("/"),
             security = api.securityRequirements.takeIf(List<SecurityRequirement>::isNotEmpty)?.toGeneratorSecurityRequirements(),
             paths = api.paths.map { (path, value) -> value.toGeneratorPathItem(path) },
+            webhooks = emptyList(),
         )
 
-    private fun Path.toGeneratorPathItem(path: String): GeneratorPathItem =
+    private fun Path.toGeneratorPathItem(
+        path: String,
+        kind: GeneratorPathItemKind = GeneratorPathItemKind.PATH,
+    ): GeneratorPathItem =
         GeneratorPathItem(
             path = path,
+            kind = kind,
             parameters = parameters.map { it.toGeneratorParameter() },
             operations = operations.map { (method, operation) -> operation.toGeneratorOperation(method) },
         )
@@ -55,6 +61,14 @@ internal class LegacyGeneratorOperationAdapter {
                 } else {
                     null
                 },
+            callbacks = callbacks.map { (name, callback) -> callback.toGeneratorCallback(name) },
+            extensions = extensions.mapValues { (_, value) -> YamlUtils.objectMapper.valueToTree(value) },
+        )
+
+    private fun Callback.toGeneratorCallback(name: String): GeneratorCallback =
+        GeneratorCallback(
+            name = name,
+            pathItems = callbackPaths.map { (path, value) -> value.toGeneratorPathItem(path, GeneratorPathItemKind.CALLBACK) },
             extensions = extensions.mapValues { (_, value) -> YamlUtils.objectMapper.valueToTree(value) },
         )
 

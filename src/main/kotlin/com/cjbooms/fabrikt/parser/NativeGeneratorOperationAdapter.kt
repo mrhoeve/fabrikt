@@ -23,11 +23,13 @@ internal class NativeGeneratorOperationAdapter(
                     .removeSuffix("/"),
             security = document.security?.toGeneratorSecurityRequirements(),
             paths = document.paths.map { path -> path.resolve().toGeneratorPathItem(path.key) },
+            webhooks = document.webhooks.map { path -> path.resolve().toGeneratorPathItem(path.key) },
         )
 
     private fun SourcePathItem.toGeneratorPathItem(path: String): GeneratorPathItem =
         GeneratorPathItem(
             path = path,
+            kind = kind.toGeneratorPathItemKind(),
             parameters = parameters.map { it.resolve().toGeneratorParameter() },
             operations = operations.map { it.toGeneratorOperation() },
         )
@@ -44,6 +46,14 @@ internal class NativeGeneratorOperationAdapter(
             requestBody = requestBody?.resolve()?.toGeneratorRequestBody(),
             responses = responses?.values.orEmpty().map { response -> response.resolve().toGeneratorResponse(response.key) },
             security = security?.toGeneratorSecurityRequirements(),
+            callbacks = callbacks.map { callback -> callback.resolve().toGeneratorCallback(callback.name) },
+            extensions = extensions,
+        )
+
+    private fun SourceCallback.toGeneratorCallback(name: String): GeneratorCallback =
+        GeneratorCallback(
+            name = name,
+            pathItems = pathItems.map { path -> path.resolve().toGeneratorPathItem(path.key) },
             extensions = extensions,
         )
 
@@ -126,6 +136,9 @@ internal class NativeGeneratorOperationAdapter(
     private fun SourceHeader.resolve(): SourceHeader =
         resolveLocal(this, "#/components/headers/", SourceHeader::reference, document.reusableHeaders)
 
+    private fun SourceCallback.resolve(): SourceCallback =
+        resolveLocal(this, "#/components/callbacks/", SourceCallback::reference, document.reusableCallbacks)
+
     private fun SourceMediaType.resolve(): SourceMediaType =
         resolveLocal(this, "#/components/mediaTypes/", SourceMediaType::reference, document.reusableMediaTypes)
 
@@ -146,6 +159,17 @@ internal class NativeGeneratorOperationAdapter(
     }
 
     private fun String.fromJsonPointerToken(): String = replace("~1", "/").replace("~0", "~")
+
+    private fun SourcePathItemKind.toGeneratorPathItemKind(): GeneratorPathItemKind =
+        when (this) {
+            SourcePathItemKind.PATH,
+            SourcePathItemKind.REUSABLE_PATH_ITEM,
+            -> GeneratorPathItemKind.PATH
+            SourcePathItemKind.WEBHOOK -> GeneratorPathItemKind.WEBHOOK
+            SourcePathItemKind.CALLBACK,
+            SourcePathItemKind.REUSABLE_CALLBACK,
+            -> GeneratorPathItemKind.CALLBACK
+        }
 }
 
 internal fun ParsedOpenApiDocument.toGeneratorOperationDocument(mode: SchemaGenerationMode): GeneratorOperationDocument =
