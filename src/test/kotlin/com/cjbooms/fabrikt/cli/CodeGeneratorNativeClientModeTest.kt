@@ -379,6 +379,38 @@ class CodeGeneratorNativeClientModeTest {
         assertThat(generated).containsOnlyOnce("@RequestHeader(\"X-API-Key\"")
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `generates HTTP and token credentials from native security schemes`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(authenticationOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("basicAuth: BasicCredentials")
+            .contains("bearerAuth: BearerToken")
+            .contains("oAuth: BearerToken")
+            .contains("public data class BasicCredentials(")
+            .contains("public data class BearerToken(")
+            .contains("Base64.getEncoder().encodeToString")
+            .contains("\"\"\"${'$'}username:${'$'}password\"\"\".toByteArray(Charsets.UTF_8)")
+            .contains("\"Bearer \" + value")
+            .contains("Authorization")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -586,4 +618,44 @@ class CodeGeneratorNativeClientModeTest {
             "                in: header\n" +
             "                required: true\n" +
             "                schema: { type: string }"
+
+    private val authenticationOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native authentication
+          version: "1.0"
+        paths:
+          /basic:
+            get:
+              security: [{ BasicAuth: [] }]
+              responses:
+                '204': { description: ok }
+          /bearer:
+            get:
+              security: [{ BearerAuth: [] }]
+              responses:
+                '204': { description: ok }
+          /oauth:
+            get:
+              security: [{ OAuth: [read] }]
+              responses:
+                '204': { description: ok }
+        components:
+          securitySchemes:
+            BasicAuth:
+              type: http
+              scheme: basic
+            BearerAuth:
+              type: http
+              scheme: bearer
+              bearerFormat: JWT
+            OAuth:
+              type: oauth2
+              flows:
+                clientCredentials:
+                  tokenUrl: https://example.test/token
+                  scopes:
+                    read: Read access
+        """.trimIndent()
 }
