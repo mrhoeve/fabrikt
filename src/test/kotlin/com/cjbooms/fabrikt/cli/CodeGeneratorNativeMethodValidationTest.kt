@@ -100,20 +100,6 @@ class CodeGeneratorNativeMethodValidationTest {
             .withMessageContaining("POST /subjects")
     }
 
-    @ParameterizedTest
-    @EnumSource(ClientCodeGenTargetType::class, names = ["KTOR"])
-    fun `rejects multipart operations unsupported by client targets`(target: ClientCodeGenTargetType) {
-        MutableSettings.updateSettings(
-            genTypes = setOf(CodeGenerationType.CLIENT),
-            clientTarget = target,
-        )
-
-        assertThatIllegalArgumentException()
-            .isThrownBy { generator(multipartOpenApi).generate() }
-            .withMessageContaining("multipart")
-            .withMessageContaining("POST /subjects")
-    }
-
     @Test
     fun `allows multipart generation for Spring controllers and supported clients`() {
         MutableSettings.updateSettings(
@@ -137,6 +123,12 @@ class CodeGeneratorNativeMethodValidationTest {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
             clientTarget = ClientCodeGenTargetType.OPEN_FEIGN,
+        )
+        assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
+
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
         )
         assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
     }
