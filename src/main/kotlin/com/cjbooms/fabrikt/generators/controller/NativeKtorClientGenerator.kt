@@ -260,6 +260,14 @@ internal class NativeKtorClientGenerator(
             indent()
         }
         val valueName = if (optional) "value" else parameter.name
+        if (parameter.objectProperties.isNotEmpty()) {
+            addFormObjectParameter(parameter, valueName)
+            if (optional) {
+                unindent()
+                addStatement("}")
+            }
+            return
+        }
         when (val typeInfo = parameter.typeInfo) {
             is KotlinTypeInfo.Array -> {
                 val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
@@ -286,6 +294,46 @@ internal class NativeKtorClientGenerator(
             addStatement("}")
         }
     }
+
+    private fun CodeBlock.Builder.addFormObjectParameter(
+        parameter: FormParameter,
+        valueName: String,
+    ) {
+        if (parameter.explode) {
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    addStatement("%L?.let { append(%S, %L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    addStatement("append(%S, %L)", property.fieldName, formValue(expression, property.typeInfo))
+                }
+            }
+        } else {
+            add("append(%S, buildList {\n", parameter.fieldName)
+            indent()
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    addStatement("%L?.let { add(%S); add(%L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    addStatement("add(%S)", property.fieldName)
+                    addStatement("add(%L)", formValue(expression, property.typeInfo))
+                }
+            }
+            unindent()
+            addStatement("}.joinToString(%S))", ",")
+        }
+    }
+
+    private fun formValue(
+        expression: String,
+        typeInfo: KotlinTypeInfo,
+    ): CodeBlock =
+        when (typeInfo) {
+            is KotlinTypeInfo.Enum -> CodeBlock.of("%L.value", expression)
+            is KotlinTypeInfo.Array -> CodeBlock.of("%L.joinToString(%S)", expression, ",")
+            else -> CodeBlock.of("%L.toString()", expression)
+        }
 
     private fun CodeBlock.Builder.addMultipartParameter(parameter: MultipartParameter) {
         val wrapped = parameter.isArray || !parameter.isRequired

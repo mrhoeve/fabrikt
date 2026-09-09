@@ -516,6 +516,11 @@ data class SimpleClientOperationStatement(
             val optional = !parameter.isRequired
             if (optional) add("\n%N?.let { value ->", parameter.name)
             val valueName = if (optional) "value" else parameter.name
+            if (parameter.objectProperties.isNotEmpty()) {
+                addFormObjectParameter(parameter, valueName, method)
+                if (optional) add("\n}")
+                return@forEach
+            }
             when (val typeInfo = parameter.typeInfo) {
                 is KotlinTypeInfo.Array -> {
                     val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
@@ -541,4 +546,43 @@ data class SimpleClientOperationStatement(
         }
         add("\nval formBody = formBuilder.build()")
     }
+
+    private fun CodeBlock.Builder.addFormObjectParameter(
+        parameter: FormParameter,
+        valueName: String,
+        method: String,
+    ) {
+        if (parameter.explode) {
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    add("\n%L?.let { formBuilder.%L(%S, %L) }", expression, method, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    add("\nformBuilder.%L(%S, %L)", method, property.fieldName, formValue(expression, property.typeInfo))
+                }
+            }
+        } else {
+            add("\nformBuilder.%L(%S, buildList {", method, parameter.fieldName)
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    add("\n%L?.let { add(%S); add(%L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    add("\nadd(%S)", property.fieldName)
+                    add("\nadd(%L)", formValue(expression, property.typeInfo))
+                }
+            }
+            add("\n}.joinToString(%S))", ",")
+        }
+    }
+
+    private fun formValue(
+        expression: String,
+        typeInfo: KotlinTypeInfo,
+    ): CodeBlock =
+        when (typeInfo) {
+            is KotlinTypeInfo.Enum -> CodeBlock.of("%L.value", expression)
+            is KotlinTypeInfo.Array -> CodeBlock.of("%L.joinToString(%S)", expression, ",")
+            else -> CodeBlock.of("%L.toString()", expression)
+        }
 }

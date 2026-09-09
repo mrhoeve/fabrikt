@@ -70,9 +70,12 @@ class CodeGenerator internal constructor(
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)
             }
             ClientCodeGenTargetType.KTOR -> Unit
-            ClientCodeGenTargetType.OPEN_FEIGN -> endpointContext?.requireScalarFormParameters("OpenFeign client")
-            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
-            -> Unit
+            ClientCodeGenTargetType.OPEN_FEIGN -> {
+                endpointContext?.requireScalarFormParameters("OpenFeign client")
+                endpointContext?.requireNoObjectFormParameters("OpenFeign client")
+            }
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                endpointContext?.requireNoObjectFormParameters("Spring HTTP interface client")
         }
         val clientGenerator =
             when (MutableSettings.clientTarget) {
@@ -132,6 +135,7 @@ class CodeGenerator internal constructor(
 
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
+        endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
         if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.SPRING) {
             endpointContext?.requireSupportedMethods("Spring controller", STANDARD_HTTP_METHODS)
         }
