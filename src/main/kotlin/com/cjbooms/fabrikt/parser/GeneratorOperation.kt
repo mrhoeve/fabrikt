@@ -7,13 +7,21 @@ internal data class GeneratorOperationDocument(
     val basePath: String,
     val security: GeneratorSecurityRequirements?,
     val paths: List<GeneratorPathItem>,
+    val webhooks: List<GeneratorPathItem>,
 )
 
 internal data class GeneratorPathItem(
     val path: String,
+    val kind: GeneratorPathItemKind,
     val parameters: List<GeneratorParameter>,
     val operations: List<GeneratorOperation>,
 )
+
+internal enum class GeneratorPathItemKind {
+    PATH,
+    WEBHOOK,
+    CALLBACK,
+}
 
 internal data class GeneratorOperation(
     val method: String,
@@ -26,6 +34,13 @@ internal data class GeneratorOperation(
     val requestBody: GeneratorRequestBody?,
     val responses: List<GeneratorResponse>,
     val security: GeneratorSecurityRequirements?,
+    val callbacks: List<GeneratorCallback>,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class GeneratorCallback(
+    val name: String,
+    val pathItems: List<GeneratorPathItem>,
     val extensions: Map<String, JsonNode>,
 )
 
