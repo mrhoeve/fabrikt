@@ -177,6 +177,28 @@ class CodeGeneratorNativeClientModeTest {
             .contains("@Param(\"description\") description: String?")
     }
 
+    @Test
+    fun `generates multipart delete requests for native OkHttp clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi.replace("    post:", "    delete:")),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated).contains(".method(\"DELETE\", multipartBody)")
+    }
+
     @ParameterizedTest
     @EnumSource(SerializationLibrary::class)
     fun `generates multipart Ktor clients from native operations`(serializationLibrary: SerializationLibrary) {
