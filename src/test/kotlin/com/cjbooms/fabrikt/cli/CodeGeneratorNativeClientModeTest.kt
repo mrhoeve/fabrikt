@@ -150,6 +150,31 @@ class CodeGeneratorNativeClientModeTest {
             .contains("@RequestPart(\"description\") description: String?")
     }
 
+    @Test
+    fun `generates multipart OpenFeign clients from native operations`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OPEN_FEIGN,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("@Headers(\"Content-Type: multipart/form-data\")")
+            .contains("@Param(\"document\") document: ByteArray")
+            .contains("@Param(\"description\") description: String?")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
