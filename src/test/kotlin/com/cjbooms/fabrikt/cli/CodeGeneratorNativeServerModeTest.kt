@@ -249,6 +249,42 @@ class CodeGeneratorNativeServerModeTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `reads typed multipart part headers in native Ktor controllers`(version: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartHeaderOpenApi.replace("VERSION", version)),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("documentXChecksum: String")
+            .contains("attachmentsXSequence: List<Int>? = null")
+            .contains("attachmentsXNote: List<String?>? = null")
+            .contains("var documentXChecksumRawPart: String? = null")
+            .contains("val attachmentsXSequenceRawParts = mutableListOf<String?>()")
+            .contains("documentXChecksumRawPart = part.headers[\"X-Checksum\"]")
+            .contains("attachmentsXSequenceRawParts += part.headers[\"X-Sequence\"]")
+            .contains("Multipart part header X-Sequence is required")
+            .contains("metadataXAttributes: XAttributes")
+            .contains("val encodedFields = (metadataXAttributesRawPart")
+            .contains("headerFields[\"code\"]")
+            .contains("metadataXTags: Map<String, String?>?")
+            .doesNotContain("documentContentType")
+    }
+
+    @ParameterizedTest
     @EnumSource(ControllerCodeGenTargetType::class)
     fun `generates form urlencoded controllers from native operations`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(
@@ -446,6 +482,68 @@ class CodeGeneratorNativeServerModeTest {
                           items: { type: string }
               responses:
                 '204': { description: Created }
+        """.trimIndent()
+
+    private val multipartHeaderOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Native multipart part headers
+          version: "1.0"
+        paths:
+          /documents:
+            post:
+              operationId: uploadDocument
+              requestBody:
+                required: true
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      required: [document, metadata]
+                      properties:
+                        document: { type: string, format: binary }
+                        attachments:
+                          type: array
+                          items: { type: string, format: binary }
+                        metadata:
+                          type: object
+                          required: [title]
+                          properties:
+                            title: { type: string }
+                    encoding:
+                      document:
+                        headers:
+                          X-Checksum:
+                            required: true
+                            schema: { type: string }
+                          Content-Type:
+                            schema: { type: string }
+                      attachments:
+                        headers:
+                          X-Sequence:
+                            required: true
+                            schema: { type: integer }
+                          X-Note:
+                            schema: { type: string }
+                      metadata:
+                        contentType: application/json
+                        headers:
+                          X-Attributes:
+                            required: true
+                            explode: true
+                            schema:
+                              type: object
+                              required: [code]
+                              properties:
+                                code: { type: integer }
+                                note: { type: string }
+                          X-Tags:
+                            schema:
+                              type: object
+                              additionalProperties: { type: string }
+              responses:
+                '204': { description: Uploaded }
         """.trimIndent()
 
     private val percentEncodedDocumentationOpenApi =
