@@ -447,7 +447,9 @@ internal class GeneratorEndpointContext(
             maximum = resolvedSchema?.constraints?.maximum?.value,
             minLength = resolvedSchema?.constraints?.minLength,
             maxLength = resolvedSchema?.constraints?.maxLength,
+            style = parameter.style,
             explode = parameter.explode,
+            allowReserved = parameter.allowReserved ?: false,
             defaultValue = resolvedSchema?.metadata?.defaultValue?.toValue(),
         )
     }
@@ -523,7 +525,9 @@ internal class GeneratorEndpointContext(
                         maximum = parameter.maximum,
                         minLength = parameter.minLength,
                         maxLength = parameter.maxLength,
+                        style = parameter.style,
                         explode = parameter.explode,
+                        allowReserved = parameter.allowReserved,
                         defaultValue = parameter.defaultValue,
                     )
             }

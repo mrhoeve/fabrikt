@@ -345,7 +345,9 @@ object GeneratorUtils {
                         typeInfo = p.typeInfo,
                         minimum = p.minimum,
                         maximum = p.maximum,
+                        style = p.style,
                         explode = p.explode,
+                        allowReserved = p.allowReserved,
                         defaultValue = p.defaultValue,
                     )
             }

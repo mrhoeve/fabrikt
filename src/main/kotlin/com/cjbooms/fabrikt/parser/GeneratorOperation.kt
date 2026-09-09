@@ -76,7 +76,9 @@ internal data class GeneratorParameter(
     val description: String?,
     val required: Boolean,
     val deprecated: Boolean,
+    val style: String?,
     val explode: Boolean?,
+    val allowReserved: Boolean?,
     val schema: GeneratorSchema?,
     val content: List<GeneratorMediaType>,
 )

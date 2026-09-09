@@ -176,7 +176,9 @@ class RequestParameter(
     val maximum: Number? = null,
     val minLength: Number? = null,
     val maxLength: Number? = null,
+    val style: String? = null,
     val explode: Boolean? = null,
+    val allowReserved: Boolean = false,
     val defaultValue: Any? = null,
 ) : IncomingParameter(oasName, description, type, isRequired) {
     init {
@@ -198,7 +200,9 @@ class RequestParameter(
         maximum = parameter.schema.maximum,
         minLength = parameter.schema.minLength,
         maxLength = parameter.schema.maxLength,
+        style = parameter.style,
         explode = parameter.explode,
+        allowReserved = parameter.isAllowReserved,
         defaultValue = parameter.schema.default,
     )
 

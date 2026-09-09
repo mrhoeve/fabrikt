@@ -82,7 +82,9 @@ internal class LegacyGeneratorOperationAdapter {
             description = description,
             required = isRequired,
             deprecated = isDeprecated,
+            style = style,
             explode = explode,
+            allowReserved = allowReserved,
             schema = schema.takeIfPresent()?.let(schemaAdapter::adapt),
             content = contentMediaTypes.map { (key, value) -> value.toGeneratorMediaType(key) },
         )
