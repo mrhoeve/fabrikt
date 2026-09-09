@@ -162,6 +162,8 @@ class KtorControllerInterfaceGenerator(
                         .addFunction(routeFunBuilder.build())
                         .addFunction(getTypedFun)
                         .addFunction(getTypedOrFailFun)
+                        .addFunction(getTypedHeaderFun)
+                        .addFunction(getTypedHeaderOrFailFun)
                         .addFunction(getOrFailFun)
                         .build(),
                 )
@@ -183,13 +185,20 @@ class KtorControllerInterfaceGenerator(
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         val multipartParams = params.filterIsInstance<MultipartParameter>()
         val formParams = params.filterIsInstance<FormParameter>()
-        (headerParams + cookieParams).forEach { parameter ->
+        headerParams.forEach { parameter ->
+            if (parameter.supportsKtorHeaderConversion()) {
+                builder.addParameter(parameter.toParameterSpecBuilder().build())
+            } else {
+                builder.addParameter(
+                    ParameterSpec
+                        .builder(parameter.name, String::class.asTypeName().copy(nullable = !parameter.isRequired))
+                        .build(),
+                )
+            }
+        }
+        cookieParams.forEach { parameter ->
             builder.addParameter(
-                ParameterSpec
-                    .builder(
-                        parameter.name,
-                        String::class.asTypeName().copy(nullable = !parameter.isRequired),
-                    ).build(),
+                ParameterSpec.builder(parameter.name, String::class.asTypeName().copy(nullable = !parameter.isRequired)).build(),
             )
         }
         (pathParams + queryParams).forEach { parameter ->
@@ -278,15 +287,38 @@ class KtorControllerInterfaceGenerator(
             }
         }
         headerParams.forEach { parameter ->
-            if (parameter.isRequired) {
+            if (!parameter.supportsKtorHeaderConversion()) {
+                if (parameter.isRequired) {
+                    builder.addStatement(
+                        "val ${parameter.name} = %M.request.headers.%M(\"${parameter.originalName}\")",
+                        MemberName("io.ktor.server.application", "call"),
+                        MemberName(packages.controllers, "getOrFail"),
+                    )
+                } else {
+                    builder.addStatement(
+                        "val ${parameter.name} = %M.request.headers[\"${parameter.originalName}\"]",
+                        MemberName("io.ktor.server.application", "call"),
+                    )
+                }
+                return@forEach
+            }
+            val type = parameter.type.copy(nullable = false)
+            val method = if (parameter.isRequired) "getTypedHeaderOrFail" else "getTypedHeader"
+            val splitValues = parameter.typeInfo is KotlinTypeInfo.Array
+            if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers.getOrFail(\"${parameter.originalName}\")",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)",
                     MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, method),
+                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                    splitValues,
                 )
             } else {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers[\"${parameter.originalName}\"]",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)",
                     MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, method),
+                    splitValues,
                 )
             }
         }
@@ -968,6 +1000,51 @@ class KtorControllerInterfaceGenerator(
                 ).build()
         }
 
+    private val getTypedHeaderFun = typedHeaderFunction(required = false)
+
+    private val getTypedHeaderOrFailFun = typedHeaderFunction(required = true)
+
+    private fun typedHeaderFunction(required: Boolean): FunSpec {
+        val returnType = TypeVariableName("R", Any::class).copy(nullable = !required, reified = true)
+        val conversionServiceParameter =
+            ParameterSpec
+                .builder("conversionService", ClassName("io.ktor.util.converters", "ConversionService"))
+                .defaultValue("%T", ClassName("io.ktor.util.converters", "DefaultConversionService"))
+                .build()
+        val values =
+            if (required) {
+                CodeBlock.of(
+                    "getAll(name) ?: throw %M(%S + name + %S)",
+                    MemberName("io.ktor.server.plugins", "BadRequestException"),
+                    "Header ",
+                    " is required",
+                )
+            } else {
+                CodeBlock.of("getAll(name) ?: return null")
+            }
+        return FunSpec
+            .builder(if (required) "getTypedHeaderOrFail" else "getTypedHeader")
+            .addModifiers(KModifier.INLINE, KModifier.PRIVATE)
+            .receiver(ClassName("io.ktor.http", "Headers"))
+            .addParameter("name", String::class)
+            .addParameter(conversionServiceParameter)
+            .addParameter(ParameterSpec.builder("splitValues", Boolean::class).defaultValue("false").build())
+            .addTypeVariable(returnType)
+            .returns(returnType)
+            .addStatement("val values = %L", values)
+            .addStatement("val convertedValues = if (splitValues) values.flatMap { it.split(%S) } else values", ",")
+            .addStatement("val typeInfo = %M<R>()", MemberName("io.ktor.util.reflect", "typeInfo"))
+            .beginControlFlow("return try")
+            .addStatement("@Suppress(%S)", "UNCHECKED_CAST")
+            .addStatement("conversionService.fromValues(convertedValues, typeInfo) as R")
+            .nextControlFlow("catch (cause: Exception)")
+            .addStatement(
+                "throw %M(name, typeInfo.type.simpleName ?: typeInfo.type.toString(), cause)",
+                MemberName("io.ktor.server.plugins", "ParameterConversionException"),
+            ).endControlFlow()
+            .build()
+    }
+
     /**
      * Function for getting typed header parameter
      */
@@ -1030,6 +1107,31 @@ private fun RequestParameter.requiresKtorDataConversionPlugin(): Boolean =
         else -> {
             !isPrimitiveType(this.typeInfo.modelKClass)
         }
+    }
+
+private fun RequestParameter.supportsKtorHeaderConversion(): Boolean = typeInfo.supportsKtorHeaderConversion()
+
+private fun KotlinTypeInfo.supportsKtorHeaderConversion(): Boolean =
+    when (this) {
+        KotlinTypeInfo.AnyType,
+        KotlinTypeInfo.ByteArray,
+        KotlinTypeInfo.InputStream,
+        KotlinTypeInfo.JsonElement,
+        KotlinTypeInfo.JsonObject,
+        KotlinTypeInfo.UnknownAdditionalProperties,
+        KotlinTypeInfo.UntypedObject,
+        KotlinTypeInfo.UntypedObjectAdditionalProperties,
+        is KotlinTypeInfo.GeneratedTypedAdditionalProperties,
+        is KotlinTypeInfo.Map,
+        is KotlinTypeInfo.MapTypeAdditionalProperties,
+        is KotlinTypeInfo.Object,
+        is KotlinTypeInfo.SimpleTypedAdditionalProperties,
+        -> false
+
+        is KotlinTypeInfo.Array ->
+            parameterizedType !is KotlinTypeInfo.Array && parameterizedType.supportsKtorHeaderConversion()
+
+        else -> true
     }
 
 private fun isPrimitiveType(klass: KClass<*>): Boolean =
