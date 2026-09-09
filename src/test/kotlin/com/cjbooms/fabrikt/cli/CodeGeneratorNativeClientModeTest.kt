@@ -7,9 +7,11 @@ import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.ValueSource
 import java.nio.file.Paths
 
 class CodeGeneratorNativeClientModeTest {
@@ -219,6 +221,94 @@ class CodeGeneratorNativeClientModeTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `generates form urlencoded clients from native operations`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(formOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("clientId: String")
+            .contains("clientSecret: String? = null")
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains("val formBuilder = FormBody.Builder()")
+                    .contains("formBuilder.add(\"client_id\", clientId.toString())")
+                    .contains(".post(formBody)")
+            ClientCodeGenTargetType.OPEN_FEIGN ->
+                assertThat(generated)
+                    .contains("@Body(\"client_id={client_id}&client_secret={client_secret}\")")
+                    .contains("@Param(\"client_id\") clientId: String")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                assertThat(generated)
+                    .contains("contentType=\"application/x-www-form-urlencoded\"")
+                    .contains("@RequestParam(\"client_id\", required = true) clientId: String")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("FormDataContent(")
+                    .contains("append(\"client_id\", clientId.toString())")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["OK_HTTP", "KTOR"])
+    fun `applies array encoding to native form clients`(targetName: String) {
+        val target = ClientCodeGenTargetType.valueOf(targetName)
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(encodedFormOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated).contains("scopes.joinToString(\"|\")")
+    }
+
+    @Test
+    fun `rejects form arrays that OpenFeign cannot serialize correctly`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OPEN_FEIGN,
+        )
+
+        assertThatThrownBy {
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(encodedFormOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("OpenFeign client does not support native form arrays")
+            .hasMessageContaining("POST /tokens (scopes)")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -335,5 +425,56 @@ class CodeGeneratorNativeClientModeTest {
               responses:
                 '204':
                   description: Uploaded
+        """.trimIndent()
+
+    private val formOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native form client
+          version: "1.0"
+        paths:
+          /tokens:
+            post:
+              operationId: createToken
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      required: [client_id]
+                      properties:
+                        client_id: { type: string }
+                        client_secret: { type: string }
+              responses:
+                '204': { description: Created }
+        """.trimIndent()
+
+    private val encodedFormOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Encoded native form client
+          version: "1.0"
+        paths:
+          /tokens:
+            post:
+              requestBody:
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      required: [scopes]
+                      properties:
+                        scopes:
+                          type: array
+                          items: { type: string }
+                    encoding:
+                      scopes:
+                        style: pipeDelimited
+                        explode: false
+              responses:
+                '204': { description: Created }
         """.trimIndent()
 }
