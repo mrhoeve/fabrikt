@@ -15,7 +15,7 @@ import java.nio.file.Paths
 
 class CodeGeneratorNativeMethodValidationTest {
     @ParameterizedTest
-    @EnumSource(ControllerCodeGenTargetType::class)
+    @EnumSource(ControllerCodeGenTargetType::class, names = ["SPRING"])
     fun `rejects OpenAPI 3_2 query operations unsupported by controller targets`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
@@ -26,6 +26,34 @@ class CodeGeneratorNativeMethodValidationTest {
             .isThrownBy { generator(queryOpenApi).generate() }
             .withMessageContaining("${target.name.lowercase().replaceFirstChar(Char::uppercase)} controller")
             .withMessageContaining("QUERY")
+    }
+
+    @ParameterizedTest
+    @EnumSource(ControllerCodeGenTargetType::class, names = ["MICRONAUT", "KTOR"])
+    fun `generates OpenAPI 3_2 query operations for supported controller targets`(target: ControllerCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = target,
+        )
+
+        val generated =
+            generator(queryOpenApi)
+                .generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        when (target) {
+            ControllerCodeGenTargetType.MICRONAUT ->
+                assertThat(generated)
+                    .contains("@CustomHttpMethod")
+                    .contains("method = \"QUERY\"")
+            ControllerCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("route(\"/subjects\", HttpMethod(\"QUERY\"))")
+                    .contains("handle {")
+            ControllerCodeGenTargetType.SPRING -> error("Spring custom methods are rejected before generation")
+        }
     }
 
     @ParameterizedTest
