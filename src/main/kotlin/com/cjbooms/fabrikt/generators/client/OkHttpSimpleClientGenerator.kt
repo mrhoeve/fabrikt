@@ -261,18 +261,24 @@ data class SimpleClientOperationStatement(
         return this
     }
 
-    /**
-     * Only supports `form` style query params with either explode true or false. See [Open API 3.0
-     * serialization](https://swagger.io/docs/specification/serialization) query parameters style values
-     */
     private fun CodeBlock.Builder.addQueryParamStatement(): CodeBlock.Builder {
+        if (!nativeGeneration) return addLegacyQueryParamStatement()
+        parameters
+            .filterIsInstance<RequestParameter>()
+            .filter { it.parameterLocation == QueryParam }
+            .forEach { addQueryParameter(it) }
+        this.add("\n.also { builder -> additionalQueryParameters.forEach { builder.queryParam(it.key, it.value) } }")
+        return this.add("\n.build()\n")
+    }
+
+    private fun CodeBlock.Builder.addLegacyQueryParamStatement(): CodeBlock.Builder {
         parameters
             .filterIsInstance<RequestParameter>()
             .filter { it.parameterLocation == QueryParam }
             .forEach {
                 when (it.typeInfo) {
                     is KotlinTypeInfo.Array ->
-                        this.add(
+                        add(
                             "\n.%T(%S, %N, %L)",
                             "queryParam".toClassName(packages.client),
                             it.originalName,
@@ -280,17 +286,95 @@ data class SimpleClientOperationStatement(
                             if (it.explode == null || it.explode) "true" else "false",
                         )
 
-                    else ->
-                        this.add(
-                            "\n.%T(%S, %N)",
-                            "queryParam".toClassName(packages.client),
-                            it.originalName,
-                            it.name,
-                        )
+                    else -> add("\n.%T(%S, %N)", "queryParam".toClassName(packages.client), it.originalName, it.name)
                 }
             }
-        this.add("\n.also { builder -> additionalQueryParameters.forEach { builder.queryParam(it.key, it.value) } }")
-        return this.add("\n.build()\n")
+        add("\n.also { builder -> additionalQueryParameters.forEach { builder.queryParam(it.key, it.value) } }")
+        return add("\n.build()\n")
+    }
+
+    private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.objectProperties.isNotEmpty()) {
+            addQueryObjectParameter(parameter)
+            return
+        }
+        val typeInfo = parameter.typeInfo
+        if (typeInfo is KotlinTypeInfo.Array) {
+            val style = parameter.style ?: "form"
+            val explode = parameter.explode ?: (style == "form")
+            val delimiter =
+                if (style == "spaceDelimited") {
+                    " "
+                } else if (style == "pipeDelimited") {
+                    "|"
+                } else {
+                    ","
+                }
+            val optional = !parameter.isRequired
+            add("\n.also { builder ->")
+            if (optional) add("\n%N?.let { values ->", parameter.name)
+            val valueName = if (optional) "values" else parameter.name
+            val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+            if (explode) {
+                add("\n%N.forEach { builder.addQueryParameter(%S, %L) }", valueName, parameter.originalName, itemValue)
+            } else {
+                val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
+                add("\nbuilder.addQueryParameter(%S, %N.joinToString(%S)$transform)", parameter.originalName, valueName, delimiter)
+            }
+            if (optional) add("\n}")
+            add("\n}")
+            return
+        }
+        if (typeInfo is KotlinTypeInfo.Enum) {
+            val optional = !parameter.isRequired
+            add("\n.also { builder ->")
+            if (optional) {
+                add("\n%N?.let { builder.addQueryParameter(%S, it.value) }", parameter.name, parameter.originalName)
+            } else {
+                add("\nbuilder.addQueryParameter(%S, %N.value)", parameter.originalName, parameter.name)
+            }
+            add("\n}")
+        } else {
+            add("\n.%T(%S, %N)", "queryParam".toClassName(packages.client), parameter.originalName, parameter.name)
+        }
+    }
+
+    private fun CodeBlock.Builder.addQueryObjectParameter(parameter: RequestParameter) {
+        add("\n.also { builder ->")
+        val optional = !parameter.isRequired
+        if (optional) add("\n%N?.let { value ->", parameter.name)
+        val valueName = if (optional) "value" else parameter.name
+        val explode = parameter.explode ?: (parameter.style == null || parameter.style == "form")
+        if (explode) {
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                val fieldName =
+                    if (parameter.style == "deepObject") {
+                        "${parameter.originalName}[${property.fieldName}]"
+                    } else {
+                        property.fieldName
+                    }
+                if (property.nullable) {
+                    add("\n%L?.let { builder.addQueryParameter(%S, %L) }", expression, fieldName, formValue("it", property.typeInfo))
+                } else {
+                    add("\nbuilder.addQueryParameter(%S, %L)", fieldName, formValue(expression, property.typeInfo))
+                }
+            }
+        } else {
+            add("\nbuilder.addQueryParameter(%S, buildList {", parameter.originalName)
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    add("\n%L?.let { add(%S); add(%L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    add("\nadd(%S)", property.fieldName)
+                    add("\nadd(%L)", formValue(expression, property.typeInfo))
+                }
+            }
+            add("\n}.joinToString(%S))", ",")
+        }
+        if (optional) add("\n}")
+        add("\n}")
     }
 
     private fun CodeBlock.Builder.addHeaderParamStatement(): CodeBlock.Builder {

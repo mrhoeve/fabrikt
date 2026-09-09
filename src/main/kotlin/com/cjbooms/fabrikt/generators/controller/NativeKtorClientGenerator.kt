@@ -439,27 +439,115 @@ internal class NativeKtorClientGenerator(
         addStatement("append(%P)", resolvedPath)
         addStatement("val params = buildList {")
         indent()
-        queryParams.forEach { parameter ->
-            if (parameter.typeInfo is KotlinTypeInfo.Array) {
-                addStatement(
-                    if (parameter.isRequired) "%N.forEach { add(\"%L=\${it}\") }" else "%N?.forEach { add(\"%L=\${it}\") }",
-                    parameter.name,
-                    parameter.originalName,
-                )
-            } else {
-                addStatement(
-                    if (parameter.isRequired) "add(\"%L=\${%N}\")" else "%N?.let { add(\"%L=\${it}\") }",
-                    parameter.originalName,
-                    parameter.name,
-                )
-            }
-        }
+        queryParams.forEach { addQueryParameter(it) }
         unindent()
         addStatement("}")
         addStatement("if (params.isNotEmpty()) append(\"?\").append(params.joinToString(\"&\"))")
         unindent()
         addStatement("}")
         return this
+    }
+
+    private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.objectProperties.isNotEmpty()) {
+            addQueryObjectParameter(parameter)
+            return
+        }
+        val typeInfo = parameter.typeInfo
+        if (typeInfo is KotlinTypeInfo.Array) {
+            val style = parameter.style ?: "form"
+            val explode = parameter.explode ?: (style == "form")
+            val delimiter =
+                if (style == "spaceDelimited") {
+                    " "
+                } else if (style == "pipeDelimited") {
+                    "|"
+                } else {
+                    ","
+                }
+            val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+            if (explode) {
+                addStatement(
+                    if (parameter.isRequired) "%N.forEach { add(%L) }" else "%N?.forEach { add(%L) }",
+                    parameter.name,
+                    queryPart(parameter.originalName, CodeBlock.of("%L", itemValue)),
+                )
+            } else if (parameter.isRequired) {
+                val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
+                addStatement(
+                    "add(%L)",
+                    queryPart(parameter.originalName, CodeBlock.of("%N.joinToString(%S)$transform", parameter.name, delimiter)),
+                )
+            } else {
+                addStatement("%N?.let { values ->", parameter.name)
+                indent()
+                val transform = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) " { it.value }" else ""
+                addStatement(
+                    "add(%L)",
+                    queryPart(parameter.originalName, CodeBlock.of("values.joinToString(%S)$transform", delimiter)),
+                )
+                unindent()
+                addStatement("}")
+            }
+            return
+        }
+        if (parameter.isRequired) {
+            addStatement("add(%L)", queryPart(parameter.originalName, formValue(parameter.name, typeInfo)))
+        } else {
+            addStatement("%N?.let { add(%L) }", parameter.name, queryPart(parameter.originalName, formValue("it", typeInfo)))
+        }
+    }
+
+    private fun CodeBlock.Builder.addQueryObjectParameter(parameter: RequestParameter) {
+        val optional = !parameter.isRequired
+        if (optional) {
+            addStatement("%N?.let { value ->", parameter.name)
+            indent()
+        }
+        val valueName = if (optional) "value" else parameter.name
+        val explode = parameter.explode ?: (parameter.style == null || parameter.style == "form")
+        if (explode) {
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                val fieldName =
+                    if (parameter.style == "deepObject") {
+                        "${parameter.originalName}[${property.fieldName}]"
+                    } else {
+                        property.fieldName
+                    }
+                if (property.nullable) {
+                    addStatement("%L?.let { add(%L) }", expression, queryPart(fieldName, formValue("it", property.typeInfo)))
+                } else {
+                    addStatement("add(%L)", queryPart(fieldName, formValue(expression, property.typeInfo)))
+                }
+            }
+        } else {
+            add("add(%S.%M() + \"=\" + buildList {\n", parameter.originalName, MemberName("io.ktor.http", "encodeURLParameter"))
+            indent()
+            parameter.objectProperties.forEach { property ->
+                val expression = "$valueName.${property.propertyName}"
+                if (property.nullable) {
+                    addStatement("%L?.let { add(%S); add(%L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                } else {
+                    addStatement("add(%S)", property.fieldName)
+                    addStatement("add(%L)", formValue(expression, property.typeInfo))
+                }
+            }
+            unindent()
+            addStatement("}.joinToString(%S).%M())", ",", MemberName("io.ktor.http", "encodeURLParameter"))
+        }
+        if (optional) {
+            unindent()
+            addStatement("}")
+        }
+    }
+
+    private fun queryPart(
+        name: String,
+        value: CodeBlock,
+    ): CodeBlock {
+        val encode = MemberName("io.ktor.http", "encodeURLParameter")
+        return CodeBlock.of("%S.%M() + \"=\" + (%L).%M()", name, encode, value, encode)
     }
 
     private fun clientRequestFunctionName(

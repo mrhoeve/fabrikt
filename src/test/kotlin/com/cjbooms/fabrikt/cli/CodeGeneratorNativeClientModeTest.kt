@@ -399,7 +399,7 @@ class CodeGeneratorNativeClientModeTest {
             ClientCodeGenTargetType.KTOR ->
                 assertThat(generated)
                     .contains("`header`(\"X-API-Key\", headerKey)")
-                    .contains("api_key=${'$'}{queryKey}")
+                    .contains("\"api_key\".encodeURLParameter()")
                     .contains("cookie(\"session_key\", cookieKey.toString())")
         }
     }

@@ -435,6 +435,7 @@ internal class GeneratorEndpointContext(
         val schema = parameter.schema ?: parameter.content.firstNotNullOfOrNull { it.effectiveSchema() } ?: return null
         val resolvedSchema = schemas.resolve(schema) as? GeneratorObjectSchema
         val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
+        val objectProperties = resolvedSchema?.formObjectProperties().orEmpty()
         return RequestParameter(
             oasName = name,
             description = parameter.description,
@@ -450,6 +451,7 @@ internal class GeneratorEndpointContext(
             style = parameter.style,
             explode = parameter.explode,
             allowReserved = parameter.allowReserved ?: false,
+            objectProperties = objectProperties,
             defaultValue = resolvedSchema?.metadata?.defaultValue?.toValue(),
         )
     }
@@ -528,6 +530,7 @@ internal class GeneratorEndpointContext(
                         style = parameter.style,
                         explode = parameter.explode,
                         allowReserved = parameter.allowReserved,
+                        objectProperties = parameter.objectProperties,
                         defaultValue = parameter.defaultValue,
                     )
             }
