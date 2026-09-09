@@ -168,7 +168,7 @@ internal class NativeModelGenerator(
     private fun GeneratorModelDescriptor.discriminatorMappings(members: List<GeneratorUnionMemberDescriptor>): Map<String, TypeName> {
         val mappings = discriminator?.mapping.orEmpty()
         return if (mappings.isEmpty()) {
-            members.associate { it.modelName() to it.typeName() }
+            members.mapNotNull { member -> member.modelName()?.let { it to member.typeName() } }.toMap()
         } else {
             mappings
                 .mapNotNull { (key, reference) ->
@@ -245,7 +245,7 @@ internal class NativeModelGenerator(
 
     private fun GeneratorUnionMemberDescriptor.typeName(): TypeName = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
 
-    private fun GeneratorUnionMemberDescriptor.modelName(): String = requireNotNull(kotlinType.typeInfo.generatedModelClassName)
+    private fun GeneratorUnionMemberDescriptor.modelName(): String? = kotlinType.typeInfo.generatedModelClassName
 
     private fun modelType(name: String): ClassName = ModelGenerator.generatedType(basePackage, name)
 
