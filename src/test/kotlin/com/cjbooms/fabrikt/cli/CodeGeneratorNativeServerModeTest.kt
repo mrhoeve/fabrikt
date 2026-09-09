@@ -9,6 +9,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
 import java.nio.file.Paths
 import java.util.stream.Stream
@@ -118,6 +119,63 @@ class CodeGeneratorNativeServerModeTest {
             .contains("@Part(value = \"description\") @Valid description: String?")
             .contains("@Part(value = \"subject-metadata\") @Valid subjectMetadata: SubjectMetadata")
             .doesNotContain("@Body")
+    }
+
+    @ParameterizedTest
+    @EnumSource(SerializationLibrary::class)
+    fun `generates multipart Ktor controllers from native operations`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("document: ByteArray")
+            .contains("attachments: List<")
+            .contains("priority: Int")
+            .contains("labels: List<String>?")
+            .contains("history: List<SubjectMetadata>?")
+            .contains("val multipartData = call.receiveMultipart()")
+            .contains("multipartData.forEachPart { part ->")
+            .contains("documentPart = part.provider().toByteArray()")
+            .contains("attachmentsParts += part.provider().toByteArray()")
+            .contains("parametersOf(\"priority\", priorityParts).getTypedOrFail<Int>(\"priority\")")
+            .contains("val attachments = attachmentsParts.takeIf { it.isNotEmpty() }")
+            .contains("MissingRequestParameterException(\"subject-metadata\")")
+            .contains("part.dispose()")
+
+        when (serializationLibrary) {
+            SerializationLibrary.JACKSON ->
+                assertThat(generated)
+                    .contains("com.fasterxml.jackson.databind.json.JsonMapper")
+                    .contains("attachments: List<ByteArray>?")
+                    .contains("multipartObjectMapper.readValue(part.value,")
+                    .contains("SubjectMetadata::class.java")
+            SerializationLibrary.JACKSON_3 ->
+                assertThat(generated)
+                    .contains("tools.jackson.databind.json.JsonMapper")
+                    .contains("attachments: List<ByteArray>?")
+                    .contains("multipartObjectMapper.readValue(part.value,")
+                    .contains("SubjectMetadata::class.java")
+            SerializationLibrary.KOTLINX_SERIALIZATION ->
+                assertThat(generated)
+                    .contains("attachments: List<@Contextual ByteArray>?")
+                    .contains("Json.decodeFromString<SubjectMetadata>(part.value)")
+                    .doesNotContain("multipartObjectMapper")
+        }
     }
 
     private val openApi =
@@ -230,15 +288,23 @@ class CodeGeneratorNativeServerModeTest {
                   multipart/form-data:
                     schema:
                       type: object
-                      required: [document, subject-metadata]
+                      required: [document, subject-metadata, priority]
                       properties:
                         document: { type: string, format: binary }
                         attachments:
                           type: array
                           items: { type: string, format: binary }
                         description: { type: string }
+                        priority: { type: integer, format: int32 }
+                        labels:
+                          type: array
+                          items: { type: string }
                         subject-metadata:
                           ${'$'}ref: '#/components/schemas/SubjectMetadata'
+                        history:
+                          type: array
+                          items:
+                            ${'$'}ref: '#/components/schemas/SubjectMetadata'
               responses:
                 '204': { description: Created }
         components:
