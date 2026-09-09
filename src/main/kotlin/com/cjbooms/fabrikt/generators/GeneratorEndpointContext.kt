@@ -4,6 +4,7 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratorDirectionalModelPlan
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolver
@@ -186,6 +187,23 @@ internal class GeneratorEndpointContext(
     fun hasMultipartRequestBody(operation: GeneratorOperation): Boolean =
         operation.requestBody?.content?.any { it.key.startsWith("multipart/form-data") } == true
 
+    fun requireScalarFormParameters(target: String) {
+        val unsupported =
+            operations.paths.flatMap { path ->
+                path.operations.flatMap { operation ->
+                    operation.requestBody
+                        ?.let(::bodyParameters)
+                        .orEmpty()
+                        .filterIsInstance<FormParameter>()
+                        .filter { it.typeInfo is KotlinTypeInfo.Array }
+                        .map { parameter -> "${operation.method.uppercase()} ${path.path} (${parameter.fieldName})" }
+                }
+            }
+        require(unsupported.isEmpty()) {
+            "$target does not support native form arrays for: ${unsupported.joinToString()}."
+        }
+    }
+
     fun successResponseType(
         operation: GeneratorOperation,
         basePackage: String,
@@ -238,6 +256,29 @@ internal class GeneratorEndpointContext(
                         },
                     isRequired = name in schema.requiredProperties,
                     isArray = SourceSchemaType.ARRAY in resolved.typesOrEmpty(),
+                )
+            }
+        }
+
+        val form = requestBody.content.firstOrNull { it.key.startsWith("application/x-www-form-urlencoded") }
+        if (form != null) {
+            val schema = form.effectiveSchema()?.let(schemas::resolve) as? GeneratorObjectSchema ?: return emptyList()
+            return schema.properties.map { (name, property) ->
+                val resolution = resolveType(property, GeneratorModelDirection.REQUEST)
+                val encoding = form.encoding[name]
+                require(resolution.typeInfo.supportsFormSerialization()) {
+                    "Native form generation does not yet support object-valued field '$name'."
+                }
+                FormParameter(
+                    oasName = name,
+                    description = (schemas.resolve(property) as? GeneratorObjectSchema)?.metadata?.description,
+                    type = toModelType(basePackage, resolution.typeInfo, resolution.nullable),
+                    isRequired = name in schema.requiredProperties,
+                    fieldName = name,
+                    typeInfo = resolution.typeInfo,
+                    style = encoding?.style ?: "form",
+                    explode = encoding?.explode ?: true,
+                    allowReserved = encoding?.allowReserved ?: false,
                 )
             }
         }
@@ -312,6 +353,18 @@ internal class GeneratorEndpointContext(
         if (parameters.map(IncomingParameter::name).distinct().size == parameters.size) return parameters
         return parameters.map { parameter ->
             when (parameter) {
+                is FormParameter ->
+                    FormParameter(
+                        oasName = "form_${parameter.oasName}".toKotlinParameterName(),
+                        description = parameter.description,
+                        type = parameter.type,
+                        isRequired = parameter.isRequired,
+                        fieldName = parameter.fieldName,
+                        typeInfo = parameter.typeInfo,
+                        style = parameter.style,
+                        explode = parameter.explode,
+                        allowReserved = parameter.allowReserved,
+                    )
                 is MultipartParameter ->
                     MultipartParameter(
                         oasName = "multipart_${parameter.oasName}".toKotlinParameterName(),
@@ -376,6 +429,12 @@ internal class GeneratorEndpointContext(
     private fun GeneratorObjectSchema?.isSimple(): Boolean =
         this != null &&
             types.any { it in setOf(SourceSchemaType.STRING, SourceSchemaType.INTEGER, SourceSchemaType.NUMBER, SourceSchemaType.BOOLEAN) }
+
+    private fun KotlinTypeInfo.supportsFormSerialization(): Boolean =
+        when (this) {
+            is KotlinTypeInfo.Array -> !parameterizedType.isComplexType
+            else -> !isComplexType
+        }
 
     private fun String.toResourceName(): String =
         split('/')

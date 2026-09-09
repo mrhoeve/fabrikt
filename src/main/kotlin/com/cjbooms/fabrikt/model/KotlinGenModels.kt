@@ -144,6 +144,18 @@ class MultipartParameter(
     val isArray: Boolean = schema?.type == "array",
 ) : IncomingParameter(oasName, description, type, isRequired)
 
+class FormParameter(
+    oasName: String,
+    description: String?,
+    type: TypeName,
+    isRequired: Boolean,
+    val fieldName: String,
+    val typeInfo: KotlinTypeInfo,
+    val style: String,
+    val explode: Boolean,
+    val allowReserved: Boolean,
+) : IncomingParameter(oasName, description, type, isRequired)
+
 class RequestParameter(
     oasName: String,
     description: String?,

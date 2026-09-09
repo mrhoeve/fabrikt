@@ -17,6 +17,7 @@ import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ClientType
+import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -138,12 +139,19 @@ object ClientGeneratorUtils {
         parameters: List<IncomingParameter>,
         annotateRequestParameterWith: ((parameter: RequestParameter) -> AnnotationSpec?)? = null,
         annotateBodyParameterWith: ((parameter: BodyParameter) -> AnnotationSpec?)? = null,
+        annotateFormParameterWith: ((parameter: FormParameter) -> AnnotationSpec?)? = null,
         multipartParameterToSpecBuilder: ((parameter: MultipartParameter) -> ParameterSpec.Builder)? = null,
     ): FunSpec.Builder {
         val specs =
             parameters.map {
                 val builder =
                     when (it) {
+                        is FormParameter -> {
+                            val builder = it.toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
+                            if (!it.isRequired) builder.defaultValue("null")
+                            annotateFormParameterWith?.invoke(it)?.let(builder::addAnnotation)
+                            builder
+                        }
                         is RequestParameter -> {
                             val builder = it.toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
                             if (it.defaultValue != null) {
