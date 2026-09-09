@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.generators.controller
 
 import com.squareup.kotlinpoet.ClassName
+import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
@@ -175,6 +176,45 @@ object KtorClientLibraryFiles {
                     ).build(),
             ).build()
     }
+
+    fun ktorHttpUtil(clientPackage: String): FileSpec =
+        FileSpec
+            .builder(clientPackage, "KtorHttpUtil")
+            .addFunction(
+                FunSpec
+                    .builder("encodeReservedQueryValue")
+                    .addModifiers(KModifier.INTERNAL)
+                    .receiver(String::class)
+                    .returns(String::class)
+                    .addCode(
+                        CodeBlock.of(
+                            """
+                            return buildString {
+                                var segmentStart = 0
+                                var index = 0
+                                while (index < this@encodeReservedQueryValue.length) {
+                                    val isPercentEncoded =
+                                        this@encodeReservedQueryValue[index] == '%%' &&
+                                            index + 2 < this@encodeReservedQueryValue.length &&
+                                            this@encodeReservedQueryValue[index + 1].digitToIntOrNull(16) != null &&
+                                            this@encodeReservedQueryValue[index + 2].digitToIntOrNull(16) != null
+                                    if (isPercentEncoded) {
+                                        append(this@encodeReservedQueryValue.substring(segmentStart, index).%M())
+                                        append(this@encodeReservedQueryValue, index, index + 3)
+                                        index += 3
+                                        segmentStart = index
+                                    } else {
+                                        index++
+                                    }
+                                }
+                                append(this@encodeReservedQueryValue.substring(segmentStart).%M())
+                            }
+                            """.trimIndent(),
+                            com.squareup.kotlinpoet.MemberName("io.ktor.http", "encodeURLQueryComponent"),
+                            com.squareup.kotlinpoet.MemberName("io.ktor.http", "encodeURLQueryComponent"),
+                        ),
+                    ).build(),
+            ).build()
 
     fun ktorApiConfiguration(
         clientPackage: String,
