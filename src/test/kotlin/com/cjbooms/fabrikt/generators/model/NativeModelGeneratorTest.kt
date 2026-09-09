@@ -304,6 +304,19 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `uses JsonElement for native untyped Kotlinx values`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val subject = generateUntypedValues(version)
+
+        assertThat(subject)
+            .contains("public val `value`: JsonElement")
+            .contains("public val valuesByKey: Map<String, JsonElement?>")
+            .doesNotContain("kotlin.Any")
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `applies native reference siblings to generated models`(version: String) {
         val generated = generateReferenceSiblings(version)
@@ -447,6 +460,18 @@ class NativeModelGeneratorTest {
                 ),
             ).files
             .associate { it.name to it.toString() }
+
+    private fun generateUntypedValues(version: String): String =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(untypedValuesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .single { it.name == "Subject" }
+            .toString()
 
     private fun generateDirectionalProperties(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -738,6 +763,25 @@ class NativeModelGeneratorTest {
                 tags:
                   ${'$'}ref: '#/components/schemas/Tags'
                   maxItems: 4
+        """.trimIndent()
+
+    private val untypedValuesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [value, valuesByKey]
+              properties:
+                value: {}
+                valuesByKey:
+                  type: object
+                  additionalProperties: true
         """.trimIndent()
 
     private val componentNamesOpenApi =
