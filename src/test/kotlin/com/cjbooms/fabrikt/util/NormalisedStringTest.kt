@@ -60,6 +60,11 @@ class NormalisedStringTest {
     }
 
     @Test
+    fun `toEnumName should give an empty wire value a valid identifier`() {
+        assertThat("".toEnumName()).isEqualTo("EMPTY")
+    }
+
+    @Test
     fun `camelCase should preserve single leading underscore to distinguish from non-prefixed name`() {
         assertThat("_foo".camelCase()).isEqualTo("_foo")
     }
