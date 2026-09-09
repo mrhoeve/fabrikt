@@ -38,7 +38,7 @@ class CodeGeneratorNativeServerModeTest {
             .contains("public enum class Status(")
             .contains("status: List<Status>?")
             .contains("public data class CreateTokenRequest(")
-            .contains("createTokenRequest: CreateTokenRequest")
+            .contains("@RequestParam(value = \"client_id\", required = true) clientId: String")
             .contains("public data class CreateToken200Response(")
             .contains("ResponseEntity<CreateToken200Response>")
             .doesNotContain("models.Items")
@@ -178,6 +178,42 @@ class CodeGeneratorNativeServerModeTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ControllerCodeGenTargetType::class)
+    fun `generates form urlencoded controllers from native operations`(target: ControllerCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(formOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("clientId: String")
+            .contains("scopes: List<String>?")
+        when (target) {
+            ControllerCodeGenTargetType.SPRING ->
+                assertThat(generated).contains("@RequestParam(value = \"client_id\", required = true) clientId: String")
+            ControllerCodeGenTargetType.MICRONAUT ->
+                assertThat(generated).contains("@Body(\"client_id\") clientId: String")
+            ControllerCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("val formFields = call.receiveParameters()")
+                    .contains("formFields.getTypedOrFail<String>(\"client_id\"")
+                    .contains("formFields.getTyped<List<String>>(\"scopes\"")
+        }
+    }
+
     private val openApi =
         """
         openapi: VERSION
@@ -314,6 +350,32 @@ class CodeGeneratorNativeServerModeTest {
               required: [name]
               properties:
                 name: { type: string }
+        """.trimIndent()
+
+    private val formOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native form server
+          version: "1.0"
+        paths:
+          /tokens:
+            post:
+              operationId: createToken
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      required: [client_id]
+                      properties:
+                        client_id: { type: string }
+                        scopes:
+                          type: array
+                          items: { type: string }
+              responses:
+                '204': { description: Created }
         """.trimIndent()
 
     companion object {
