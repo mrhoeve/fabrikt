@@ -13,6 +13,8 @@ class GeneratorOperationAdapterParityTest {
 
         assertThat(native.basePath).isEqualTo(legacy.basePath)
         assertThat(native.security).isEqualTo(legacy.security)
+        assertThat(native.securitySchemes.keys).isEqualTo(legacy.securitySchemes.keys)
+        assertThat(native.securitySchemes.getValue("oauth").type).isEqualTo(legacy.securitySchemes.getValue("oauth").type)
         assertThat(native.paths.map(GeneratorPathItem::path)).isEqualTo(legacy.paths.map(GeneratorPathItem::path))
 
         val legacyOperation =
@@ -48,6 +50,33 @@ class GeneratorOperationAdapterParityTest {
             .isEqualTo(legacyResponse.content.map(GeneratorMediaType::key))
         assertThat(GeneratorSchemaTypeClassifier.classify(nativeResponse.content.single().schema!!))
             .isEqualTo(GeneratorSchemaTypeClassifier.classify(legacyResponse.content.single().schema!!))
+    }
+
+    @Test
+    fun `preserves native security scheme definitions`() {
+        val native = OpenApiDocumentParser.parse(securitySchemesOpenApi).toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+
+        assertThat(native.securitySchemes.keys).containsExactly("ApiKey", "Bearer", "OAuth", "Referenced")
+        val apiKey = native.securitySchemes.getValue("ApiKey")
+        assertThat(apiKey.type).isEqualTo("apiKey")
+        assertThat(apiKey.parameterName).isEqualTo("X-API-Key")
+        assertThat(apiKey.placement).isEqualTo("header")
+        assertThat(apiKey.deprecated).isTrue()
+        assertThat(apiKey.extensions).containsOnlyKeys("x-managed")
+        val bearer = native.securitySchemes.getValue("Bearer")
+        assertThat(bearer.scheme).isEqualTo("bearer")
+        assertThat(bearer.bearerFormat).isEqualTo("JWT")
+        val oauthFlow =
+            native.securitySchemes
+                .getValue("OAuth")
+                .flows
+                .single()
+        assertThat(oauthFlow.type).isEqualTo("deviceAuthorization")
+        assertThat(oauthFlow.deviceAuthorizationUrl).isEqualTo("https://auth.example.com/device")
+        assertThat(oauthFlow.tokenUrl).isEqualTo("https://auth.example.com/token")
+        assertThat(oauthFlow.scopes).containsEntry("items:read", "Read items")
+        assertThat(native.securitySchemes.getValue("Referenced"))
+            .isEqualTo(native.securitySchemes.getValue("Bearer").copy(name = "Referenced"))
     }
 
     @Test
@@ -192,5 +221,36 @@ class GeneratorOperationAdapterParityTest {
               poll:
                 responses:
                   '204': { description: pending }
+        """.trimIndent()
+
+    private val securitySchemesOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Security schemes
+          version: "1.0"
+        paths: {}
+        components:
+          securitySchemes:
+            ApiKey:
+              type: apiKey
+              name: X-API-Key
+              in: header
+              deprecated: true
+              x-managed: true
+            Bearer:
+              type: http
+              scheme: bearer
+              bearerFormat: JWT
+            OAuth:
+              type: oauth2
+              flows:
+                deviceAuthorization:
+                  deviceAuthorizationUrl: https://auth.example.com/device
+                  tokenUrl: https://auth.example.com/token
+                  scopes:
+                    items:read: Read items
+            Referenced:
+              ${'$'}ref: '#/components/securitySchemes/Bearer'
         """.trimIndent()
 }
