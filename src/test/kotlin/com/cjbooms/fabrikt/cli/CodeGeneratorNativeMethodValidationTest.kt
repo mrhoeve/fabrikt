@@ -87,7 +87,7 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ControllerCodeGenTargetType::class, names = ["MICRONAUT", "KTOR"])
+    @EnumSource(ControllerCodeGenTargetType::class, names = ["KTOR"])
     fun `rejects multipart operations unsupported by controller targets`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
@@ -101,10 +101,16 @@ class CodeGeneratorNativeMethodValidationTest {
     }
 
     @Test
-    fun `allows multipart generation for Spring controllers and supported clients`() {
+    fun `allows multipart generation for supported controllers and clients`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
             controllerTarget = ControllerCodeGenTargetType.SPRING,
+        )
+        assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
+
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.MICRONAUT,
         )
         assertThatNoException().isThrownBy { generator(multipartOpenApi).generate() }
 

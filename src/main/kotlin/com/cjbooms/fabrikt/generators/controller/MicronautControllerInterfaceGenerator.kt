@@ -196,9 +196,16 @@ class MicronautControllerInterfaceGenerator(
         parameters
             .map {
                 when (it) {
-                    is MultipartParameter -> throw UnsupportedOperationException(
-                        "Multipart parameters are not supported for Micronaut controllers",
-                    )
+                    is MultipartParameter ->
+                        it
+                            .toParameterSpecBuilder()
+                            .addAnnotation(
+                                AnnotationSpec
+                                    .builder(MicronautImports.PART)
+                                    .addMember("value = %S", it.partName)
+                                    .build(),
+                            ).maybeAddAnnotation(validationAnnotations.parameterValid())
+                            .build()
                     is BodyParameter ->
                         it
                             .toParameterSpecBuilder()
