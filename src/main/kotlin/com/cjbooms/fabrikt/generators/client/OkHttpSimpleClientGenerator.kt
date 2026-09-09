@@ -363,7 +363,7 @@ data class SimpleClientOperationStatement(
                 "HEAD" -> this.add("\n.head()")
                 "GET" -> this.add("\n.get()")
                 "DELETE" -> this.add("\n.delete()")
-                else -> throw NotImplementedError("API operation $op is not supported")
+                else -> this.addGenericRequestStatement(op)
             }
         }
         return this.add("\n.build()\n")
@@ -397,6 +397,28 @@ data class SimpleClientOperationStatement(
                 "toMediaType".toClassName("okhttp3.MediaType.Companion"),
             )
         } ?: this.add("\n.%N(ByteArray(0).%T())", verb, toRequestBody)
+    }
+
+    private fun CodeBlock.Builder.addGenericRequestStatement(verb: String) {
+        add("\n.method(\n")
+        indent()
+        add("%S,\n", verb)
+        val body = parameters.filterIsInstance<BodyParameter>().firstOrNull()
+        if (body == null) {
+            add("null")
+            unindent()
+            add("\n)")
+            return
+        }
+        add(
+            "objectMapper.writeValueAsString(%N).%T(%S.%T())",
+            body.name,
+            "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
+            requestContentType ?: "application/json",
+            "toMediaType".toClassName("okhttp3.MediaType.Companion"),
+        )
+        unindent()
+        add("\n)")
     }
 
     private fun CodeBlock.Builder.addMultipartBodyStatement() {
