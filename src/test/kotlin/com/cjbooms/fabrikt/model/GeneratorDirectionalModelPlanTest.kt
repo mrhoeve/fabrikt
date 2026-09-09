@@ -97,6 +97,21 @@ class GeneratorDirectionalModelPlanTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `allocates directional names without colliding with component models`(version: String) {
+        val plan = plan(version, collidingNamesOpenApi)
+        val names = plan.descriptors.map(GeneratorModelDescriptor::name)
+        val requestType =
+            plan.resolve(
+                GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.Object("Credentials"), false),
+                GeneratorModelDirection.REQUEST,
+            )
+
+        assertThat(names).contains("CredentialsRequest", "CredentialsRequest2", "CredentialsResponse")
+        assertThat(requestType.typeInfo.generatedModelClassName).isEqualTo("CredentialsRequest2")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `projects complete oneOf hierarchies by direction`(version: String) {
         val generated =
             NativeModelGenerator("com.example")
@@ -114,11 +129,14 @@ class GeneratorDirectionalModelPlanTest {
         assertThat(generated.getValue("DogResponse")).contains(") : PetResponse")
     }
 
-    private fun plan(version: String): GeneratorDirectionalModelPlan =
+    private fun plan(
+        version: String,
+        input: String = openApi,
+    ): GeneratorDirectionalModelPlan =
         GeneratorDirectionalModelPlan.create(
             GeneratorModelDescriptorBuilder.build(
                 OpenApiDocumentParser
-                    .parse(openApi.replace("VERSION", version))
+                    .parse(input.replace("VERSION", version))
                     .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
             ),
         )
@@ -184,5 +202,26 @@ class GeneratorDirectionalModelPlanTest {
               oneOf:
                 - ${'$'}ref: '#/components/schemas/Cat'
                 - ${'$'}ref: '#/components/schemas/Dog'
+        """.trimIndent()
+
+    private val collidingNamesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Credentials:
+              type: object
+              properties:
+                identifier:
+                  type: string
+                  readOnly: true
+            CredentialsRequest:
+              type: object
+              properties:
+                value: { type: string }
         """.trimIndent()
 }
