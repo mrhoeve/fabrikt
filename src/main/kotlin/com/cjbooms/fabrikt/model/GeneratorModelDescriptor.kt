@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorBooleanSchema
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorReferenceSiblingSchema
@@ -68,7 +69,9 @@ internal object GeneratorModelDescriptorBuilder {
         val modelSchemas = collectModelSchemas(document)
         val registeredModelNames = modelSchemas.registeredModelNames()
         val typeResolver = GeneratorKotlinTypeResolver(document, registeredModelNames)
-        return modelSchemas.map { model -> model.schema.toDescriptor(model.name, document, typeResolver) }
+        return modelSchemas.map { model ->
+            model.schema.toDescriptor(model.name + MutableSettings.modelSuffix, document, typeResolver)
+        }
     }
 
     fun registeredModelNames(document: GeneratorSchemaDocument): Map<GeneratorSchemaIdentity, String> =

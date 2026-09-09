@@ -1,14 +1,21 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.model.NativeModelGenerator
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
 class GeneratorDirectionalModelPlanTest {
+    @BeforeEach
+    fun resetSettings() {
+        MutableSettings.updateSettings()
+    }
+
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `creates filtered request and response variants for directional models`(version: String) {
@@ -38,16 +45,54 @@ class GeneratorDirectionalModelPlanTest {
             models
                 .getValue("EnvelopeRequest")
                 .properties
-                .single()
+                .single { it.name == "credentials" }
                 .resolvedTypeName(),
         ).isEqualTo("CredentialsRequest")
         assertThat(
             models
                 .getValue("EnvelopeResponse")
                 .properties
-                .single()
+                .single { it.name == "credentials" }
                 .resolvedTypeName(),
         ).isEqualTo("CredentialsResponse")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `propagates direction through nested maps`(version: String) {
+        val models = plan(version).descriptors.associateBy(GeneratorModelDescriptor::name)
+
+        assertThat(
+            models
+                .getValue("EnvelopeRequest")
+                .properties
+                .single { it.name == "credentialsByName" }
+                .resolvedMapTypeName(),
+        ).isEqualTo("CredentialsRequest")
+        assertThat(
+            models
+                .getValue("EnvelopeResponse")
+                .properties
+                .single { it.name == "credentialsByName" }
+                .resolvedMapTypeName(),
+        ).isEqualTo("CredentialsResponse")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `places direction before the configured model suffix`(version: String) {
+        MutableSettings.updateSettings(modelSuffix = "Dto")
+
+        val models = plan(version).descriptors.associateBy(GeneratorModelDescriptor::name)
+
+        assertThat(models).containsKeys("CredentialsDto", "CredentialsRequestDto", "CredentialsResponseDto")
+        assertThat(
+            models
+                .getValue("EnvelopeRequestDto")
+                .properties
+                .single { it.name == "credentials" }
+                .resolvedTypeName(),
+        ).isEqualTo("CredentialsRequestDto")
     }
 
     @ParameterizedTest
@@ -84,6 +129,12 @@ class GeneratorDirectionalModelPlanTest {
         return list.parameterizedType.generatedModelClassName
     }
 
+    private fun GeneratorPropertyDescriptor.resolvedMapTypeName(): String? {
+        val resolution = kotlinType as GeneratorKotlinTypeResolution.Resolved
+        val map = resolution.typeInfo as KotlinTypeInfo.Map
+        return map.parameterizedType.generatedModelClassName
+    }
+
     private val openApi =
         """
         openapi: VERSION
@@ -111,6 +162,10 @@ class GeneratorDirectionalModelPlanTest {
                 credentials:
                   type: array
                   items:
+                    ${'$'}ref: '#/components/schemas/Credentials'
+                credentialsByName:
+                  type: object
+                  additionalProperties:
                     ${'$'}ref: '#/components/schemas/Credentials'
             Cat:
               type: object

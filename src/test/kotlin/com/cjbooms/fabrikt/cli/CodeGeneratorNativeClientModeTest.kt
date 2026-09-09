@@ -13,6 +13,34 @@ import org.junit.jupiter.params.provider.EnumSource
 import java.nio.file.Paths
 
 class CodeGeneratorNativeClientModeTest {
+    @Test
+    fun `keeps model suffixes at the end of directional native model names`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.SPRING_HTTP_INTERFACE,
+            modelSuffix = "Dto",
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(openApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("public data class SubjectRequestDto(")
+            .contains("public data class SubjectResponseDto(")
+            .contains("subjectRequestDto: SubjectRequestDto")
+            .contains("): SubjectResponseDto")
+            .doesNotContain("SubjectDtoRequest", "SubjectDtoResponse")
+    }
+
     @ParameterizedTest
     @EnumSource(ClientCodeGenTargetType::class)
     fun `generates usable clients from native operations`(target: ClientCodeGenTargetType) {

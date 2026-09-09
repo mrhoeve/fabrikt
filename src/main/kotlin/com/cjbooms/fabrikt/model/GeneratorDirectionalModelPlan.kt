@@ -1,5 +1,7 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.generators.MutableSettings
+
 internal class GeneratorDirectionalModelPlan private constructor(
     val descriptors: List<GeneratorModelDescriptor>,
     private val variantNames: Map<VariantKey, String>,
@@ -90,7 +92,9 @@ internal class GeneratorDirectionalModelPlan private constructor(
             direction: GeneratorModelDirection,
             allocatedNames: MutableSet<String>,
         ): String {
-            val suggestion = baseName + direction.name.lowercase().replaceFirstChar(Char::uppercase)
+            val suffix = MutableSettings.modelSuffix.takeIf(baseName::endsWith).orEmpty()
+            val stem = baseName.removeSuffix(suffix)
+            val suggestion = stem + direction.name.lowercase().replaceFirstChar(Char::uppercase) + suffix
             if (allocatedNames.add(suggestion)) return suggestion
             var index = 2
             while (!allocatedNames.add("$suggestion$index")) index++
