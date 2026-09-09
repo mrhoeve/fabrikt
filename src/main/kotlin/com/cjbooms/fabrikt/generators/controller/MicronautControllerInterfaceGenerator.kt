@@ -325,12 +325,14 @@ class MicronautControllerInterfaceGenerator(
                 ?.map { it.key }
                 .orEmpty()
                 .toTypedArray()
-        addAnnotation(
-            AnnotationSpec
-                .builder(MicronautImports.HttpMethods.byName(operation.method))
+        val methodAnnotation =
+            MicronautImports.HttpMethods.byNameOrNull(operation.method)?.let {
+                AnnotationSpec.builder(it).addMember("uri = %S", path)
+            } ?: AnnotationSpec
+                .builder(MicronautImports.HttpMethods.CUSTOM)
                 .addMember("uri = %S", path)
-                .build(),
-        )
+                .addMember("method = %S", operation.method.uppercase())
+        addAnnotation(methodAnnotation.build())
         if (consumes.isNotEmpty()) {
             addAnnotation(
                 AnnotationSpec
