@@ -20,6 +20,7 @@ import com.cjbooms.fabrikt.generators.client.ClientGeneratorUtils.simpleClientNa
 import com.cjbooms.fabrikt.generators.client.ClientGeneratorUtils.toClientReturnType
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.OBJECT_MAPPER_CLASS
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.TYPE_REFERENCE_IMPORT
+import com.cjbooms.fabrikt.generators.toWireValue
 import com.cjbooms.fabrikt.model.BodyParameter
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.CookieParam
@@ -174,6 +175,7 @@ class OkHttpSimpleClientGenerator(
             .addAnnotation(
                 AnnotationSpec.builder(Throws::class).addMember("%T::class", "ApiException".toClassName(packages.client)).build(),
             ).addIncomingParameters(parameters, multipartParameterToSpecBuilder = multipartParameterToSpecBuilder.toSpecBuilder())
+            .addNativeMultipartHeaderParameters(parameters)
             .addParameter(
                 ParameterSpec
                     .builder(
@@ -202,6 +204,13 @@ class OkHttpSimpleClientGenerator(
                 ).toStatement(),
             ).returns("ApiResponse".toClassName(packages.client).parameterizedBy(returnType))
             .build()
+    }
+
+    private fun FunSpec.Builder.addNativeMultipartHeaderParameters(parameters: List<IncomingParameter>): FunSpec.Builder {
+        parameters.filterIsInstance<MultipartParameter>().forEach { part ->
+            part.headers.forEach { header -> addParameter(header.toParameterSpecBuilder(part).build()) }
+        }
+        return this
     }
 
     fun generateLibrary(options: Set<ClientCodeGenOptionType>): Collection<GeneratedFile> {
@@ -579,10 +588,15 @@ data class SimpleClientOperationStatement(
             .filter { it.isBinaryFile && it.isArray }
             .forEach { param ->
                 this.add("\n%N?.forEachIndexed { index, fileData ->", param.name)
-                this.add(
-                    "\n      multipartBuilder.addFormDataPart(%S, fileData.filename, fileData.requestBody)",
-                    param.partName,
-                )
+                if (param.headers.isEmpty()) {
+                    this.add(
+                        "\n      multipartBuilder.addFormDataPart(%S, fileData.filename, fileData.requestBody)",
+                        param.partName,
+                    )
+                } else {
+                    addMultipartPartHeaders(param, "fileData.filename", "index")
+                    this.add("\n      multipartBuilder.addPart(${param.name}PartHeaders, fileData.requestBody)")
+                }
                 this.add("\n}")
             }
 
@@ -594,12 +608,17 @@ data class SimpleClientOperationStatement(
                 if (!param.isRequired) this.add("\n%N?.let {", param.name)
                 when {
                     param.isBinaryFile -> {
-                        this.add(
-                            "\n    multipartBuilder.addFormDataPart(%S, %N.filename, %N.requestBody)",
-                            param.partName,
-                            param.name,
-                            param.name,
-                        )
+                        if (nativeGeneration && param.headers.isNotEmpty()) {
+                            addMultipartPartHeaders(param, "${param.name}.filename")
+                            this.add("\n    multipartBuilder.addPart(${param.name}PartHeaders, %N.requestBody)", param.name)
+                        } else {
+                            this.add(
+                                "\n    multipartBuilder.addFormDataPart(%S, %N.filename, %N.requestBody)",
+                                param.partName,
+                                param.name,
+                                param.name,
+                            )
+                        }
                     }
 
                     !nativeGeneration && param.contentType == "application/json" -> {
@@ -625,14 +644,20 @@ data class SimpleClientOperationStatement(
                             } else {
                                 CodeBlock.of("%N.toString()", param.name)
                             }
-                        this.add(
-                            "\n    multipartBuilder.addFormDataPart(%S, null, %L.%T(%S.%T()))",
-                            param.partName,
-                            value,
-                            "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
-                            param.contentType ?: "text/plain",
-                            "toMediaType".toClassName("okhttp3.MediaType.Companion"),
-                        )
+                        val requestBody =
+                            CodeBlock.of(
+                                "%L.%T(%S.%T())",
+                                value,
+                                "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
+                                param.contentType ?: "text/plain",
+                                "toMediaType".toClassName("okhttp3.MediaType.Companion"),
+                            )
+                        if (param.headers.isEmpty()) {
+                            this.add("\n    multipartBuilder.addFormDataPart(%S, null, %L)", param.partName, requestBody)
+                        } else {
+                            addMultipartPartHeaders(param)
+                            this.add("\n    multipartBuilder.addPart(${param.name}PartHeaders, %L)", requestBody)
+                        }
                     }
                 }
                 if (!param.isRequired) this.add("\n}")
@@ -640,6 +665,55 @@ data class SimpleClientOperationStatement(
 
         this.add("\nval multipartBody = multipartBuilder.build()")
     }
+
+    private fun CodeBlock.Builder.addMultipartPartHeaders(
+        parameter: MultipartParameter,
+        filename: String? = null,
+        index: String? = null,
+    ) {
+        val contentDisposition =
+            if (filename == null) {
+                CodeBlock.of("%S", "form-data; name=\"${parameter.partName}\"")
+            } else {
+                CodeBlock.of("%S + %L + %S", "form-data; name=\"${parameter.partName}\"; filename=\"", filename, "\"")
+            }
+        add("\n    val ${parameter.name}PartHeadersBuilder = %T.Builder()", "Headers".toClassName("okhttp3"))
+        add("\n      .add(%S, %L)", "Content-Disposition", contentDisposition)
+        parameter.headers.forEach { header ->
+            val headerValue = parameter.headerValue(header.name, index)
+            if (header.isRequired) {
+                add(
+                    "\n    ${parameter.name}PartHeadersBuilder.add(%S, %L)",
+                    header.originalName,
+                    header.toWireValue(headerValue.requiredValue),
+                )
+            } else {
+                add(
+                    "\n    %L?.let { ${parameter.name}PartHeadersBuilder.add(%S, %L) }",
+                    headerValue.expression,
+                    header.originalName,
+                    header.toWireValue("it"),
+                )
+            }
+        }
+        add("\n    val ${parameter.name}PartHeaders = ${parameter.name}PartHeadersBuilder.build()")
+    }
+
+    private fun MultipartParameter.headerValue(
+        name: String,
+        index: String?,
+    ): MultipartHeaderValue =
+        when {
+            isArray && isRequired -> MultipartHeaderValue("$name.getOrNull($index)", "requireNotNull($name.getOrNull($index))")
+            isArray -> MultipartHeaderValue("$name?.getOrNull($index)", "requireNotNull($name?.getOrNull($index))")
+            isRequired -> MultipartHeaderValue(name, name)
+            else -> MultipartHeaderValue(name, "requireNotNull($name)")
+        }
+
+    private data class MultipartHeaderValue(
+        val expression: String,
+        val requiredValue: String,
+    )
 
     private fun String?.isJsonMediaType(): Boolean = this == "application/json" || this?.substringBefore(';')?.endsWith("+json") == true
 
