@@ -164,6 +164,8 @@ class KtorControllerInterfaceGenerator(
                         .addFunction(getTypedOrFailFun)
                         .addFunction(getTypedHeaderFun)
                         .addFunction(getTypedHeaderOrFailFun)
+                        .addFunction(getTypedCookieFun)
+                        .addFunction(getTypedCookieOrFailFun)
                         .addFunction(getOrFailFun)
                         .build(),
                 )
@@ -197,9 +199,7 @@ class KtorControllerInterfaceGenerator(
             }
         }
         cookieParams.forEach { parameter ->
-            builder.addParameter(
-                ParameterSpec.builder(parameter.name, String::class.asTypeName().copy(nullable = !parameter.isRequired)).build(),
-            )
+            builder.addParameter(parameter.toParameterSpecBuilder().build())
         }
         (pathParams + queryParams).forEach { parameter ->
             builder.addParameter(parameter.toParameterSpecBuilder().build())
@@ -323,16 +323,23 @@ class KtorControllerInterfaceGenerator(
             }
         }
         cookieParams.forEach { parameter ->
-            if (parameter.isRequired) {
+            val type = parameter.type.copy(nullable = false)
+            val method = if (parameter.isRequired) "getTypedCookieOrFail" else "getTypedCookie"
+            val splitValues = parameter.typeInfo is KotlinTypeInfo.Array && parameter.explode == false
+            if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.cookies[\"${parameter.originalName}\"] ?: throw %M(\"${parameter.originalName}\")",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)",
                     MemberName("io.ktor.server.application", "call"),
-                    MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
+                    MemberName(packages.controllers, method),
+                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                    splitValues,
                 )
             } else {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.cookies[\"${parameter.originalName}\"]",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)",
                     MemberName("io.ktor.server.application", "call"),
+                    MemberName(packages.controllers, method),
+                    splitValues,
                 )
             }
         }
@@ -1004,6 +1011,10 @@ class KtorControllerInterfaceGenerator(
 
     private val getTypedHeaderOrFailFun = typedHeaderFunction(required = true)
 
+    private val getTypedCookieFun = typedCookieFunction(required = false)
+
+    private val getTypedCookieOrFailFun = typedCookieFunction(required = true)
+
     private fun typedHeaderFunction(required: Boolean): FunSpec {
         val returnType = TypeVariableName("R", Any::class).copy(nullable = !required, reified = true)
         val conversionServiceParameter =
@@ -1032,6 +1043,52 @@ class KtorControllerInterfaceGenerator(
             .addTypeVariable(returnType)
             .returns(returnType)
             .addStatement("val values = %L", values)
+            .addStatement("val convertedValues = if (splitValues) values.flatMap { it.split(%S) } else values", ",")
+            .addStatement("val typeInfo = %M<R>()", MemberName("io.ktor.util.reflect", "typeInfo"))
+            .beginControlFlow("return try")
+            .addStatement("@Suppress(%S)", "UNCHECKED_CAST")
+            .addStatement("conversionService.fromValues(convertedValues, typeInfo) as R")
+            .nextControlFlow("catch (cause: Exception)")
+            .addStatement(
+                "throw %M(name, typeInfo.type.simpleName ?: typeInfo.type.toString(), cause)",
+                MemberName("io.ktor.server.plugins", "ParameterConversionException"),
+            ).endControlFlow()
+            .build()
+    }
+
+    private fun typedCookieFunction(required: Boolean): FunSpec {
+        val returnType = TypeVariableName("R", Any::class).copy(nullable = !required, reified = true)
+        val conversionServiceParameter =
+            ParameterSpec
+                .builder("conversionService", ClassName("io.ktor.util.converters", "ConversionService"))
+                .defaultValue("%T", ClassName("io.ktor.util.converters", "DefaultConversionService"))
+                .build()
+        val missingValue =
+            if (required) {
+                CodeBlock.of(
+                    "throw %M(name)",
+                    MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
+                )
+            } else {
+                CodeBlock.of("return null")
+            }
+        return FunSpec
+            .builder(if (required) "getTypedCookieOrFail" else "getTypedCookie")
+            .addModifiers(KModifier.INLINE, KModifier.PRIVATE)
+            .receiver(ClassName("io.ktor.http", "Headers"))
+            .addParameter("name", String::class)
+            .addParameter(conversionServiceParameter)
+            .addParameter(ParameterSpec.builder("splitValues", Boolean::class).defaultValue("false").build())
+            .addTypeVariable(returnType)
+            .returns(returnType)
+            .addStatement("val values = getAll(%T.Cookie).orEmpty()", ClassName("io.ktor.http", "HttpHeaders"))
+            .addStatement("    .flatMap { header -> header.split(%S) }", ";")
+            .addStatement("    .mapNotNull { cookie ->")
+            .addStatement("        val separator = cookie.indexOf(%S)", "=")
+            .addStatement("        if (separator < 0 || cookie.substring(0, separator).trim() != name) null")
+            .addStatement("        else cookie.substring(separator + 1).trim()")
+            .addStatement("    }")
+            .addStatement("if (values.isEmpty()) %L", missingValue)
             .addStatement("val convertedValues = if (splitValues) values.flatMap { it.split(%S) } else values", ",")
             .addStatement("val typeInfo = %M<R>()", MemberName("io.ktor.util.reflect", "typeInfo"))
             .beginControlFlow("return try")
