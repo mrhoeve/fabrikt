@@ -175,6 +175,50 @@ class CodeGeneratorNativeClientModeTest {
             .contains("@Param(\"description\") description: String?")
     }
 
+    @ParameterizedTest
+    @EnumSource(SerializationLibrary::class)
+    fun `generates multipart Ktor clients from native operations`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("MultiPartFormDataContent(")
+            .contains("formData {")
+            .contains("\"document\",\n                document,")
+            .contains("description?.let { part ->")
+            .contains("documents?.forEach { part ->")
+            .contains("filename=\\\"document\\\"")
+        when (serializationLibrary) {
+            SerializationLibrary.JACKSON ->
+                assertThat(generated)
+                    .contains("com.fasterxml.jackson.databind.json.JsonMapper")
+                    .contains("multipartObjectMapper.writeValueAsString(part)")
+            SerializationLibrary.JACKSON_3 ->
+                assertThat(generated)
+                    .contains("tools.jackson.databind.json.JsonMapper")
+                    .contains("multipartObjectMapper.writeValueAsString(part)")
+            SerializationLibrary.KOTLINX_SERIALIZATION ->
+                assertThat(generated)
+                    .contains("Json.encodeToString(part)")
+                    .doesNotContain("multipartObjectMapper")
+        }
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -281,6 +325,13 @@ class CodeGeneratorNativeClientModeTest {
                       properties:
                         document: { type: string, format: binary }
                         description: { type: string }
+                        documents:
+                          type: array
+                          items: { type: string, format: binary }
+                        metadata:
+                          type: object
+                          properties:
+                            title: { type: string }
               responses:
                 '204':
                   description: Uploaded
