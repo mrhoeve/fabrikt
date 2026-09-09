@@ -96,6 +96,45 @@ class NativeExternalModelGeneratorTest {
             .contains("public val second: Second")
     }
 
+    @Test
+    fun `discovers external models nested below composition members`() {
+        Files.writeString(
+            tempDir.resolve("entry.yaml"),
+            """
+            type: object
+            required: [id]
+            properties:
+              id: { type: string }
+            """.trimIndent(),
+        )
+
+        val generated =
+            generate(
+                """
+                openapi: 3.1.2
+                info:
+                  title: Test
+                  version: "1.0"
+                paths: {}
+                components:
+                  schemas:
+                    Response:
+                      allOf:
+                        - type: object
+                          required: [entries]
+                          properties:
+                            entries:
+                              type: array
+                              items:
+                                ${'$'}ref: './entry.yaml'
+                """.trimIndent(),
+            )
+
+        assertThat(generated).containsOnlyKeys("Response", "ResponseEntries")
+        assertThat(generated.getValue("Response")).contains("public val entries: List<ResponseEntries>")
+        assertThat(generated.getValue("ResponseEntries")).contains("public val id: String")
+    }
+
     private fun writeExternalDefinition(
         fileName: String,
         propertyName: String,
