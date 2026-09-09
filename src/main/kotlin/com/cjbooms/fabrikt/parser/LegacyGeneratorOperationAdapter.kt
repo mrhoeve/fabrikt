@@ -101,6 +101,22 @@ internal class LegacyGeneratorOperationAdapter {
             key = key,
             schema = schema.takeIfPresent()?.let(schemaAdapter::adapt),
             itemSchema = null,
+            encoding =
+                encodingProperties.mapValues { (_, value) ->
+                    GeneratorEncoding(
+                        contentType = value.contentType,
+                        headers = emptyMap(),
+                        style = value.style,
+                        explode = value.explode,
+                        allowReserved = value.allowReserved,
+                        encoding = emptyMap(),
+                        prefixEncoding = emptyList(),
+                        itemEncoding = null,
+                        extensions = emptyMap(),
+                    )
+                },
+            prefixEncoding = emptyList(),
+            itemEncoding = null,
         )
 
     private fun List<SecurityRequirement>.toGeneratorSecurityRequirements(): GeneratorSecurityRequirements =

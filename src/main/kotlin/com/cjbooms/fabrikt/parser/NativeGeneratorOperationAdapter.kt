@@ -90,6 +90,22 @@ internal class NativeGeneratorOperationAdapter(
             key = key,
             schema = schema?.let(resolveSchema),
             itemSchema = itemSchema?.let(resolveSchema),
+            encoding = encoding.mapValues { (_, value) -> value.toGeneratorEncoding() },
+            prefixEncoding = prefixEncoding.map { it.toGeneratorEncoding() },
+            itemEncoding = itemEncoding?.toGeneratorEncoding(),
+        )
+
+    private fun SourceEncoding.toGeneratorEncoding(): GeneratorEncoding =
+        GeneratorEncoding(
+            contentType = contentType,
+            headers = headers.mapValues { (name, header) -> header.resolve().toGeneratorHeader(name) },
+            style = style,
+            explode = explode,
+            allowReserved = allowReserved,
+            encoding = encoding.mapValues { (_, value) -> value.toGeneratorEncoding() },
+            prefixEncoding = prefixEncoding.map { it.toGeneratorEncoding() },
+            itemEncoding = itemEncoding?.toGeneratorEncoding(),
+            extensions = extensions,
         )
 
     private fun SourceSecurityRequirements.toGeneratorSecurityRequirements(): GeneratorSecurityRequirements =
