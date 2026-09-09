@@ -121,7 +121,7 @@ internal class GeneratorEndpointContext(
         operation: GeneratorOperation,
         parameters: List<IncomingParameter>,
     ): CodeBlock {
-        val kdoc = CodeBlock.builder().add("${operation.summary.orEmpty()}\n${operation.description.orEmpty()}\n")
+        val kdoc = CodeBlock.builder().add("%L\n%L\n", operation.summary.orEmpty(), operation.description.orEmpty())
         parameters.forEach { kdoc.add("@param %L %L\n", it.name.toKCodeName(), it.description.orEmpty()) }
         return kdoc.build()
     }

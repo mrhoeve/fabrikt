@@ -148,7 +148,10 @@ class KtorControllerInterfaceGenerator(
                     path.operations.filterNot { it.method.equals("HEAD", ignoreCase = true) }.forEach { operation ->
                         routeFunBuilder.addCode(buildRouteCode(context, operation, path))
                         routeFunBuilder.addKdoc(
-                            "- ${operation.method.toUpperCase()} ${path.path} ${(operation.summary ?: operation.description).orEmpty()}\n",
+                            "- %L %L %L\n",
+                            operation.method.toUpperCase(),
+                            path.path,
+                            (operation.summary ?: operation.description).orEmpty(),
                         )
                         controllerBuilder.addFunction(buildControllerFun(context, operation, path))
                     }

@@ -93,6 +93,29 @@ class CodeGeneratorNativeServerModeTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ControllerCodeGenTargetType::class)
+    fun `preserves percent signs in native operation documentation`(target: ControllerCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(percentEncodedDocumentationOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated).contains("Returns names with spaces encoded as %20.")
+    }
+
     @Test
     fun `generates multipart Micronaut controllers from native operations`() {
         MutableSettings.updateSettings(
@@ -376,6 +399,21 @@ class CodeGeneratorNativeServerModeTest {
                           items: { type: string }
               responses:
                 '204': { description: Created }
+        """.trimIndent()
+
+    private val percentEncodedDocumentationOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native percent encoded documentation
+          version: "1.0"
+        paths:
+          /subjects:
+            get:
+              operationId: listSubjects
+              summary: Returns names with spaces encoded as %20.
+              responses:
+                '204': { description: No content }
         """.trimIndent()
 
     companion object {
