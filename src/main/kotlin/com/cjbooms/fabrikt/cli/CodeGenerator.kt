@@ -7,6 +7,7 @@ import com.cjbooms.fabrikt.cli.CodeGenerationType.QUARKUS_REFLECTION_CONFIG
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.generators.client.ClientAuthenticationGenerator
 import com.cjbooms.fabrikt.generators.client.OkHttpClientGenerator
 import com.cjbooms.fabrikt.generators.client.OpenFeignInterfaceGenerator
 import com.cjbooms.fabrikt.generators.client.SpringHttpInterfaceGenerator
@@ -88,8 +89,12 @@ class CodeGenerator internal constructor(
             }
         val options = MutableSettings.clientOptions
         val clientFiles = clientGenerator.generate(options).files
+        val authenticationFiles =
+            endpointContext
+                ?.let { ClientAuthenticationGenerator(packages).generate(it.clientAuthenticationTypes()) }
+                .orEmpty()
         val libFiles = clientGenerator.generateLibrary(options)
-        return sourceSet(clientFiles).plus(libFiles).plus(sourceSet(models().files))
+        return sourceSet(clientFiles + authenticationFiles).plus(libFiles).plus(sourceSet(models().files))
     }
 
     private fun generateQuarkusReflectionResource(): Collection<GeneratedFile> = resourceSet(resources(models()))

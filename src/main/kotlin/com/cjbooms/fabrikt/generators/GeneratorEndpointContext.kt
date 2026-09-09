@@ -4,6 +4,7 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
 import com.cjbooms.fabrikt.model.BodyParameter
+import com.cjbooms.fabrikt.model.Destinations.clientPackage
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratorDirectionalModelPlan
 import com.cjbooms.fabrikt.model.GeneratorKotlinTypeResolution
@@ -34,6 +35,7 @@ import com.cjbooms.fabrikt.util.NormalisedString.camelCase
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 import com.fasterxml.jackson.databind.JsonNode
+import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.asTypeName
@@ -57,6 +59,19 @@ internal class GeneratorEndpointContext(
                         .firstNotNullOfOrNull { it.tags.firstOrNull() }
                         ?.toModelClassName()
                         ?: path.path.toResourceName()
+            }
+        }
+
+    fun clientAuthenticationTypes(): Set<ClientAuthenticationType> =
+        operations.securitySchemes.values.mapNotNullTo(linkedSetOf()) { scheme ->
+            when {
+                scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("basic", ignoreCase = true) ->
+                    ClientAuthenticationType.BASIC
+                scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("bearer", ignoreCase = true) ->
+                    ClientAuthenticationType.BEARER
+                scheme.type.equals("oauth2", ignoreCase = true) || scheme.type.equals("openIdConnect", ignoreCase = true) ->
+                    ClientAuthenticationType.BEARER
+                else -> null
             }
         }
 
@@ -169,23 +184,77 @@ internal class GeneratorEndpointContext(
         return securedAlternatives
             .first()
             .schemes
-            .filter { it.name in commonSchemeNames && it.scheme?.type.equals("apiKey", ignoreCase = true) }
+            .filter { it.name in commonSchemeNames }
             .mapNotNull { selection ->
                 val scheme = selection.scheme ?: return@mapNotNull null
-                val wireName = scheme.parameterName ?: return@mapNotNull null
-                val placement = scheme.placement?.let { runCatching { RequestParameterLocation(it) }.getOrNull() } ?: return@mapNotNull null
-                if (declaredParameters.any { it.name == wireName && it.placement == scheme.placement }) return@mapNotNull null
-                RequestParameter(
-                    oasName = selection.name,
-                    description = scheme.description,
-                    type = String::class.asTypeName(),
-                    isRequired = required,
-                    originalName = wireName,
-                    parameterLocation = placement,
-                    typeInfo = KotlinTypeInfo.Text,
-                )
+                val parameter =
+                    when {
+                        scheme.type.equals("apiKey", ignoreCase = true) -> apiKeyParameter(selection.name, scheme, required)
+                        scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("basic", ignoreCase = true) ->
+                            authorizationParameter(selection.name, "BasicCredentials", scheme.description, required)
+                        scheme.type.equals("http", ignoreCase = true) && scheme.scheme.equals("bearer", ignoreCase = true) ->
+                            authorizationParameter(selection.name, "BearerToken", scheme.description, required)
+                        scheme.type.equals("oauth2", ignoreCase = true) ||
+                            scheme.type.equals("openIdConnect", ignoreCase = true) ->
+                            authorizationParameter(selection.name, "BearerToken", scheme.description, required)
+                        else -> null
+                    } ?: return@mapNotNull null
+                if (
+                    declaredParameters.any {
+                        it.name == parameter.originalName &&
+                            it.placement?.let { placement ->
+                                runCatching { RequestParameterLocation(placement) }.getOrNull()
+                            } == parameter.parameterLocation
+                    }
+                ) {
+                    return@mapNotNull null
+                }
+                parameter
             }
     }
+
+    private fun apiKeyParameter(
+        name: String,
+        scheme: com.cjbooms.fabrikt.parser.GeneratorSecurityScheme,
+        required: Boolean,
+    ): RequestParameter? {
+        val wireName = scheme.parameterName ?: return null
+        val placement = scheme.placement?.let { runCatching { RequestParameterLocation(it) }.getOrNull() } ?: return null
+        return credentialParameter(name, scheme.description, String::class.asTypeName(), required, wireName, placement)
+    }
+
+    private fun authorizationParameter(
+        name: String,
+        typeName: String,
+        description: String?,
+        required: Boolean,
+    ): RequestParameter =
+        credentialParameter(
+            name,
+            description,
+            ClassName(clientPackage(basePackage), typeName),
+            required,
+            "Authorization",
+            HeaderParam,
+        )
+
+    private fun credentialParameter(
+        name: String,
+        description: String?,
+        type: TypeName,
+        required: Boolean,
+        wireName: String,
+        placement: RequestParameterLocation,
+    ): RequestParameter =
+        RequestParameter(
+            oasName = name,
+            description = description,
+            type = type,
+            isRequired = required,
+            originalName = wireName,
+            parameterLocation = placement,
+            typeInfo = KotlinTypeInfo.Text,
+        )
 
     fun primaryResponseContentType(operation: GeneratorOperation): String? =
         operation.responses
@@ -489,4 +558,9 @@ internal class GeneratorEndpointContext(
         }
 
     private fun Int?.orZero(): Int = this ?: 0
+}
+
+internal enum class ClientAuthenticationType {
+    BASIC,
+    BEARER,
 }
