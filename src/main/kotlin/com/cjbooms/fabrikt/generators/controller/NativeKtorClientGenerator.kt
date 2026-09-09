@@ -213,7 +213,7 @@ internal class NativeKtorClientGenerator(
     }
 
     private fun CodeBlock.Builder.addMultipartBody(parameters: List<MultipartParameter>) {
-        if (parameters.any { it.contentType == "application/json" } && MutableSettings.serializationLibrary.isJackson) {
+        if (parameters.any { it.contentType.isJsonMediaType() } && MutableSettings.serializationLibrary.isJackson) {
             val mapperPackage =
                 when (MutableSettings.serializationLibrary) {
                     SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
@@ -304,7 +304,7 @@ internal class NativeKtorClientGenerator(
         addStatement("%S,", parameter.partName)
         when {
             parameter.isBinaryFile -> addStatement("%N,", valueName)
-            parameter.contentType == "application/json" -> addStatement("%L,", multipartJsonValue(valueName))
+            parameter.contentType.isJsonMediaType() -> addStatement("%L,", multipartJsonValue(valueName))
             else -> addStatement("%N.toString(),", valueName)
         }
         addStatement("%T.build {", ClassName("io.ktor.http", "Headers"))
@@ -344,6 +344,8 @@ internal class NativeKtorClientGenerator(
                     valueName,
                 )
         }
+
+    private fun String?.isJsonMediaType(): Boolean = this == "application/json" || this?.substringBefore(';')?.endsWith("+json") == true
 
     private fun CodeBlock.Builder.addRequestStart(method: String): CodeBlock.Builder {
         val normalisedMethod = method.lowercase()

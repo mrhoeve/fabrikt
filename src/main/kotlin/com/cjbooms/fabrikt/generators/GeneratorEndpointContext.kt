@@ -336,6 +336,7 @@ internal class GeneratorEndpointContext(
             return schema.properties.map { (name, property) ->
                 val resolved = schemas.resolve(property) as? GeneratorObjectSchema
                 val item = resolved?.items?.let(schemas::resolve) as? GeneratorObjectSchema
+                val encoding = multipart.encoding[name]
                 val binary =
                     (SourceSchemaType.STRING in resolved.typesOrEmpty() && resolved?.metadata?.format == "binary") ||
                         (
@@ -350,7 +351,7 @@ internal class GeneratorEndpointContext(
                     partName = name,
                     isBinaryFile = binary,
                     contentType =
-                        if (binary) {
+                        encoding?.contentType ?: if (binary) {
                             "application/octet-stream"
                         } else if (resolved.isSimple()) {
                             "text/plain"

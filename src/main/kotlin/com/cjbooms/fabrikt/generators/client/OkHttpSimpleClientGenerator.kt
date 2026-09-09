@@ -466,19 +466,20 @@ data class SimpleClientOperationStatement(
                         )
                     }
 
-                    param.contentType == "application/json" -> {
-                        this.add(
-                            "\n    multipartBuilder.addFormDataPart(%S, objectMapper.writeValueAsString(%N))",
-                            param.partName,
-                            param.name,
-                        )
-                    }
-
                     else -> {
+                        val value =
+                            if (param.contentType.isJsonMediaType()) {
+                                CodeBlock.of("objectMapper.writeValueAsString(%N)", param.name)
+                            } else {
+                                CodeBlock.of("%N.toString()", param.name)
+                            }
                         this.add(
-                            "\n    multipartBuilder.addFormDataPart(%S, %N.toString())",
+                            "\n    multipartBuilder.addFormDataPart(%S, null, %L.%T(%S.%T()))",
                             param.partName,
-                            param.name,
+                            value,
+                            "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
+                            param.contentType ?: "text/plain",
+                            "toMediaType".toClassName("okhttp3.MediaType.Companion"),
                         )
                     }
                 }
@@ -487,6 +488,8 @@ data class SimpleClientOperationStatement(
 
         this.add("\nval multipartBody = multipartBuilder.build()")
     }
+
+    private fun String?.isJsonMediaType(): Boolean = this == "application/json" || this?.substringBefore(';')?.endsWith("+json") == true
 
     private fun CodeBlock.Builder.addFormBodyStatement(parameters: List<FormParameter>) {
         add("\nval formBuilder = %T.Builder()", "FormBody".toClassName("okhttp3"))
