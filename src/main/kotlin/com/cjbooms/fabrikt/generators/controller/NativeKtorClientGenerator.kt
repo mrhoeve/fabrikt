@@ -1,15 +1,18 @@
 package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
+import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.client.ClientGenerator
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
 import com.cjbooms.fabrikt.model.Destinations
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
+import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.parser.GeneratorOperation
@@ -70,6 +73,8 @@ internal class NativeKtorClientGenerator(
     ): FunSpec {
         val parameters = context.clientParameters(operation, path)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parameters.splitByType()
+        val multipartParams = parameters.filterIsInstance<MultipartParameter>()
+        val requestBodies = bodyParams + multipartParams
         val responseType = context.successResponseType(operation, packages.base)
         val function =
             FunSpec
@@ -88,13 +93,17 @@ internal class NativeKtorClientGenerator(
                                 MemberName("io.ktor.client.request", "header"),
                                 context.primaryResponseContentType(operation) ?: "application/json",
                             )
-                            if (bodyParams.isNotEmpty()) {
+                            if (requestBodies.isNotEmpty()) {
                                 addStatement(
                                     "%M(\"Content-Type\", %S)",
                                     MemberName("io.ktor.client.request", "header"),
                                     context.requestContentType(operation) ?: "application/json",
                                 )
-                                addStatement("%M(%L)", MemberName("io.ktor.client.request", "setBody"), bodyParams.first().name)
+                                if (multipartParams.isEmpty()) {
+                                    addStatement("%M(%L)", MemberName("io.ktor.client.request", "setBody"), bodyParams.first().name)
+                                } else {
+                                    addMultipartBody(multipartParams)
+                                }
                             }
                             headerParams.forEach {
                                 addStatement("%M(%S, %L)", MemberName("io.ktor.client.request", "header"), it.originalName, it.name)
@@ -142,7 +151,7 @@ internal class NativeKtorClientGenerator(
                         .endControlFlow()
                         .build(),
                 )
-        bodyParams.firstOrNull()?.let { function.addParameter(it.toParameterSpecBuilder().build()) }
+        requestBodies.forEach { function.addParameter(it.toParameterSpecBuilder().build()) }
         (pathParams + queryParams + headerParams + cookieParams).forEach { parameter ->
             function.addParameter(
                 parameter
@@ -198,6 +207,89 @@ internal class NativeKtorClientGenerator(
             }
         }
     }
+
+    private fun CodeBlock.Builder.addMultipartBody(parameters: List<MultipartParameter>) {
+        if (parameters.any { it.contentType == "application/json" } && MutableSettings.serializationLibrary.isJackson) {
+            val mapperPackage =
+                when (MutableSettings.serializationLibrary) {
+                    SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
+                    SerializationLibrary.JACKSON_3 -> "tools.jackson.databind.json"
+                    SerializationLibrary.KOTLINX_SERIALIZATION -> error("Kotlinx serialization does not use a Jackson mapper")
+                }
+            addStatement("val multipartObjectMapper = %T.builder().findAndAddModules().build()", ClassName(mapperPackage, "JsonMapper"))
+        }
+        addStatement("%M(", MemberName("io.ktor.client.request", "setBody"))
+        indent()
+        addStatement("%T(", ClassName("io.ktor.client.request.forms", "MultiPartFormDataContent"))
+        indent()
+        addStatement("%M {", MemberName("io.ktor.client.request.forms", "formData"))
+        indent()
+        parameters.forEach { addMultipartParameter(it) }
+        unindent()
+        addStatement("}")
+        unindent()
+        addStatement(")")
+        unindent()
+        addStatement(")")
+    }
+
+    private fun CodeBlock.Builder.addMultipartParameter(parameter: MultipartParameter) {
+        val wrapped = parameter.isArray || !parameter.isRequired
+        if (wrapped) {
+            addStatement(
+                "%N%L.%L { part ->",
+                parameter.name,
+                if (parameter.isRequired) "" else "?",
+                if (parameter.isArray) "forEach" else "let",
+            )
+            indent()
+        }
+        val valueName = if (wrapped) "part" else parameter.name
+        addStatement("append(")
+        indent()
+        addStatement("%S,", parameter.partName)
+        when {
+            parameter.isBinaryFile -> addStatement("%N,", valueName)
+            parameter.contentType == "application/json" -> addStatement("%L,", multipartJsonValue(valueName))
+            else -> addStatement("%N.toString(),", valueName)
+        }
+        addStatement("%T.build {", ClassName("io.ktor.http", "Headers"))
+        indent()
+        addStatement(
+            "append(%T.ContentType, %S)",
+            ClassName("io.ktor.http", "HttpHeaders"),
+            parameter.contentType ?: "text/plain",
+        )
+        if (parameter.isBinaryFile) {
+            addStatement(
+                "append(%T.ContentDisposition, %S)",
+                ClassName("io.ktor.http", "HttpHeaders"),
+                "filename=\"${parameter.partName}\"",
+            )
+        }
+        unindent()
+        addStatement("}")
+        unindent()
+        addStatement(")")
+        if (wrapped) {
+            unindent()
+            addStatement("}")
+        }
+    }
+
+    private fun multipartJsonValue(valueName: String): CodeBlock =
+        when (MutableSettings.serializationLibrary) {
+            SerializationLibrary.JACKSON,
+            SerializationLibrary.JACKSON_3,
+            -> CodeBlock.of("multipartObjectMapper.writeValueAsString(%N)", valueName)
+            SerializationLibrary.KOTLINX_SERIALIZATION ->
+                CodeBlock.of(
+                    "%T.%M(%N)",
+                    ClassName("kotlinx.serialization.json", "Json"),
+                    MemberName("kotlinx.serialization", "encodeToString"),
+                    valueName,
+                )
+        }
 
     private fun CodeBlock.Builder.addRequestStart(method: String): CodeBlock.Builder {
         val normalisedMethod = method.lowercase()
