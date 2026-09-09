@@ -27,7 +27,8 @@ internal object SourceOpenApiDocumentGraphParser {
         documentLoader: SourceDocumentLoader,
     ): SourceOpenApiDocumentGraph {
         val canonicalDocumentUri = documentUri.withoutFragment().normalize().toAsciiUri()
-        val rootDocument = SourceOpenApiDocumentParser.parse(input, canonicalDocumentUri)
+        val inlinedRoot = SourceOperationReferenceInliner(documentLoader).inline(input, canonicalDocumentUri)
+        val rootDocument = SourceOpenApiDocumentParser.parse(input, inlinedRoot, canonicalDocumentUri)
         val documents = linkedMapOf(canonicalDocumentUri to rootDocument.asSchemaDocument())
         val loadFailures = linkedMapOf<URI, SourceDocumentLoadFailure>()
         val pendingDocumentUris = ArrayDeque<URI>()

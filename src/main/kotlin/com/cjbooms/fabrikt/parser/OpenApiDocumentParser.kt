@@ -1,6 +1,7 @@
 package com.cjbooms.fabrikt.parser
 
 import com.cjbooms.fabrikt.util.OpenApi31Downgrader
+import com.cjbooms.fabrikt.util.YamlObjectMapper
 import com.fasterxml.jackson.databind.JsonNode
 import com.reprezen.jsonoverlay.JsonLoader
 import com.reprezen.kaizen.oasparser.model3.OpenApi3
@@ -52,7 +53,7 @@ internal object OpenApiDocumentParser {
             val parsedDocument =
                 ParsedOpenApiDocument(sourceGraph) {
                     try {
-                        parseKaizenModel(sourceGraph.rootDocument, baseUri, jsonLoader)
+                        parseKaizenModel(input, baseUri, jsonLoader)
                     } catch (ex: NullPointerException) {
                         throw kaizenParserException(ex)
                     }
@@ -64,11 +65,11 @@ internal object OpenApiDocumentParser {
         }
 
     private fun parseKaizenModel(
-        source: SourceOpenApiDocument,
+        input: String,
         baseUri: URI,
         jsonLoader: JsonLoader?,
     ): OpenApi3 {
-        val kaizenInput = source.root.deepCopy<JsonNode>()
+        val kaizenInput = YamlObjectMapper.instance.readTree(input).deepCopy<JsonNode>()
         OpenApi31Downgrader.downgradeIncompatibleElements(kaizenInput)
         OpenApiInputCleaner.cleanEmptyTypes(kaizenInput)
         return KaizenParserAdapter.parse(kaizenInput, baseUri.toURL(), jsonLoader)
