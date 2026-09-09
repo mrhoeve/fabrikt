@@ -348,12 +348,22 @@ class OpenFeignInterfaceGenerator(
             .addModifiers(KModifier.ABSTRACT)
             .apply { if (!hasCookieHeader) addKdoc(context.toKdoc(operation, parameters)) }
             .addRequestLineAnnotation(path.path, operation.method, parameters)
-            .addHeadersAnnotation(parameters, context.primaryResponseContentType(operation), hasCookieHeader, cookieHeaderParameterName)
-            .addSuspendModifier(options)
+            .addHeadersAnnotation(
+                parameters,
+                context.primaryResponseContentType(operation),
+                context.requestContentType(operation),
+                hasCookieHeader,
+                cookieHeaderParameterName,
+            ).addSuspendModifier(options)
             .addIncomingParameters(
                 parameters,
                 annotateRequestParameterWith = { parameter ->
                     OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.name).build()
+                },
+                multipartParameterToSpecBuilder = { parameter ->
+                    parameter
+                        .toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
+                        .addAnnotation(OpenFeignAnnotations.paramBuilder().addMember("%S", parameter.partName).build())
                 },
             ).apply {
                 if (hasCookieHeader) {
@@ -593,6 +603,7 @@ class OpenFeignInterfaceGenerator(
         HeadersAnnotationBuilder(
             parameters,
             operation.getPrimaryContentMediaType()?.key,
+            null,
             hasCookieHeader,
             cookieHeaderParameterName,
         ).build()?.let { annotation ->
@@ -605,30 +616,45 @@ class OpenFeignInterfaceGenerator(
     private fun FunSpec.Builder.addHeadersAnnotation(
         parameters: List<IncomingParameter>,
         defaultAcceptContentType: String?,
+        defaultRequestContentType: String?,
         hasCookieHeader: Boolean = false,
         cookieHeaderParameterName: String = "cookieHeader",
     ): FunSpec.Builder =
         apply {
-            HeadersAnnotationBuilder(parameters, defaultAcceptContentType, hasCookieHeader, cookieHeaderParameterName)
-                .build()
+            HeadersAnnotationBuilder(
+                parameters,
+                defaultAcceptContentType,
+                defaultRequestContentType,
+                hasCookieHeader,
+                cookieHeaderParameterName,
+                matchHeadersByOriginalName = true,
+            ).build()
                 ?.let(::addAnnotation)
         }
 
     private class HeadersAnnotationBuilder(
         private val parameters: List<IncomingParameter>,
         private val defaultAcceptContentType: String?,
+        private val defaultRequestContentType: String?,
         private val hasCookieHeader: Boolean = false,
         private val cookieHeaderParameterName: String = "cookieHeader",
+        private val matchHeadersByOriginalName: Boolean = false,
     ) {
         fun build(): AnnotationSpec? {
             val headersValueParts = mutableListOf<String>()
             var acceptHeaderExists = false
+            var contentTypeHeaderExists = false
             val headerParameters = parameters.getHeaderParameters()
             for (parameter in headerParameters) {
                 headersValueParts.add(buildHeadersAnnotationValue(parameter))
                 acceptHeaderExists =
                     acceptHeaderExists ||
-                    parameter.name == ClientGeneratorUtils.ACCEPT_HEADER_NAME
+                    parameter.name == ClientGeneratorUtils.ACCEPT_HEADER_NAME ||
+                    matchHeadersByOriginalName &&
+                    parameter.originalName.equals(ClientGeneratorUtils.ACCEPT_HEADER_NAME, ignoreCase = true)
+                contentTypeHeaderExists =
+                    contentTypeHeaderExists ||
+                    parameter.originalName.equals(ClientGeneratorUtils.CONTENT_TYPE_HEADER_NAME, ignoreCase = true)
             }
             if (hasCookieHeader) headersValueParts.add("Cookie: {$cookieHeaderParameterName}")
             // Add default accept header
@@ -636,6 +662,9 @@ class OpenFeignInterfaceGenerator(
                 getDefaultAcceptHeaderAnnotationValue()?.let {
                     headersValueParts.add(it)
                 }
+            }
+            if (!contentTypeHeaderExists && defaultRequestContentType != null) {
+                headersValueParts.add("${ClientGeneratorUtils.CONTENT_TYPE_HEADER_NAME}: $defaultRequestContentType")
             }
 
             return if (headersValueParts.isNotEmpty()) {
