@@ -323,6 +323,7 @@ object GeneratorUtils {
                         isBinaryFile = p.isBinaryFile,
                         contentType = p.contentType,
                         isRequired = p.isRequired,
+                        headers = p.headers,
                     )
 
                 is BodyParameter ->

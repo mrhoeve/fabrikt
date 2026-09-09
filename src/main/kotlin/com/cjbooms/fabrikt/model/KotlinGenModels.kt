@@ -10,8 +10,10 @@ import com.reprezen.kaizen.oasparser.model3.Schema
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.ParameterSpec
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.TypeSpec
+import com.squareup.kotlinpoet.asClassName
 import com.squareup.kotlinpoet.asTypeName
 
 sealed class GeneratedType(
@@ -142,7 +144,35 @@ class MultipartParameter(
     val isBinaryFile: Boolean = false,
     val contentType: String? = null,
     val isArray: Boolean = schema?.type == "array",
+    val headers: List<MultipartHeaderParameter> = emptyList(),
 ) : IncomingParameter(oasName, description, type, isRequired)
+
+data class MultipartHeaderParameter(
+    val name: String,
+    val originalName: String,
+    val description: String?,
+    val type: TypeName,
+    val isRequired: Boolean,
+    val typeInfo: KotlinTypeInfo,
+    val explode: Boolean,
+    val objectProperties: List<FormObjectProperty> = emptyList(),
+) {
+    fun toParameterSpecBuilder(part: MultipartParameter): ParameterSpec.Builder {
+        val parameterType =
+            if (part.isArray) {
+                List::class.asClassName().parameterizedBy(type.copy(nullable = !isRequired)).copy(nullable = !part.isRequired)
+            } else {
+                type.copy(nullable = !isRequired || !part.isRequired)
+            }
+        return ParameterSpec.builder(name, parameterType).apply {
+            when {
+                !part.isRequired -> defaultValue("null")
+                part.isArray && !isRequired -> defaultValue("emptyList()")
+                !isRequired -> defaultValue("null")
+            }
+        }
+    }
+}
 
 class FormParameter(
     oasName: String,

@@ -15,9 +15,11 @@ import com.cjbooms.fabrikt.model.GeneratorModelDirection
 import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
+import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.RequestParameterLocation
+import com.cjbooms.fabrikt.parser.GeneratorHeader
 import com.cjbooms.fabrikt.parser.GeneratorMediaType
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
 import com.cjbooms.fabrikt.parser.GeneratorOperation
@@ -104,6 +106,25 @@ internal class GeneratorEndpointContext(
             }
         require(unsupported.isEmpty()) {
             "$target does not support native multipart generation for: ${unsupported.joinToString()}."
+        }
+    }
+
+    fun requireNoMultipartEncodingHeaders(target: String) {
+        val operationsWithPartHeaders =
+            operations.paths.flatMap { path ->
+                path.operations
+                    .filter { operation ->
+                        operation.requestBody
+                            ?.content
+                            .orEmpty()
+                            .filter { it.key.startsWith("multipart/") }
+                            .flatMap { it.encoding.values }
+                            .flatMap { it.headers.values }
+                            .any { !it.name.equals("Content-Type", ignoreCase = true) }
+                    }.map { operation -> "${operation.method.uppercase()} ${path.path}" }
+            }
+        require(operationsWithPartHeaders.isEmpty()) {
+            "$target cannot represent native multipart part headers for: ${operationsWithPartHeaders.joinToString()}."
         }
     }
 
@@ -379,6 +400,13 @@ internal class GeneratorEndpointContext(
                         },
                     isRequired = name in schema.requiredProperties,
                     isArray = SourceSchemaType.ARRAY in resolved.typesOrEmpty(),
+                    headers =
+                        encoding
+                            ?.headers
+                            .orEmpty()
+                            .values
+                            .filterNot { it.name.equals("Content-Type", ignoreCase = true) }
+                            .mapNotNull { header -> multipartHeader(name, header) },
                 )
             }
         }
@@ -456,6 +484,25 @@ internal class GeneratorEndpointContext(
         )
     }
 
+    private fun multipartHeader(
+        partName: String,
+        header: GeneratorHeader,
+    ): MultipartHeaderParameter? {
+        val schema = header.schema ?: header.content.firstNotNullOfOrNull { it.effectiveSchema() } ?: return null
+        val resolvedSchema = schemas.resolve(schema) as? GeneratorObjectSchema
+        val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
+        return MultipartHeaderParameter(
+            name = "${partName}_${header.name}".toKotlinParameterName(),
+            originalName = header.name,
+            description = header.description,
+            type = toModelType(basePackage, resolution.typeInfo, resolution.nullable),
+            isRequired = header.required,
+            typeInfo = resolution.typeInfo,
+            explode = header.explode ?: false,
+            objectProperties = resolvedSchema?.formObjectProperties().orEmpty(),
+        )
+    }
+
     private fun typeName(
         schema: GeneratorSchema,
         required: Boolean,
@@ -506,6 +553,7 @@ internal class GeneratorEndpointContext(
                         isBinaryFile = parameter.isBinaryFile,
                         contentType = parameter.contentType,
                         isArray = parameter.isArray,
+                        headers = parameter.headers,
                     )
                 is BodyParameter ->
                     BodyParameter(
