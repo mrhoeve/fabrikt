@@ -10,6 +10,7 @@ import com.cjbooms.fabrikt.generators.client.ClientGenerator
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
 import com.cjbooms.fabrikt.model.Destinations
+import com.cjbooms.fabrikt.model.FormObjectProperty
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -302,10 +303,11 @@ internal class NativeKtorClientGenerator(
         if (parameter.explode) {
             parameter.objectProperties.forEach { property ->
                 val expression = "$valueName.${property.propertyName}"
+                val fieldName = parameter.formObjectFieldName(property)
                 if (property.nullable) {
-                    addStatement("%L?.let { append(%S, %L) }", expression, property.fieldName, formValue("it", property.typeInfo))
+                    addStatement("%L?.let { append(%S, %L) }", expression, fieldName, formValue("it", property.typeInfo))
                 } else {
-                    addStatement("append(%S, %L)", property.fieldName, formValue(expression, property.typeInfo))
+                    addStatement("append(%S, %L)", fieldName, formValue(expression, property.typeInfo))
                 }
             }
         } else {
@@ -324,6 +326,9 @@ internal class NativeKtorClientGenerator(
             addStatement("}.joinToString(%S))", ",")
         }
     }
+
+    private fun FormParameter.formObjectFieldName(property: FormObjectProperty): String =
+        if (style == "deepObject") "$fieldName[${property.fieldName}]" else property.fieldName
 
     private fun formValue(
         expression: String,

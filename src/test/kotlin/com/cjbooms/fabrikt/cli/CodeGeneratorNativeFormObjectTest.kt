@@ -24,10 +24,15 @@ class CodeGeneratorNativeFormObjectTest {
             .contains("filter.active?.let")
             .contains("compactFilter.role")
             .contains("joinToString(\",\")")
+            .contains("deepFilter.role")
         if (targetName == "OK_HTTP") {
-            assertThat(generated).contains("formBuilder.add(\"role\"")
+            assertThat(generated)
+                .contains("formBuilder.add(\"role\"")
+                .contains("formBuilder.add(\"deepFilter[role]\"")
         } else {
-            assertThat(generated).contains("append(\"role\"")
+            assertThat(generated)
+                .contains("append(\"role\"")
+                .contains("append(\"deepFilter[role]\"")
         }
     }
 
@@ -106,6 +111,22 @@ class CodeGeneratorNativeFormObjectTest {
                       compactFilter:
                         style: form
                         explode: false
+              responses: { '204': { description: ok } }
+          /deep:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      required: [deepFilter]
+                      properties:
+                        deepFilter: { ${'$'}ref: '#/components/schemas/Filter' }
+                    encoding:
+                      deepFilter:
+                        style: deepObject
+                        explode: true
               responses: { '204': { description: ok } }
         components:
           schemas:
