@@ -394,7 +394,35 @@ class CodeGeneratorNativeServerModeTest {
 
         assertThatThrownBy { generateControllers(parameterContentOpenApi) }
             .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("cannot represent native content-based parameters")
+            .hasMessageContaining("supports native content-based parameters only for text/plain")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["SPRING", "MICRONAUT"])
+    fun `binds text parameter content in annotation controllers`(target: String) {
+        val controllerTarget = ControllerCodeGenTargetType.valueOf(target)
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = controllerTarget,
+        )
+
+        val generated = generateControllers(textParameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("selector: Int")
+            .contains("active: Boolean")
+        when (controllerTarget) {
+            ControllerCodeGenTargetType.SPRING ->
+                assertThat(generated)
+                    .contains("@PathVariable(value = \"selector\", required = true)")
+                    .contains("@RequestParam(value = \"active\", required = false, defaultValue = \"false\")")
+            ControllerCodeGenTargetType.MICRONAUT ->
+                assertThat(generated)
+                    .contains("@PathVariable(value = \"selector\")")
+                    .contains("@QueryValue(value =")
+                    .contains("\"active\", defaultValue = \"false\") active: Boolean")
+            else -> error("Unsupported annotation controller target $controllerTarget")
+        }
     }
 
     @Test

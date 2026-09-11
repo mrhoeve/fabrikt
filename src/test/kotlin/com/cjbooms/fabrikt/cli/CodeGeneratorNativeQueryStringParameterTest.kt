@@ -71,7 +71,7 @@ class CodeGeneratorNativeQueryStringParameterTest {
 
         assertThatThrownBy(::generate)
             .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("cannot represent native content-based parameters")
+            .hasMessageContaining("supports native content-based parameters only for text/plain")
     }
 
     @ParameterizedTest
