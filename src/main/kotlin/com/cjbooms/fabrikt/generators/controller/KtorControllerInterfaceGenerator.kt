@@ -56,7 +56,7 @@ import com.squareup.kotlinpoet.asTypeName
 import kotlin.reflect.KClass
 
 private const val TYPED_APPLICATION_CALL_CLASS_NAME = "TypedApplicationCall"
-private val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH", "TRACE")
+private val STANDARD_HTTP_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD", "PATCH")
 
 /**
  * Generates controller interface and routing functions for Ktor.
