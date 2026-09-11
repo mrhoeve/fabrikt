@@ -32,9 +32,11 @@ import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
+import com.cjbooms.fabrikt.model.MultipartPartEncoding
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.GeneratorOperation
@@ -45,6 +47,7 @@ import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
+import com.squareup.kotlinpoet.MemberName
 import com.squareup.kotlinpoet.ParameterSpec
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
@@ -217,17 +220,29 @@ class OkHttpSimpleClientGenerator(
         val codeDir = srcPath.resolve(CodeGenerationUtils.packageToPath(packages.base))
         val clientDir = codeDir.resolve("client")
         val nonNullDataPayloads = ClientCodeGenOptionType.OKHTTP_NON_NULL_RESPONSE_PAYLOADS in options
-        return setOf(
-            SimpleFile(
-                clientDir.resolve("ApiModels.kt"),
-                OkHttpClientLibraryFiles.apiModels(packages, nonNullDataPayloads).toString(),
-            ),
-            SimpleFile(
-                clientDir.resolve("HttpUtil.kt"),
-                OkHttpClientLibraryFiles.httpUtil(packages, nonNullDataPayloads).toString(),
-            ),
-            SimpleFile(clientDir.resolve("OAuth.kt"), OkHttpClientLibraryFiles.oAuth(packages).toString()),
-        )
+        return buildSet {
+            add(
+                SimpleFile(
+                    clientDir.resolve("ApiModels.kt"),
+                    OkHttpClientLibraryFiles.apiModels(packages, nonNullDataPayloads).toString(),
+                ),
+            )
+            add(
+                SimpleFile(
+                    clientDir.resolve("HttpUtil.kt"),
+                    OkHttpClientLibraryFiles.httpUtil(packages, nonNullDataPayloads).toString(),
+                ),
+            )
+            add(SimpleFile(clientDir.resolve("OAuth.kt"), OkHttpClientLibraryFiles.oAuth(packages).toString()))
+            if (generatorContext?.hasSequentialMultipartBodies() == true) {
+                add(
+                    SimpleFile(
+                        clientDir.resolve("SequentialMultipart.kt"),
+                        OkHttpSequentialMultipartLibrary.file(packages).toString(),
+                    ),
+                )
+            }
+        }
     }
 }
 
@@ -579,8 +594,27 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addMultipartBodyStatement() {
+        val sequential = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
+        if (sequential != null) {
+            this.add(
+                "\nval multipartBody = %M(%N, %S, %L)",
+                MemberName(packages.client, "buildSequentialMultipartBody"),
+                sequential.name,
+                sequential.mediaType,
+                sequential.toEncodingCodeBlock(),
+            )
+            return
+        }
         this.add("\nval multipartBuilder = %T()", "MultipartBody.Builder".toClassName("okhttp3"))
-        this.add("\n.setType(%T.FORM)", "MultipartBody".toClassName("okhttp3"))
+        if (nativeGeneration) {
+            this.add(
+                "\n.setType(%S.%T())",
+                requestContentType ?: "multipart/form-data",
+                "toMediaType".toClassName("okhttp3.MediaType.Companion"),
+            )
+        } else {
+            this.add("\n.setType(%T.FORM)", "MultipartBody".toClassName("okhttp3"))
+        }
 
         // First handle the array binary files with forEach loops
         parameters
@@ -665,6 +699,69 @@ data class SimpleClientOperationStatement(
 
         this.add("\nval multipartBody = multipartBuilder.build()")
     }
+
+    private fun SequentialMultipartParameter.toEncodingCodeBlock(): CodeBlock =
+        CodeBlock.of(
+            "%T(contentTypes = listOf(%S), requiredHeaders = emptySet(), prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
+            "MultipartEncoding".toClassName(packages.client),
+            mediaType,
+            prefixEncodings.toEncodingListCodeBlock(),
+            itemEncoding?.toEncodingCodeBlock() ?: CodeBlock.of("null"),
+            minimumPartCount,
+            maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
+        )
+
+    private fun List<MultipartPartEncoding>.toEncodingListCodeBlock(): CodeBlock =
+        if (isEmpty()) {
+            CodeBlock.of("emptyList()")
+        } else {
+            CodeBlock
+                .builder()
+                .add("listOf(")
+                .apply {
+                    this@toEncodingListCodeBlock.forEachIndexed { index, encoding ->
+                        if (index > 0) add(", ")
+                        add("%L", encoding.toEncodingCodeBlock())
+                    }
+                }.add(")")
+                .build()
+        }
+
+    private fun MultipartPartEncoding.toEncodingCodeBlock(): CodeBlock =
+        CodeBlock.of(
+            "%T(contentTypes = %L, requiredHeaders = %L, prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
+            "MultipartEncoding".toClassName(packages.client),
+            contentTypes.toStringListCodeBlock(),
+            requiredHeaders.toStringSetCodeBlock(),
+            prefixEncodings.toEncodingListCodeBlock(),
+            itemEncoding?.toEncodingCodeBlock() ?: CodeBlock.of("null"),
+            minimumPartCount,
+            maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
+        )
+
+    private fun Collection<String>.toStringListCodeBlock(): CodeBlock =
+        CodeBlock
+            .builder()
+            .add("listOf(")
+            .apply {
+                this@toStringListCodeBlock.forEachIndexed { index, value ->
+                    if (index > 0) add(", ")
+                    add("%S", value)
+                }
+            }.add(")")
+            .build()
+
+    private fun Collection<String>.toStringSetCodeBlock(): CodeBlock =
+        CodeBlock
+            .builder()
+            .add("setOf(")
+            .apply {
+                this@toStringSetCodeBlock.forEachIndexed { index, value ->
+                    if (index > 0) add(", ")
+                    add("%S", value)
+                }
+            }.add(")")
+            .build()
 
     private fun CodeBlock.Builder.addMultipartPartHeaders(
         parameter: MultipartParameter,

@@ -66,7 +66,9 @@ class CodeGenerator internal constructor(
 
     private fun generateClient(): Collection<GeneratedFile> {
         val endpointContext = nativeEndpointContext()
-        endpointContext?.requireNoSequentialMultipart("${MutableSettings.clientTarget.displayName} client")
+        if (MutableSettings.clientTarget != ClientCodeGenTargetType.OK_HTTP) {
+            endpointContext?.requireNoSequentialMultipart("${MutableSettings.clientTarget.displayName} client")
+        }
         when (MutableSettings.clientTarget) {
             ClientCodeGenTargetType.OK_HTTP -> {
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)

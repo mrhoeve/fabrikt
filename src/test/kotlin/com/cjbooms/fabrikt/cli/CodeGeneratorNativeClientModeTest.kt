@@ -417,6 +417,44 @@ class CodeGeneratorNativeClientModeTest {
             .contains("\"application/merge-patch+json\".toMediaType()")
     }
 
+    @Test
+    fun `generates ordered and nested multipart OkHttp clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(sequentialMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("parts: List<MultipartPart>")
+            .contains("val multipartBody = buildSequentialMultipartBody(parts, \"multipart/mixed\"")
+            .contains("contentTypes = listOf(\"application/json\")")
+            .contains("contentTypes = listOf(\"image/png\", \"image/jpeg\")")
+            .contains("requiredHeaders = setOf(\"X-Part-Id\")")
+            .contains("minimumPartCount = 1")
+            .contains("maximumPartCount = 4")
+            .contains("public data class MultipartPart(")
+            .contains("public val parts: List<MultipartPart>? = null")
+            .contains("Exactly one of body or parts must be supplied")
+            .contains("builder.addPart(headers.build(), part.toRequestBody(partEncoding))")
+            .contains("return buildSequentialMultipartBody(nestedParts, selectedContentType, requireNotNull(encoding))")
+    }
+
     @ParameterizedTest
     @EnumSource(ClientCodeGenTargetType::class)
     fun `generates form urlencoded clients from native operations`(target: ClientCodeGenTargetType) {
@@ -830,6 +868,50 @@ class CodeGeneratorNativeClientModeTest {
                             schema: { type: string }
               responses:
                 '204': { description: Uploaded }
+        """.trimIndent()
+
+    private val sequentialMultipartOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Native sequential multipart client
+          version: "1.0"
+        paths:
+          /documents:
+            post:
+              operationId: uploadDocumentBundle
+              requestBody:
+                required: true
+                content:
+                  multipart/mixed:
+                    schema:
+                      type: array
+                      minItems: 1
+                      maxItems: 4
+                      prefixItems:
+                        - type: object
+                          properties:
+                            title: { type: string }
+                        - type: array
+                          prefixItems:
+                            - { type: string }
+                          items: {}
+                      items: { type: string }
+                    prefixEncoding:
+                      - contentType: application/json
+                      - contentType: multipart/mixed
+                        prefixEncoding:
+                          - contentType: text/plain
+                        itemEncoding:
+                          contentType: image/png, image/jpeg
+                    itemEncoding:
+                      contentType: text/plain
+                      headers:
+                        X-Part-Id:
+                          required: true
+                          schema: { type: string }
+              responses:
+                '204': { description: Accepted }
         """.trimIndent()
 
     private val formOpenApi =
