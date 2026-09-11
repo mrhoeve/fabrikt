@@ -82,6 +82,7 @@ internal class NativeKtorClientGenerator(
         val multipartParams = parameters.filterIsInstance<MultipartParameter>()
         val formParams = parameters.filterIsInstance<FormParameter>()
         val sequentialMultipart = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
+        val contentParameters = parameters.filterIsInstance<RequestParameter>().filter { it.contentType != null }
         val requestBodies = bodyParams + multipartParams + formParams + listOfNotNull(sequentialMultipart)
         val responseType = context.successResponseType(operation, packages.base)
         val function =
@@ -92,6 +93,7 @@ internal class NativeKtorClientGenerator(
                 .addCode(
                     CodeBlock
                         .builder()
+                        .addParameterContentValues(contentParameters)
                         .addUrl(path.path, pathParams, queryParams)
                         .beginControlFlow("return try")
                         .addRequestStart(operation.method)
@@ -119,8 +121,13 @@ internal class NativeKtorClientGenerator(
                                     addMultipartBody(multipartParams)
                                 }
                             }
-                            headerParams.forEach {
-                                addStatement("%M(%S, %L)", MemberName("io.ktor.client.request", "header"), it.originalName, it.name)
+                            headerParams.forEach { parameter ->
+                                addStatement(
+                                    "%M(%S, %L)",
+                                    MemberName("io.ktor.client.request", "header"),
+                                    parameter.originalName,
+                                    parameter.contentValueExpression(),
+                                )
                             }
                             addCookies(cookieParams)
                             addStatement("%M {", MemberName("io.ktor.client.request", "headers"))
@@ -189,6 +196,15 @@ internal class NativeKtorClientGenerator(
         addStatement("val cookieValues = buildList {")
         indent()
         parameters.forEach { parameter ->
+            if (parameter.contentType != null) {
+                val value = parameter.contentValueExpression()
+                if (parameter.isRequired) {
+                    addStatement("add(%S + %L)", "${parameter.originalName}=", value)
+                } else {
+                    addStatement("%L?.let { add(%S + it) }", value, "${parameter.originalName}=")
+                }
+                return@forEach
+            }
             when (val typeInfo = parameter.typeInfo) {
                 is KotlinTypeInfo.Array -> {
                     val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it"
@@ -490,7 +506,7 @@ internal class NativeKtorClientGenerator(
                 pathParams.forEach { parameter ->
                     val placeholder = "{${parameter.originalName}}"
                     val index = indexOf(placeholder)
-                    if (index >= 0) replace(index, index + placeholder.length, "\${${parameter.name}}")
+                    if (index >= 0) replace(index, index + placeholder.length, "\${${parameter.contentValueName()}}")
                 }
             }
         addStatement("val basePath = apiConfiguration.basePath.trimEnd('/')")
@@ -511,6 +527,15 @@ internal class NativeKtorClientGenerator(
     }
 
     private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.contentType != null) {
+            val value = parameter.contentValueExpression()
+            if (parameter.isRequired) {
+                addStatement("add(%L)", queryPart(parameter.originalName, value, parameter.allowReserved))
+            } else {
+                addStatement("%L?.let { add(%L) }", value, queryPart(parameter.originalName, CodeBlock.of("it"), parameter.allowReserved))
+            }
+            return
+        }
         if (parameter.objectProperties.isNotEmpty()) {
             addQueryObjectParameter(parameter)
             return
@@ -574,6 +599,57 @@ internal class NativeKtorClientGenerator(
             )
         }
     }
+
+    private fun CodeBlock.Builder.addParameterContentValues(parameters: List<RequestParameter>): CodeBlock.Builder {
+        val jsonParameters = parameters.filter { it.contentType.isJsonMediaType() }
+        if (jsonParameters.isNotEmpty() && MutableSettings.serializationLibrary.isJackson) {
+            val mapperPackage =
+                when (MutableSettings.serializationLibrary) {
+                    SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
+                    SerializationLibrary.JACKSON_3 -> "tools.jackson.databind.json"
+                    SerializationLibrary.KOTLINX_SERIALIZATION -> error("Kotlinx serialization does not use a Jackson mapper")
+                }
+            addStatement(
+                "val parameterContentObjectMapper = %T.builder().findAndAddModules().build()",
+                ClassName(mapperPackage, "JsonMapper"),
+            )
+        }
+        parameters.forEach { parameter ->
+            if (parameter.isRequired) {
+                addStatement("val %N = %L", parameter.contentValueName(), parameter.serializeParameterContent(parameter.name))
+            } else {
+                addStatement(
+                    "val %N = %N?.let { %L }",
+                    parameter.contentValueName(),
+                    parameter.name,
+                    parameter.serializeParameterContent("it"),
+                )
+            }
+        }
+        return this
+    }
+
+    private fun RequestParameter.serializeParameterContent(expression: String): CodeBlock =
+        when {
+            !contentType.isJsonMediaType() -> CodeBlock.of("%L.toString()", expression)
+            MutableSettings.serializationLibrary.isJackson ->
+                CodeBlock.of(
+                    "parameterContentObjectMapper.writeValueAsString(%L)",
+                    expression,
+                )
+            else ->
+                CodeBlock.of(
+                    "%T.%M(%L)",
+                    ClassName("kotlinx.serialization.json", "Json"),
+                    MemberName("kotlinx.serialization", "encodeToString"),
+                    expression,
+                )
+        }
+
+    private fun RequestParameter.contentValueExpression(): CodeBlock = CodeBlock.of("%N", contentValueName())
+
+    private fun RequestParameter.contentValueName(): String =
+        if (contentType == null) name else "fabrikt${name.replaceFirstChar(Char::uppercase)}ContentValue"
 
     private fun CodeBlock.Builder.addQueryObjectParameter(parameter: RequestParameter) {
         val optional = !parameter.isRequired

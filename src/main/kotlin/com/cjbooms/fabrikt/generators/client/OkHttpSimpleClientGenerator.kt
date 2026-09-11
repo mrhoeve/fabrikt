@@ -277,7 +277,7 @@ data class SimpleClientOperationStatement(
             .filterIsInstance<RequestParameter>()
             .filter { it.parameterLocation == PathParam }
             .forEach {
-                this.add("\n.pathParam(%S to %N)", "{${it.originalName}}", it.name)
+                this.add("\n.pathParam(%S to %L)", "{${it.originalName}}", it.parameterContentValue(it.name))
             }
 
         this.add("\n.%T()\n.newBuilder()", "toHttpUrl".toClassName("okhttp3.HttpUrl.Companion"))
@@ -317,6 +317,10 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.contentType != null) {
+            addContentQueryParameter(parameter)
+            return
+        }
         if (parameter.objectProperties.isNotEmpty()) {
             addQueryObjectParameter(parameter)
             return
@@ -370,6 +374,18 @@ data class SimpleClientOperationStatement(
         } else {
             add("\n.%T(%S, %N)", "queryParam".toClassName(packages.client), parameter.originalName, parameter.name)
         }
+    }
+
+    private fun CodeBlock.Builder.addContentQueryParameter(parameter: RequestParameter) {
+        val method = parameter.queryParameterMethod()
+        val parameterName = parameter.queryParameterName()
+        add("\n.also { builder ->")
+        if (parameter.isRequired) {
+            add("\nbuilder.%L(%S, %L)", method, parameterName, parameter.parameterContentValue(parameter.name))
+        } else {
+            add("\n%N?.let { builder.%L(%S, %L) }", parameter.name, method, parameterName, parameter.parameterContentValue("it"))
+        }
+        add("\n}")
     }
 
     private fun CodeBlock.Builder.addQueryObjectParameter(parameter: RequestParameter) {
@@ -443,13 +459,24 @@ data class SimpleClientOperationStatement(
         parameters
             .filterIsInstance<RequestParameter>()
             .filter { it.parameterLocation == HeaderParam }
-            .forEach {
-                this.add(
-                    "\n.%T(%S, %L)",
-                    "header".toClassName(packages.client),
-                    it.originalName,
-                    it.name + if (it.typeInfo is KotlinTypeInfo.Enum) "?.value" else "",
-                )
+            .forEach { parameter ->
+                if (parameter.contentType == null) {
+                    this.add(
+                        "\n.%T(%S, %L)",
+                        "header".toClassName(packages.client),
+                        parameter.originalName,
+                        parameter.name + if (parameter.typeInfo is KotlinTypeInfo.Enum) "?.value" else "",
+                    )
+                } else if (parameter.isRequired) {
+                    this.add("\n.header(%S, %L)", parameter.originalName, parameter.parameterContentValue(parameter.name))
+                } else {
+                    this.add(
+                        "\n.also { builder -> %N?.let { builder.header(%S, %L) } }",
+                        parameter.name,
+                        parameter.originalName,
+                        parameter.parameterContentValue("it"),
+                    )
+                }
             }
         addCookieParams()
         this.add("\nadditionalHeaders.forEach { headerBuilder.header(it.key, it.value) }")
@@ -466,6 +493,19 @@ data class SimpleClientOperationStatement(
 
         add("\nval cookieValues = buildList {")
         cookieParameters.forEach { parameter ->
+            if (parameter.contentType != null) {
+                if (parameter.isRequired) {
+                    add("\nadd(%S + %L)", "${parameter.originalName}=", parameter.parameterContentValue(parameter.name))
+                } else {
+                    add(
+                        "\n%N?.let { add(%S + %L) }",
+                        parameter.name,
+                        "${parameter.originalName}=",
+                        parameter.parameterContentValue("it"),
+                    )
+                }
+                return@forEach
+            }
             val receiver = parameter.name + if (parameter.isRequired) "" else "?"
             when (val typeInfo = parameter.typeInfo) {
                 is KotlinTypeInfo.Array ->
@@ -494,6 +534,13 @@ data class SimpleClientOperationStatement(
         add("\n}")
         add("\nif (cookieValues.isNotEmpty()) headerBuilder.add(%S, cookieValues.joinToString(%S))", "Cookie", "; ")
     }
+
+    private fun RequestParameter.parameterContentValue(expression: String): CodeBlock =
+        when {
+            contentType == null -> CodeBlock.of("%L", expression)
+            contentType.isJsonMediaType() -> CodeBlock.of("objectMapper.writeValueAsString(%L)", expression)
+            else -> CodeBlock.of("%L.toString()", expression)
+        }
 
     private fun CodeBlock.Builder.addRequestStatement(): CodeBlock.Builder {
         val formParameters = parameters.filterIsInstance<FormParameter>()
