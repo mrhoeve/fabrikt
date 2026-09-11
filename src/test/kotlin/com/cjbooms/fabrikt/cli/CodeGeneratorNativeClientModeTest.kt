@@ -1051,6 +1051,37 @@ class CodeGeneratorNativeClientModeTest {
             .doesNotContain("objectMapper.writeValueAsString(body).toRequestBody(\"text/plain\"")
     }
 
+    @Test
+    fun `reads plain text OkHttp responses without Jackson`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(textResponseOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("public fun readText(")
+            .contains("return request.executeText(okHttpClient)")
+            .contains("responseBody?.string()")
+            .contains("public fun readJsonString(")
+            .contains("return request.execute(okHttpClient, objectMapper, jacksonTypeRef())")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -1178,6 +1209,31 @@ class CodeGeneratorNativeClientModeTest {
                     schema: { type: string, format: binary }
               responses:
                 '204': { description: Accepted }
+        """.trimIndent()
+
+    private val textResponseOpenApi =
+        """
+        openapi: 3.1.1
+        info: { title: Text responses, version: "1.0" }
+        paths:
+          /text:
+            get:
+              operationId: readText
+              responses:
+                '200':
+                  description: Plain text
+                  content:
+                    text/plain:
+                      schema: { type: string }
+          /json-string:
+            get:
+              operationId: readJsonString
+              responses:
+                '200':
+                  description: JSON string
+                  content:
+                    application/json:
+                      schema: { type: string }
         """.trimIndent()
 
     private val responseSelectionOpenApi =
