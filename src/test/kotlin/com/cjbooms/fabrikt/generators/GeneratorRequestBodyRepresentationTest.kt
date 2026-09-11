@@ -29,13 +29,13 @@ class GeneratorRequestBodyRepresentationTest {
     }
 
     @Test
-    fun `uses Any for heterogeneous bodies that are not all JSON`() {
+    fun `uses raw bytes for heterogeneous bodies that are not all JSON`() {
         MutableSettings.updateSettings()
 
         val body = bodyParameter(heterogeneousMediaOpenApi)
 
         assertThat(body.name).isEqualTo("body")
-        assertThat(body.type.toString()).isEqualTo("kotlin.Any")
+        assertThat(body.type.toString()).isEqualTo("kotlin.ByteArray")
         assertThat(body.contentTypes).containsExactly("application/json", "text/plain")
     }
 

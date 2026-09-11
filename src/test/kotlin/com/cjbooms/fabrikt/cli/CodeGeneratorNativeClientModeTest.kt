@@ -1051,6 +1051,7 @@ class CodeGeneratorNativeClientModeTest {
         assertThat(generated)
             .contains("val fabriktContentType = \"text/plain\"")
             .contains("contentType: String = \"application/json\"")
+            .contains("body: ByteArray")
             .contains("objectMapper.writeValueAsBytes(body)")
             .contains("body is ByteArray -> body")
             .contains("else -> body.toString().toByteArray()")
