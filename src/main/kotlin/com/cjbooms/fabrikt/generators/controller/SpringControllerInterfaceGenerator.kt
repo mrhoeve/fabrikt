@@ -24,6 +24,7 @@ import com.cjbooms.fabrikt.model.KotlinTypes
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SourceApi
@@ -373,6 +374,7 @@ class SpringControllerInterfaceGenerator(
             HeaderParam -> SpringAnnotations.requestHeaderBuilder()
             PathParam -> SpringAnnotations.requestPathVariableBuilder()
             CookieParam -> SpringAnnotations.cookieValueBuilder()
+            QueryStringParam -> error("Querystring parameters require explicit native handling")
         }.let {
             it.addMember("value = %S", parameter.oasName)
             it.addMember("required = %L", parameter.isRequired)

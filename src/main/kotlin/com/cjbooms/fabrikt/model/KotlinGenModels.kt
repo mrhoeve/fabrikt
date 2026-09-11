@@ -217,6 +217,9 @@ data class FormObjectProperty(
     val typeInfo: KotlinTypeInfo,
     val type: TypeName,
     val nullable: Boolean,
+    val style: String = "form",
+    val explode: Boolean = true,
+    val allowReserved: Boolean = false,
 )
 
 class RequestParameter(

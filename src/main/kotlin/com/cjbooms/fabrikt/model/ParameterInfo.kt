@@ -5,6 +5,7 @@ sealed class RequestParameterLocation {
         operator fun invoke(location: String): RequestParameterLocation =
             when (location) {
                 "query" -> QueryParam
+                "querystring" -> QueryStringParam
                 "header" -> HeaderParam
                 "path" -> PathParam
                 "cookie" -> CookieParam
@@ -15,6 +16,10 @@ sealed class RequestParameterLocation {
 
 object QueryParam : RequestParameterLocation() {
     override fun toString() = "query"
+}
+
+object QueryStringParam : RequestParameterLocation() {
+    override fun toString() = "querystring"
 }
 
 object HeaderParam : RequestParameterLocation() {

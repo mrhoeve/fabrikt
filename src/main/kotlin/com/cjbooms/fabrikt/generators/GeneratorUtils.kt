@@ -11,6 +11,7 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.util.GroupingStrategy
@@ -378,6 +379,7 @@ object GeneratorUtils {
         val headerParams: List<RequestParameter>,
         val cookieParams: List<RequestParameter>,
         val bodyParams: List<BodyParameter>,
+        val queryStringParams: List<RequestParameter>,
     )
 
     fun List<IncomingParameter>.splitByType(): IncomingParametersByType {
@@ -389,6 +391,7 @@ object GeneratorUtils {
             headerParams = requestParams.filter { it.parameterLocation is HeaderParam },
             cookieParams = requestParams.filter { it.parameterLocation is CookieParam },
             bodyParams = this.filterIsInstance<BodyParameter>(),
+            queryStringParams = requestParams.filter { it.parameterLocation is QueryStringParam },
         )
     }
 

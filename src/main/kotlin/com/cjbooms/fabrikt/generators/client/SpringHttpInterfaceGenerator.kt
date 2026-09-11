@@ -27,6 +27,7 @@ import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.GeneratorOperation
@@ -152,6 +153,7 @@ class SpringHttpInterfaceGenerator(
                                 .addMember("required = %L", parameter.isRequired)
                                 .build()
                         }
+                        is QueryStringParam -> null
                     }
                 },
                 annotateBodyParameterWith = { _ ->
@@ -227,6 +229,7 @@ class SpringHttpInterfaceGenerator(
                                 .addMember("%S", parameter.originalName)
                                 .addMember("required = %L", parameter.isRequired)
                                 .build()
+                        is QueryStringParam -> null
                     }
                 },
                 annotateBodyParameterWith = { SpringHttpInterfaceAnnotations.requestBodyBuilder().build() },

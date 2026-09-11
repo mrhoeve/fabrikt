@@ -18,6 +18,7 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.MultipartPartEncoding
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.RequestParameterLocation
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
@@ -145,27 +146,32 @@ internal class GeneratorEndpointContext(
 
     fun requireSupportedParameterContent(target: String) {
         val unsupported =
-            parameterContentOperations { mediaType ->
-                mediaType.equals("text/plain", ignoreCase = true) || mediaType.isJsonMediaType()
+            parameterContentOperations { parameter, mediaType ->
+                mediaType.equals("text/plain", ignoreCase = true) ||
+                    mediaType.isJsonMediaType() ||
+                    (parameter.placement == "querystring" && mediaType.isFormMediaType())
             }
         require(unsupported.isEmpty()) {
-            "$target supports native content-based parameters only for text/plain and JSON media types: ${unsupported.joinToString()}."
+            "$target supports native content-based parameters only for text/plain, JSON, and form-encoded OpenAPI 3.2 querystring parameters: ${unsupported.joinToString()}."
         }
     }
 
     fun requireJsonParameterContent(target: String) {
-        val unsupported = parameterContentOperations { mediaType -> mediaType.isJsonMediaType() }
+        val unsupported =
+            parameterContentOperations { parameter, mediaType ->
+                mediaType.isJsonMediaType() || (parameter.placement == "querystring" && mediaType.isFormMediaType())
+            }
         require(unsupported.isEmpty()) {
-            "$target supports native content-based parameters only for JSON media types: ${unsupported.joinToString()}."
+            "$target supports native content-based parameters only for JSON and form-encoded OpenAPI 3.2 querystring parameters: ${unsupported.joinToString()}."
         }
     }
 
-    private fun parameterContentOperations(supported: (String) -> Boolean = { false }): List<String> =
+    private fun parameterContentOperations(supported: (GeneratorParameter, String) -> Boolean = { _, _ -> false }): List<String> =
         operations.paths.flatMap { path ->
             path.operations.flatMap { operation ->
                 (path.parameters + operation.parameters)
                     .flatMap { parameter -> parameter.content.map { parameter to it.key } }
-                    .filterNot { (_, mediaType) -> supported(mediaType) }
+                    .filterNot { (parameter, mediaType) -> supported(parameter, mediaType) }
                     .map { (parameter, mediaType) ->
                         "${operation.method.uppercase()} ${path.path} (${parameter.name}: $mediaType)"
                     }
@@ -619,7 +625,26 @@ internal class GeneratorEndpointContext(
         val schema = parameter.schema ?: content?.effectiveSchema() ?: return null
         val resolvedSchema = schemas.resolve(schema) as? GeneratorObjectSchema
         val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
-        val objectProperties = if (content == null) resolvedSchema?.formObjectProperties().orEmpty() else emptyList()
+        val objectProperties =
+            when {
+                content == null -> resolvedSchema?.formObjectProperties().orEmpty()
+                parameterLocation is QueryStringParam && content.key.isFormMediaType() ->
+                    resolvedSchema
+                        ?.formObjectProperties()
+                        .orEmpty()
+                        .map { property ->
+                            val encoding = content.encoding[property.fieldName]
+                            property.copy(
+                                style = encoding?.style ?: "form",
+                                explode = encoding?.explode ?: true,
+                                allowReserved = encoding?.allowReserved ?: false,
+                            )
+                        }
+                else -> emptyList()
+            }
+        require(parameterLocation !is QueryStringParam || (content?.key.isFormMediaType() && objectProperties.isNotEmpty())) {
+            "Native querystring parameters currently require object-valued application/x-www-form-urlencoded content."
+        }
         return RequestParameter(
             oasName = name,
             description = parameter.description,
@@ -885,6 +910,9 @@ internal class GeneratorEndpointContext(
 
     private fun String.isJsonMediaType(): Boolean =
         equals("application/json", ignoreCase = true) || substringBefore(';').endsWith("+json", ignoreCase = true)
+
+    private fun String?.isFormMediaType(): Boolean =
+        this?.substringBefore(';')?.equals("application/x-www-form-urlencoded", ignoreCase = true) == true
 
     private fun KotlinTypeInfo.supportsFormSerialization(): Boolean =
         when (this) {
