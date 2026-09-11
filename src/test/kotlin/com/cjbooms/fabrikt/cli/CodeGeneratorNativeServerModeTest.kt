@@ -233,20 +233,49 @@ class CodeGeneratorNativeServerModeTest {
                 assertThat(generated)
                     .contains("com.fasterxml.jackson.databind.json.JsonMapper")
                     .contains("attachments: List<ByteArray>?")
-                    .contains("multipartObjectMapper.readValue(part.value,")
-                    .contains("SubjectMetadata::class.java")
+                    .contains("multipartObjectMapper.readValue<SubjectMetadata>(part.value)")
             SerializationLibrary.JACKSON_3 ->
                 assertThat(generated)
                     .contains("tools.jackson.databind.json.JsonMapper")
                     .contains("attachments: List<ByteArray>?")
-                    .contains("multipartObjectMapper.readValue(part.value,")
-                    .contains("SubjectMetadata::class.java")
+                    .contains("multipartObjectMapper.readValue<SubjectMetadata>(part.value)")
             SerializationLibrary.KOTLINX_SERIALIZATION ->
                 assertThat(generated)
                     .contains("attachments: List<@Contextual ByteArray>?")
                     .contains("Json.decodeFromString<SubjectMetadata>(part.value)")
                     .doesNotContain("multipartObjectMapper")
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SerializationLibrary::class, names = ["JACKSON", "JACKSON_3"])
+    fun `generates compilable Ktor multipart locals and generic JSON parts`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(keywordMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("var filePart: ByteArray? = null")
+            .contains("filePart = part.provider().toByteArray()")
+            .contains("val `file` = filePart ?: throw MissingRequestParameterException(\"file\")")
+            .contains("multipartObjectMapper.readValue<Map<String, String?>>(part.value)")
+            .contains("controller.upload(`file`, metadata, call)")
+            .doesNotContain("`file`Part")
+            .doesNotContain("Map<String, String?>::class.java")
     }
 
     @ParameterizedTest
@@ -580,6 +609,32 @@ class CodeGeneratorNativeServerModeTest {
                         required: [access_token]
                         properties:
                           access_token: { type: string }
+        """.trimIndent()
+
+    private val keywordMultipartOpenApi =
+        """
+        openapi: 3.2.0
+        info: { title: Multipart compilation, version: "1.0" }
+        paths:
+          /upload:
+            post:
+              operationId: upload
+              requestBody:
+                required: true
+                content:
+                  multipart/form-data:
+                    schema:
+                      type: object
+                      required: [file, metadata]
+                      properties:
+                        file: { type: string, format: binary }
+                        metadata:
+                          type: object
+                          additionalProperties: { type: string }
+                    encoding:
+                      metadata: { contentType: application/json }
+              responses:
+                '204': { description: Uploaded }
         """.trimIndent()
 
     private val multipartOpenApi =
