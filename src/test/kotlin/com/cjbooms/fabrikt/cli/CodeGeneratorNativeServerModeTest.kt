@@ -616,6 +616,10 @@ class CodeGeneratorNativeServerModeTest {
                       - contentType: application/json
                     itemEncoding:
                       contentType: multipart/mixed
+                      headers:
+                        Content-Transfer-Encoding:
+                          required: true
+                          schema: { type: string, const: binary }
                       itemEncoding:
                         contentType: application/octet-stream
               responses:

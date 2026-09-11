@@ -447,6 +447,79 @@ class CodeGeneratorNativeClientModeTest {
             .doesNotContain("documentContentTransferEncoding:")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["OK_HTTP", "KTOR"])
+    fun `writes fixed multipart transfer header schemas in native clients`(target: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.valueOf(target),
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(fixedTransferHeaderMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("Content-Transfer-Encoding")
+            .contains("base64")
+            .doesNotContain("documentContentTransferEncoding:")
+    }
+
+    @Test
+    fun `rejects conflicting multipart transfer encodings`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+        )
+
+        assertThatThrownBy {
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(conflictingTransferEncodingMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Content-Transfer-Encoding header does not allow schema contentEncoding 'base64'")
+    }
+
+    @Test
+    fun `keeps variable multipart transfer headers configurable`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(variableTransferHeaderMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("documentContentTransferEncoding:")
+            .contains("append(\"Content-Transfer-Encoding\"")
+    }
+
     @Test
     fun `generates ordered and nested multipart OkHttp clients`() {
         MutableSettings.updateSettings(
@@ -952,6 +1025,39 @@ class CodeGeneratorNativeClientModeTest {
             "document: { type: string, format: binary, contentEncoding: base64 }",
         )
 
+    private val fixedTransferHeaderMultipartOpenApi =
+        multipartOpenApi.replace(
+            "            encoding:\n              metadata:",
+            listOf(
+                "            encoding:",
+                "              document:",
+                "                headers:",
+                "                  Content-Transfer-Encoding:",
+                "                    required: true",
+                "                    schema: { type: string, const: base64 }",
+                "              metadata:",
+            ).joinToString("\n"),
+        )
+
+    private val conflictingTransferEncodingMultipartOpenApi =
+        contentEncodedMultipartOpenApi.replace(
+            "            encoding:\n              metadata:",
+            listOf(
+                "            encoding:",
+                "              document:",
+                "                headers:",
+                "                  Content-Transfer-Encoding:",
+                "                    required: true",
+                "                    schema: { type: string, const: quoted-printable }",
+                "              metadata:",
+            ).joinToString("\n"),
+        )
+
+    private val variableTransferHeaderMultipartOpenApi =
+        fixedTransferHeaderMultipartOpenApi
+            .replace("required: true", "required: false")
+            .replace("const: base64", "enum: [base64, binary]")
+
     private val sequentialMultipartOpenApi =
         """
         openapi: 3.2.0
@@ -991,6 +1097,9 @@ class CodeGeneratorNativeClientModeTest {
                     itemEncoding:
                       contentType: text/plain
                       headers:
+                        Content-Transfer-Encoding:
+                          required: true
+                          schema: { type: string, const: base64 }
                         X-Part-Id:
                           required: true
                           schema: { type: string }
