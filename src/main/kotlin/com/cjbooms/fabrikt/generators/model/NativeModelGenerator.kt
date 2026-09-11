@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.generators.model
 
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.OasDefault
 import com.cjbooms.fabrikt.generators.TypeFactory.createMapOfStringToNonNullType
@@ -87,8 +88,12 @@ internal class NativeModelGenerator(
     private fun GeneratorModelDescriptor.toDataClass(superInterfaces: List<TypeName>): TypeSpec {
         val constructor = FunSpec.constructorBuilder()
         val type = TypeSpec.classBuilder(name)
+        val usesKotlinxAdditionalProperties =
+            additionalPropertiesType != null && MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION
+        val declaredProperties = mutableListOf<NativeAdditionalPropertiesSerialization.DeclaredProperty>()
+        var additionalPropertiesSerialization: Pair<String, TypeName>? = null
         description?.let { type.addKdoc("%L", it) }
-        serializationAnnotations.addClassAnnotation(type)
+        if (!usesKotlinxAdditionalProperties) serializationAnnotations.addClassAnnotation(type)
         superInterfaces.forEach(type::addSuperinterface)
 
         properties.forEach { property ->
@@ -102,6 +107,14 @@ internal class NativeModelGenerator(
             if (!required) {
                 defaultCode?.let(parameter::defaultValue) ?: parameter.defaultValue("null")
             }
+            declaredProperties +=
+                NativeAdditionalPropertiesSerialization.DeclaredProperty(
+                    sourceName = property.name,
+                    generatedName = propertyName,
+                    type = typeName,
+                    required = required,
+                    defaultValue = defaultCode,
+                )
             constructor.addParameter(parameter.build())
             val generatedProperty =
                 PropertySpec
@@ -114,18 +127,19 @@ internal class NativeModelGenerator(
             type.addProperty(generatedProperty.build())
         }
         additionalPropertiesType?.let { additionalProperties ->
-            if (!serializationAnnotations.supportsAdditionalProperties) {
+            if (!serializationAnnotations.supportsAdditionalProperties && !usesKotlinxAdditionalProperties) {
                 throw UnsupportedOperationException("Additional properties not supported by selected serialization library")
             }
             val valueType = ModelGenerator.toModelType(basePackage, additionalProperties.typeInfo).maybeMakeMapValueNullable()
             val mapType = createMutableMapOfStringToType(ModelGenerator.toModelType(basePackage, additionalProperties.typeInfo))
+            val propertyName = if (usesKotlinxAdditionalProperties) additionalPropertiesName() else "properties"
             constructor.addParameter(
                 ParameterSpec
-                    .builder("properties", mapType)
+                    .builder(propertyName, mapType)
                     .defaultValue("mutableMapOf()")
                     .build(),
             )
-            val additionalPropertiesProperty = PropertySpec.builder("properties", mapType).initializer("properties")
+            val additionalPropertiesProperty = PropertySpec.builder(propertyName, mapType).initializer(propertyName)
             serializationAnnotations.addIgnore(additionalPropertiesProperty)
             type.addProperty(additionalPropertiesProperty.build())
 
@@ -133,7 +147,7 @@ internal class NativeModelGenerator(
                 FunSpec
                     .builder("get")
                     .returns(createMapOfStringToNonNullType(valueType))
-                    .addStatement("return properties")
+                    .addStatement("return %N", propertyName)
             serializationAnnotations.addGetter(getter)
             type.addFunction(getter.build())
 
@@ -142,13 +156,29 @@ internal class NativeModelGenerator(
                     .builder("set")
                     .addParameter("name", String::class)
                     .addParameter("value", valueType)
-                    .addStatement("properties[name] = value")
+                    .addStatement("%N[name] = value", propertyName)
             serializationAnnotations.addSetter(setter)
             type.addFunction(setter.build())
+            if (usesKotlinxAdditionalProperties) additionalPropertiesSerialization = propertyName to valueType
+        }
+
+        additionalPropertiesSerialization?.let { (propertyName, valueType) ->
+            NativeAdditionalPropertiesSerialization.apply(
+                type,
+                modelType(name),
+                declaredProperties,
+                propertyName,
+                valueType,
+            )
         }
 
         if (constructor.parameters.isNotEmpty()) type.addModifiers(KModifier.DATA)
         return type.primaryConstructor(constructor.build()).build()
+    }
+
+    private fun GeneratorModelDescriptor.additionalPropertiesName(): String {
+        val names = properties.mapTo(mutableSetOf()) { it.name.toKotlinParameterName() }
+        return generateSequence("additionalProperties") { it + "Extra" }.first(names::add)
     }
 
     private fun GeneratorModelDescriptor.toUnionInterface(): TypeSpec {
