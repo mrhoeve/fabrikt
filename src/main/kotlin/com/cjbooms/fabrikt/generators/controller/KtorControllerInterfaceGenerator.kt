@@ -522,7 +522,7 @@ class KtorControllerInterfaceGenerator(
                 )
             }
         }
-        val methodParameters =
+        val methodParameterNames =
             listOf(
                 headerParams,
                 cookieParams,
@@ -542,20 +542,31 @@ class KtorControllerInterfaceGenerator(
                             .orEmpty()
                             .asSequence()
                             .map(MultipartHeaderParameter::name)
-                }.joinToString(", ")
+                }.toList()
+        val methodParameters =
+            CodeBlock
+                .builder()
+                .apply {
+                    methodParameterNames.forEachIndexed { index, name ->
+                        if (index > 0) add(", ")
+                        add("%N", name)
+                    }
+                }.build()
+        val methodParameterPrefix =
+            if (methodParameterNames.isEmpty()) CodeBlock.of("") else CodeBlock.of("%L, ", methodParameters)
         val responseType = context.successResponseType(operation, packages.base)
         if (responseType.isUnit()) {
             builder.addStatement(
                 "controller.%L(%L%M)",
                 context.methodName(operation, path.path),
-                methodParameters.let { if (it.isNotEmpty()) "$it, " else "" },
+                methodParameterPrefix,
                 MemberName("io.ktor.server.application", "call"),
             )
         } else {
             builder.addStatement(
                 "controller.%L(%L%T(%M))",
                 context.methodName(operation, path.path),
-                methodParameters.let { if (it.isNotEmpty()) "$it, " else "" },
+                methodParameterPrefix,
                 ClassName(packages.controllers, TYPED_APPLICATION_CALL_CLASS_NAME),
                 MemberName("io.ktor.server.application", "call"),
             )
@@ -853,15 +864,15 @@ class KtorControllerInterfaceGenerator(
             val itemType = parameter.multipartItemType()
             val storageType = if (parameter.contentType == "text/plain") String::class.asTypeName() else itemType
             if (parameter.isArray || parameter.contentType == "text/plain") {
-                addStatement("val %NParts = mutableListOf<%T>()", parameter.name, storageType)
+                addStatement("val %N = mutableListOf<%T>()", parameter.multipartPartsName(), storageType)
             } else {
-                addStatement("var %NPart: %T? = null", parameter.name, itemType)
+                addStatement("var %N: %T? = null", parameter.multipartPartName(), itemType)
             }
             parameter.headers.forEach { header ->
                 if (parameter.isArray) {
-                    addStatement("val %NRawParts = mutableListOf<String?>()", header.name)
+                    addStatement("val %N = mutableListOf<String?>()", header.multipartRawPartsName())
                 } else {
-                    addStatement("var %NRawPart: String? = null", header.name)
+                    addStatement("var %N: String? = null", header.multipartRawPartName())
                 }
             }
         }
@@ -884,21 +895,26 @@ class KtorControllerInterfaceGenerator(
                 parameter.isBinaryFile -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FileItem"))
                     addMultipartHeaderCapture(parameter)
-                    val target = if (parameter.isArray) "%NParts += part.provider().%M()" else "%NPart = part.provider().%M()"
-                    addStatement(target, parameter.name, MemberName("io.ktor.utils.io", "toByteArray"))
+                    val target = if (parameter.isArray) parameter.multipartPartsName() else parameter.multipartPartName()
+                    addStatement(
+                        "%N ${if (parameter.isArray) "+=" else "="} part.provider().%M()",
+                        target,
+                        MemberName("io.ktor.utils.io", "toByteArray"),
+                    )
                     endControlFlow()
                 }
                 parameter.contentType == "application/json" -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
                     addMultipartHeaderCapture(parameter)
                     val value = multipartJsonValue(parameter.multipartItemType())
-                    addStatement(if (parameter.isArray) "%NParts += %L" else "%NPart = %L", parameter.name, value)
+                    val target = if (parameter.isArray) parameter.multipartPartsName() else parameter.multipartPartName()
+                    addStatement("%N ${if (parameter.isArray) "+=" else "="} %L", target, value)
                     endControlFlow()
                 }
                 else -> {
                     beginControlFlow("if (part is %T)", ClassName("io.ktor.http.content", "PartData", "FormItem"))
                     addMultipartHeaderCapture(parameter)
-                    addStatement("%NParts += part.value", parameter.name)
+                    addStatement("%N += part.value", parameter.multipartPartsName())
                     endControlFlow()
                 }
             }
@@ -929,8 +945,8 @@ class KtorControllerInterfaceGenerator(
         }
         parameter.headers.forEach { header ->
             addStatement(
-                if (parameter.isArray) "%NRawParts += part.headers[%S]" else "%NRawPart = part.headers[%S]",
-                header.name,
+                if (parameter.isArray) "%N += part.headers[%S]" else "%N = part.headers[%S]",
+                if (parameter.isArray) header.multipartRawPartsName() else header.multipartRawPartName(),
                 header.originalName,
             )
         }
@@ -940,11 +956,11 @@ class KtorControllerInterfaceGenerator(
         when {
             parameter.contentType == "text/plain" -> {
                 addStatement(
-                    "val %N = %M(%S, %NParts).%M<%T>(%S)",
+                    "val %N = %M(%S, %N).%M<%T>(%S)",
                     parameter.name,
                     MemberName("io.ktor.http", "parametersOf"),
                     parameter.partName,
-                    parameter.name,
+                    parameter.multipartPartsName(),
                     MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
                     parameter.type.copy(nullable = false),
                     parameter.partName,
@@ -953,25 +969,25 @@ class KtorControllerInterfaceGenerator(
             parameter.isArray -> {
                 if (parameter.isRequired) {
                     addStatement(
-                        "val %N = %NParts.takeIf { it.isNotEmpty() } ?: throw %M(%S)",
+                        "val %N = %N.takeIf { it.isNotEmpty() } ?: throw %M(%S)",
                         parameter.name,
-                        parameter.name,
+                        parameter.multipartPartsName(),
                         MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
                         parameter.partName,
                     )
                 } else {
-                    addStatement("val %N = %NParts.takeIf { it.isNotEmpty() }", parameter.name, parameter.name)
+                    addStatement("val %N = %N.takeIf { it.isNotEmpty() }", parameter.name, parameter.multipartPartsName())
                 }
             }
             parameter.isRequired ->
                 addStatement(
-                    "val %N = %NPart ?: throw %M(%S)",
+                    "val %N = %N ?: throw %M(%S)",
                     parameter.name,
-                    parameter.name,
+                    parameter.multipartPartName(),
                     MemberName("io.ktor.server.plugins", "MissingRequestParameterException"),
                     parameter.partName,
                 )
-            else -> addStatement("val %N = %NPart", parameter.name, parameter.name)
+            else -> addStatement("val %N = %N", parameter.name, parameter.multipartPartName())
         }
     }
 
@@ -982,7 +998,7 @@ class KtorControllerInterfaceGenerator(
         if (parameter.isArray) {
             add("val %N = ", header.name)
             if (!parameter.isRequired) add("if (%N == null) null else ", parameter.name)
-            add("%NRawParts.map { rawValue ->\n", header.name)
+            add("%N.map { rawValue ->\n", header.multipartRawPartsName())
             indent()
             if (header.isRequired) {
                 add("%L\n", multipartHeaderValue(header, requiredMultipartHeader(header, "rawValue")))
@@ -997,12 +1013,12 @@ class KtorControllerInterfaceGenerator(
         add("val %N = ", header.name)
         when {
             parameter.isRequired && header.isRequired ->
-                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, "${header.name}RawPart")))
+                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, header.multipartRawPartName())))
             !parameter.isRequired && header.isRequired -> {
                 add("if (%N == null) null else ", parameter.name)
-                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, "${header.name}RawPart")))
+                addStatement("%L", multipartHeaderValue(header, requiredMultipartHeader(header, header.multipartRawPartName())))
             }
-            else -> addStatement("%NRawPart?.let { %L }", header.name, multipartHeaderValue(header, "it"))
+            else -> addStatement("%N?.let { %L }", header.multipartRawPartName(), multipartHeaderValue(header, "it"))
         }
     }
 
@@ -1144,8 +1160,18 @@ class KtorControllerInterfaceGenerator(
     private fun multipartJsonValue(type: TypeName): CodeBlock =
         when (MutableSettings.serializationLibrary) {
             SerializationLibrary.JACKSON,
-            SerializationLibrary.JACKSON_3,
-            -> CodeBlock.of("multipartObjectMapper.readValue(part.value, %T::class.java)", type)
+            ->
+                CodeBlock.of(
+                    "multipartObjectMapper.%M<%T>(part.value)",
+                    MemberName("com.fasterxml.jackson.module.kotlin", "readValue"),
+                    type,
+                )
+            SerializationLibrary.JACKSON_3 ->
+                CodeBlock.of(
+                    "multipartObjectMapper.%M<%T>(part.value)",
+                    MemberName("tools.jackson.module.kotlin", "readValue"),
+                    type,
+                )
             SerializationLibrary.KOTLINX_SERIALIZATION ->
                 CodeBlock.of(
                     "%T.%M<%T>(part.value)",
@@ -1161,6 +1187,16 @@ class KtorControllerInterfaceGenerator(
         } else {
             type.copy(nullable = false)
         }
+
+    private fun MultipartParameter.multipartPartName(): String = name.localName("Part")
+
+    private fun MultipartParameter.multipartPartsName(): String = name.localName("Parts")
+
+    private fun MultipartHeaderParameter.multipartRawPartName(): String = name.localName("RawPart")
+
+    private fun MultipartHeaderParameter.multipartRawPartsName(): String = name.localName("RawParts")
+
+    private fun String.localName(suffix: String): String = removeSurrounding("`") + suffix
 
     private fun buildControllerFunKdoc(
         context: GeneratorEndpointContext,
