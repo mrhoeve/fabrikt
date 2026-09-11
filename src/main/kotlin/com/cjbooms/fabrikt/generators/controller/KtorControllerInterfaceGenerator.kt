@@ -204,7 +204,7 @@ class KtorControllerInterfaceGenerator(
         val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>()
         val formParams = params.filterIsInstance<FormParameter>()
         headerParams.forEach { parameter ->
-            if (parameter.supportsKtorHeaderConversion()) {
+            if (parameter.contentType != null || parameter.supportsKtorHeaderConversion()) {
                 builder.addParameter(parameter.toParameterSpecBuilder().build())
             } else {
                 builder.addParameter(
@@ -271,6 +271,7 @@ class KtorControllerInterfaceGenerator(
         val multipartParams = params.filterIsInstance<MultipartParameter>()
         val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
         val formParams = params.filterIsInstance<FormParameter>()
+        val contentParameters = (pathParams + queryParams + headerParams + cookieParams).filter { it.contentType != null }
         val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
         if (customMethod) {
             builder
@@ -291,7 +292,20 @@ class KtorControllerInterfaceGenerator(
                     path.path,
                 ).indent()
         }
+        builder.addParameterContentMapper(contentParameters)
         pathParams.forEach { parameter ->
+            if (parameter.contentType != null) {
+                builder.addContentParameter(
+                    parameter,
+                    CodeBlock.of(
+                        "%M.parameters.%M<String>(%S)",
+                        MemberName("io.ktor.server.application", "call"),
+                        MemberName(packages.controllers, "getTypedOrFail"),
+                        parameter.originalName,
+                    ),
+                )
+                return@forEach
+            }
             val type = parameter.type.copy(nullable = false)
             if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
@@ -309,6 +323,25 @@ class KtorControllerInterfaceGenerator(
             }
         }
         headerParams.forEach { parameter ->
+            if (parameter.contentType != null) {
+                val rawValue =
+                    if (parameter.isRequired) {
+                        CodeBlock.of(
+                            "%M.request.headers.%M(%S)",
+                            MemberName("io.ktor.server.application", "call"),
+                            MemberName(packages.controllers, "getOrFail"),
+                            parameter.originalName,
+                        )
+                    } else {
+                        CodeBlock.of(
+                            "%M.request.headers[%S]",
+                            MemberName("io.ktor.server.application", "call"),
+                            parameter.originalName,
+                        )
+                    }
+                builder.addContentParameter(parameter, rawValue)
+                return@forEach
+            }
             if (!parameter.supportsKtorHeaderConversion()) {
                 if (parameter.isRequired) {
                     builder.addStatement(
@@ -345,6 +378,18 @@ class KtorControllerInterfaceGenerator(
             }
         }
         cookieParams.forEach { parameter ->
+            if (parameter.contentType != null) {
+                builder.addContentParameter(
+                    parameter,
+                    CodeBlock.of(
+                        "%M.request.headers.%M<String>(%S)",
+                        MemberName("io.ktor.server.application", "call"),
+                        MemberName(packages.controllers, if (parameter.isRequired) "getTypedCookieOrFail" else "getTypedCookie"),
+                        parameter.originalName,
+                    ),
+                )
+                return@forEach
+            }
             val type = parameter.type.copy(nullable = false)
             val method = if (parameter.isRequired) "getTypedCookieOrFail" else "getTypedCookie"
             val splitValues = parameter.typeInfo is KotlinTypeInfo.Array && parameter.explode == false
@@ -366,6 +411,18 @@ class KtorControllerInterfaceGenerator(
             }
         }
         queryParams.forEach { parameter ->
+            if (parameter.contentType != null) {
+                builder.addContentParameter(
+                    parameter,
+                    CodeBlock.of(
+                        "%M.request.queryParameters.%M<String>(%S)",
+                        MemberName("io.ktor.server.application", "call"),
+                        MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
+                        parameter.originalName,
+                    ),
+                )
+                return@forEach
+            }
             val type = parameter.type.copy(nullable = false)
             val method = if (parameter.isRequired) "getTypedOrFail" else "getTyped"
             if (parameter.requiresKtorDataConversionPlugin()) {
@@ -485,6 +542,91 @@ class KtorControllerInterfaceGenerator(
         if (addAuth) builder.unindent().addStatement("}")
         return builder.build()
     }
+
+    private fun CodeBlock.Builder.addParameterContentMapper(parameters: List<RequestParameter>) {
+        if (parameters.isEmpty() || !MutableSettings.serializationLibrary.isJackson) return
+        val mapperPackage =
+            when (MutableSettings.serializationLibrary) {
+                SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
+                SerializationLibrary.JACKSON_3 -> "tools.jackson.databind.json"
+                SerializationLibrary.KOTLINX_SERIALIZATION -> error("Kotlinx serialization does not use a Jackson mapper")
+            }
+        addStatement("val parameterContentObjectMapper = %T.builder().findAndAddModules().build()", ClassName(mapperPackage, "JsonMapper"))
+    }
+
+    private fun CodeBlock.Builder.addContentParameter(
+        parameter: RequestParameter,
+        rawValue: CodeBlock,
+    ) {
+        val type = parameter.type.copy(nullable = false)
+        val contentValueName = "fabrikt${parameter.name.replaceFirstChar(Char::uppercase)}ContentValue"
+        addStatement("val %N = %L", contentValueName, rawValue)
+        if (parameter.isRequired) {
+            addStatement("val %N = try {", parameter.name)
+            indent()
+            addStatement("%L", parameter.decodeParameterContent(CodeBlock.of("%N", contentValueName), type))
+            unindent()
+            addStatement("} catch (cause: Exception) {")
+            indent()
+            addStatement(
+                "throw %T(%S, %S, cause)",
+                ClassName("io.ktor.server.plugins", "ParameterConversionException"),
+                parameter.originalName,
+                type.toString(),
+            )
+            unindent()
+            addStatement("}")
+            return
+        }
+
+        addStatement("val %N = %N?.let { value ->", parameter.name, contentValueName)
+        indent()
+        addStatement("try {")
+        indent()
+        addStatement("%L", parameter.decodeParameterContent(CodeBlock.of("value"), type))
+        unindent()
+        addStatement("} catch (cause: Exception) {")
+        indent()
+        addStatement(
+            "throw %T(%S, %S, cause)",
+            ClassName("io.ktor.server.plugins", "ParameterConversionException"),
+            parameter.originalName,
+            type.toString(),
+        )
+        unindent()
+        addStatement("}")
+        unindent()
+        addStatement("}")
+    }
+
+    private fun RequestParameter.decodeParameterContent(
+        rawValue: CodeBlock,
+        type: TypeName,
+    ): CodeBlock =
+        when (MutableSettings.serializationLibrary) {
+            SerializationLibrary.JACKSON ->
+                CodeBlock.of(
+                    "parameterContentObjectMapper.%M<%T>(%L)",
+                    MemberName("com.fasterxml.jackson.module.kotlin", "readValue"),
+                    type,
+                    rawValue,
+                )
+            SerializationLibrary.JACKSON_3 ->
+                CodeBlock.of(
+                    "parameterContentObjectMapper.%M<%T>(%L)",
+                    MemberName("tools.jackson.module.kotlin", "readValue"),
+                    type,
+                    rawValue,
+                )
+            SerializationLibrary.KOTLINX_SERIALIZATION ->
+                CodeBlock.of(
+                    "%T.%M<%T>(%L)",
+                    ClassName("kotlinx.serialization.json", "Json"),
+                    MemberName("kotlinx.serialization", "decodeFromString"),
+                    type,
+                    rawValue,
+                )
+        }
 
     private fun CodeBlock.Builder.addMultipartParameters(parameters: List<MultipartParameter>) {
         if (parameters.isEmpty()) return
