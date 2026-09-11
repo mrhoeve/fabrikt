@@ -332,6 +332,67 @@ class CodeGeneratorNativeServerModeTest {
     }
 
     @ParameterizedTest
+    @EnumSource(SerializationLibrary::class)
+    fun `deserializes JSON parameter content in native Ktor controllers`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated = generateControllers(parameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("selector: Filter")
+            .contains("filter: Filter")
+            .contains("xFilter: Filter?")
+            .contains("filterState: Filter?")
+            .contains("ParameterConversionException(\"filter\", \"com.example.models.Filter\", cause)")
+        if (serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+            assertThat(generated).contains("Json.decodeFromString<Filter>").doesNotContain("parameterContentObjectMapper")
+        } else {
+            assertThat(generated).contains("parameterContentObjectMapper.readValue<Filter>")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["SPRING", "MICRONAUT"])
+    fun `rejects content-based parameters for annotation controllers`(target: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.valueOf(target),
+        )
+
+        assertThatThrownBy { generateControllers(parameterContentOpenApi) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("cannot represent native content-based parameters")
+    }
+
+    @Test
+    fun `rejects non-JSON parameter content in native Ktor controllers`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        assertThatThrownBy { generateControllers(parameterContentOpenApi.replace("application/json", "text/plain")) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("supports native content-based parameters only for JSON media types")
+    }
+
+    private fun generateControllers(openApi: String): String =
+        CodeGenerator(
+            Packages("com.example"),
+            SourceApi(openApi),
+            Paths.get(""),
+            Paths.get(""),
+            SchemaGenerationMode.NATIVE,
+        ).generate()
+            .filterIsInstance<KotlinSourceSet>()
+            .flatMap { it.files }
+            .joinToString("\n")
+
+    @ParameterizedTest
     @EnumSource(ControllerCodeGenTargetType::class)
     fun `generates form urlencoded controllers from native operations`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(
@@ -707,6 +768,52 @@ class CodeGeneratorNativeServerModeTest {
               summary: Returns names with spaces encoded as %20.
               responses:
                 '204': { description: No content }
+        """.trimIndent()
+
+    private val parameterContentOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native parameter content server
+          version: "1.0"
+        paths:
+          /things/{selector}:
+            parameters:
+              - name: selector
+                in: path
+                required: true
+                content:
+                  application/json:
+                    schema: { ${'$'}ref: '#/components/schemas/Filter' }
+            get:
+              operationId: findThings
+              parameters:
+                - name: filter
+                  in: query
+                  required: true
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+                - name: X-Filter
+                  in: header
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+                - name: filterState
+                  in: cookie
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+              responses:
+                '204': { description: Found }
+        components:
+          schemas:
+            Filter:
+              type: object
+              required: [term]
+              properties:
+                term: { type: string }
+                page: { type: integer }
         """.trimIndent()
 
     private val cookieOpenApi =
