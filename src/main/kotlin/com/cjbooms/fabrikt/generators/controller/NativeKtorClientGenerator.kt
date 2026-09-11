@@ -6,6 +6,7 @@ import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.generators.OasDefault
 import com.cjbooms.fabrikt.generators.client.ClientGenerator
 import com.cjbooms.fabrikt.generators.client.KtorSequentialMultipartLibrary
 import com.cjbooms.fabrikt.generators.client.toEncodingCodeBlock
@@ -183,12 +184,19 @@ internal class NativeKtorClientGenerator(
             part.headers.forEach { header -> function.addParameter(header.toParameterSpecBuilder(part).build()) }
         }
         (pathParams + queryParams + queryStringParams + headerParams + cookieParams).forEach { parameter ->
-            function.addParameter(
+            val parameterSpec =
                 parameter
                     .toParameterSpecBuilder()
-                    .apply { if (!parameter.isRequired) defaultValue("null") }
-                    .build(),
-            )
+                    .apply {
+                        when {
+                            parameter.defaultValue != null ->
+                                OasDefault
+                                    .from(parameter.typeInfo, parameter.type, parameter.defaultValue)
+                                    ?.let { defaultValue(it.getDefault()) }
+                            !parameter.isRequired -> defaultValue("null")
+                        }
+                    }.build()
+            function.addParameter(parameterSpec)
         }
         val apiConfiguration = ClassName(packages.client, "ApiConfiguration")
         function.addParameter(ParameterSpec.builder("apiConfiguration", apiConfiguration).defaultValue("%T()", apiConfiguration).build())
