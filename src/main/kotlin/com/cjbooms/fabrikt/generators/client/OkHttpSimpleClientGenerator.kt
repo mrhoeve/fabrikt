@@ -602,6 +602,11 @@ data class SimpleClientOperationStatement(
             }
         } else {
             // Regular requests
+            parameters
+                .filterIsInstance<BodyParameter>()
+                .firstOrNull()
+                ?.takeUnless { body -> body.contentTypes.all { it.isJsonMediaType() } }
+                ?.let { body -> addMediaAwareRequestBody(body) }
             this.add(
                 "\nval request: %T = %T.Builder()",
                 "Request".toClassName("okhttp3"),
@@ -639,15 +644,19 @@ data class SimpleClientOperationStatement(
 
     private fun CodeBlock.Builder.addRequestSerializerStatement(verb: String) {
         val toRequestBody = "toRequestBody".toClassName("okhttp3.RequestBody.Companion")
-        parameters.filterIsInstance<BodyParameter>().firstOrNull()?.let {
-            this.add(
-                "\n.%N(objectMapper.writeValueAsString(%N).%T(%L.%T()))",
-                verb,
-                it.name,
-                toRequestBody,
-                requestContentTypeExpression("application/json"),
-                "toMediaType".toClassName("okhttp3.MediaType.Companion"),
-            )
+        parameters.filterIsInstance<BodyParameter>().firstOrNull()?.let { body ->
+            if (body.contentTypes.all { it.isJsonMediaType() }) {
+                this.add(
+                    "\n.%N(objectMapper.writeValueAsString(%N).%T(%L.%T()))",
+                    verb,
+                    body.name,
+                    toRequestBody,
+                    requestContentTypeExpression("application/json"),
+                    "toMediaType".toClassName("okhttp3.MediaType.Companion"),
+                )
+            } else {
+                add("\n.%N(fabriktRequestBody)", verb)
+            }
         } ?: this.add("\n.%N(ByteArray(0).%T())", verb, toRequestBody)
     }
 
@@ -662,15 +671,36 @@ data class SimpleClientOperationStatement(
             add("\n)")
             return
         }
-        add(
-            "objectMapper.writeValueAsString(%N).%T(%L.%T())",
-            body.name,
-            "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
-            requestContentTypeExpression("application/json"),
-            "toMediaType".toClassName("okhttp3.MediaType.Companion"),
-        )
+        if (body.contentTypes.all { it.isJsonMediaType() }) {
+            add(
+                "objectMapper.writeValueAsString(%N).%T(%L.%T())",
+                body.name,
+                "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
+                requestContentTypeExpression("application/json"),
+                "toMediaType".toClassName("okhttp3.MediaType.Companion"),
+            )
+        } else {
+            add("fabriktRequestBody")
+        }
         unindent()
         add("\n)")
+    }
+
+    private fun CodeBlock.Builder.addMediaAwareRequestBody(body: BodyParameter) {
+        val toMediaType = "toMediaType".toClassName("okhttp3.MediaType.Companion")
+        val toRequestBody = "toRequestBody".toClassName("okhttp3.RequestBody.Companion")
+        add("\nval fabriktContentType = %L", requestContentTypeExpression("application/octet-stream"))
+        add("\nval fabriktRequestBodyBytes = when {")
+        add(
+            "\n  fabriktContentType.substringBefore(';').let { it.equals(%S, ignoreCase = true) || it.endsWith(%S, ignoreCase = true) } -> objectMapper.writeValueAsBytes(%N)",
+            "application/json",
+            "+json",
+            body.name,
+        )
+        add("\n  %N is ByteArray -> %N", body.name, body.name)
+        add("\n  else -> %N.toString().toByteArray()", body.name)
+        add("\n}")
+        add("\nval fabriktRequestBody = fabriktRequestBodyBytes.%T(fabriktContentType.%T())", toRequestBody, toMediaType)
     }
 
     private fun requestContentTypeExpression(fallback: String): CodeBlock {
