@@ -111,6 +111,25 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates Kotlinx serializers for discriminatorless oneOf unions`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val generated = generateDiscriminatorlessUnion(version)
+
+        assertThat(generated.getValue("Pet"))
+            .contains("@Serializable(with = Pet.Serializer::class)")
+            .contains("public object Serializer : KSerializer<Pet>")
+            .contains("is Cat -> jsonEncoder.json.encodeToJsonElement(Cat.serializer(), value)")
+            .contains("is Dog -> jsonEncoder.json.encodeToJsonElement(Dog.serializer(), value)")
+            .contains("jsonDecoder.json.decodeFromJsonElement(Cat.serializer(), element)")
+            .contains("jsonDecoder.json.decodeFromJsonElement(Dog.serializer(), element)")
+            .contains("Expected exactly one Pet variant but matched ")
+        assertThat(generated.getValue("Cat")).contains("@Serializable", ") : Pet")
+        assertThat(generated.getValue("Dog")).contains("@Serializable", ") : Pet")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates deterministically named inline models`(version: String) {
         val generated = generate(version)
 
@@ -435,6 +454,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(discriminatorMappingsOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateDiscriminatorlessUnion(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(discriminatorlessUnionOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -895,6 +925,31 @@ class NativeModelGeneratorTest {
               required: [kind]
               properties:
                 kind: { type: string }
+        """.trimIndent()
+
+    private val discriminatorlessUnionOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Discriminatorless union
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Pet:
+              oneOf:
+                - ${'$'}ref: '#/components/schemas/Cat'
+                - ${'$'}ref: '#/components/schemas/Dog'
+            Cat:
+              type: object
+              required: [meows]
+              properties:
+                meows: { type: boolean }
+            Dog:
+              type: object
+              required: [barks]
+              properties:
+                barks: { type: boolean }
         """.trimIndent()
 
     private val directionalPropertiesOpenApi =
