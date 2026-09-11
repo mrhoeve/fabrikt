@@ -413,6 +413,9 @@ class CodeGeneratorNativeClientModeTest {
                 .joinToString("\n")
 
         assertThat(generated)
+            .contains("import okhttp3.MultipartBody")
+            .contains("val multipartBuilder = MultipartBody.Builder()")
+            .doesNotContain("import okhttp3.MultipartBody.Builder")
             .contains("objectMapper.writeValueAsString(metadata)")
             .contains("\"application/merge-patch+json\".toMediaType()")
     }
