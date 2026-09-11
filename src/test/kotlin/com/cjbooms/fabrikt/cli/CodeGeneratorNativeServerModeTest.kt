@@ -96,6 +96,33 @@ class CodeGeneratorNativeServerModeTest {
     }
 
     @ParameterizedTest
+    @EnumSource(ControllerCodeGenTargetType::class)
+    fun `uses raw bytes for heterogeneous response representations`(target: ControllerCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(heterogeneousResponseContentOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        when (target) {
+            ControllerCodeGenTargetType.SPRING -> assertThat(generated).contains("ResponseEntity<ByteArray>")
+            ControllerCodeGenTargetType.MICRONAUT -> assertThat(generated).contains("HttpResponse<ByteArray>")
+            ControllerCodeGenTargetType.KTOR -> assertThat(generated).contains("TypedApplicationCall<ByteArray>")
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `parses typed native Ktor cookie parameters from their raw wire values`(version: String) {
         MutableSettings.updateSettings(
@@ -551,6 +578,30 @@ class CodeGeneratorNativeServerModeTest {
             .contains("call.request.headers[HttpHeaders.ContentType]?.let { contentType ->")
             .contains("controller.uploadArchive(parts, call)")
     }
+
+    private val heterogeneousResponseContentOpenApi =
+        """
+        openapi: 3.1.1
+        info: { title: Heterogeneous responses, version: "1.0" }
+        paths:
+          /payloads:
+            get:
+              operationId: findPayload
+              responses:
+                '200':
+                  description: Structured payload
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          value: { type: string }
+                '202':
+                  description: Text payload
+                  content:
+                    text/plain:
+                      schema: { type: string }
+        """.trimIndent()
 
     private val openApi =
         """

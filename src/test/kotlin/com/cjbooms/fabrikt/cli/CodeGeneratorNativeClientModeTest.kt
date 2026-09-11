@@ -1010,13 +1010,20 @@ class CodeGeneratorNativeClientModeTest {
         assertThat(generated).contains("acceptHeader: String = \"application/json\"")
         when (target) {
             ClientCodeGenTargetType.OK_HTTP ->
-                assertThat(generated).contains(".`header`(\"Accept\", acceptHeader)")
+                assertThat(generated)
+                    .contains("ApiResponse<ByteArray>")
+                    .contains(".`header`(\"Accept\", acceptHeader)")
             ClientCodeGenTargetType.OPEN_FEIGN ->
-                assertThat(generated).contains("\"Accept: {acceptHeader}\"")
+                assertThat(generated)
+                    .contains("): ByteArray")
+                    .contains("\"Accept: {acceptHeader}\"")
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
-                assertThat(generated).contains("@RequestHeader(\"Accept\") acceptHeader: String")
+                assertThat(generated)
+                    .contains("): ByteArray")
+                    .contains("@RequestHeader(\"Accept\") acceptHeader: String")
             ClientCodeGenTargetType.KTOR ->
                 assertThat(generated)
+                    .contains("NetworkResult<ByteArray>")
                     .contains("`header`(\"Accept\", acceptHeader)")
                     .doesNotContain("`header`(\"Accept\", \"application/json\")")
         }
