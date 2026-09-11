@@ -35,6 +35,7 @@ import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.parser.GeneratorResponse
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
+import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaValueConstraint
 import com.cjbooms.fabrikt.parser.GeneratorSecurityAlternative
 import com.cjbooms.fabrikt.parser.GeneratorSecuritySelection
@@ -601,23 +602,46 @@ internal class GeneratorEndpointContext(
             }
         }
 
-        val bodies =
+        val representations =
             requestBody.content.mapNotNull { media ->
                 val schema = media.effectiveSchema() ?: return@mapNotNull null
                 val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
-                BodyParameter(
-                    oasName = resolution.typeInfo.generatedModelClassName?.toKotlinParameterName() ?: "body",
-                    description = requestBody.description,
+                RequestBodyRepresentation(
+                    mediaType = media.key,
+                    schemaIdentity = schemas.resolve(schema).identity,
+                    typeInfo = resolution.typeInfo,
                     type = toModelType(basePackage, resolution.typeInfo, resolution.nullable),
-                    isRequired = requestBody.required,
                 )
             }
-        return bodies
-            .distinctBy { it.name }
-            .reduceOrNull { first, second ->
-                BodyParameter("body", first.description, first.type, first.isRequired && second.isRequired)
-            }?.let(::listOf)
-            .orEmpty()
+        if (representations.isEmpty()) return emptyList()
+        val distinctSchemas = representations.distinctBy(RequestBodyRepresentation::schemaIdentity)
+        val bodyType =
+            when {
+                distinctSchemas.size == 1 -> distinctSchemas.single().type
+                representations.all { it.mediaType.isJsonMediaType() } ->
+                    if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+                        KotlinTypeInfo.JsonElement.modelKClass.asTypeName()
+                    } else {
+                        JSON_NODE_CLASS
+                    }
+                else -> Any::class.asTypeName()
+            }
+        val bodyName =
+            distinctSchemas
+                .singleOrNull()
+                ?.typeInfo
+                ?.generatedModelClassName
+                ?.toKotlinParameterName()
+                ?: "body"
+        return listOf(
+            BodyParameter(
+                oasName = bodyName,
+                description = requestBody.description,
+                type = bodyType,
+                isRequired = requestBody.required,
+                contentTypes = representations.map(RequestBodyRepresentation::mediaType),
+            ),
+        )
     }
 
     private fun requestParameter(parameter: GeneratorParameter): RequestParameter? {
@@ -862,6 +886,7 @@ internal class GeneratorEndpointContext(
                         parameter.description,
                         parameter.type,
                         parameter.isRequired,
+                        contentTypes = parameter.contentTypes,
                     )
                 is RequestParameter ->
                     RequestParameter(
@@ -966,3 +991,10 @@ internal enum class ClientAuthenticationType {
     BASIC,
     BEARER,
 }
+
+private data class RequestBodyRepresentation(
+    val mediaType: String,
+    val schemaIdentity: GeneratorSchemaIdentity,
+    val typeInfo: KotlinTypeInfo,
+    val type: TypeName,
+)

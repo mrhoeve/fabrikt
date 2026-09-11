@@ -132,6 +132,7 @@ open class BodyParameter(
     type: TypeName,
     isRequired: Boolean = false,
     open val schema: Schema? = null,
+    val contentTypes: List<String> = emptyList(),
 ) : IncomingParameter(oasName, description, type, isRequired)
 
 class MultipartParameter(
