@@ -45,7 +45,7 @@ class CodeGeneratorNativeFormObjectTest {
     }
 
     @ParameterizedTest
-    @EnumSource(ControllerCodeGenTargetType::class)
+    @EnumSource(value = ControllerCodeGenTargetType::class, names = ["SPRING", "MICRONAUT"])
     fun `rejects object valued forms for server frameworks without deterministic binding`(target: ControllerCodeGenTargetType) {
         MutableSettings.updateSettings(genTypes = setOf(CodeGenerationType.CONTROLLERS), controllerTarget = target)
 
@@ -59,6 +59,43 @@ class CodeGeneratorNativeFormObjectTest {
             ).generate()
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("does not support native object-valued form fields")
+    }
+
+    @ParameterizedTest
+    @EnumSource(SerializationLibrary::class)
+    fun `deserializes native object valued forms for Ktor servers`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(openApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("val filter = Filter(")
+            .contains("role = formFields.getTypedOrFail<String>(\"role\"")
+            .contains("active = formFields.getTyped<Boolean>(\"active\"")
+            .contains("val compactFilterRawValue = formFields.getTypedOrFail<String>(\"compactFilter\"")
+            .contains("val compactFilterValues = compactFilterRawValue.split(\",\")")
+            .contains("compactFilterValues.size % 2 != 0")
+            .contains("Form field compactFilter must contain alternating property names and values")
+            .contains("val compactFilterFields = parameters {")
+            .contains("val deepFilter = Filter(")
+            .contains("role = formFields.getTypedOrFail<String>(\"deepFilter[role]\"")
+            .contains("val optionalFilter = if (formFields[\"role\"] != null || formFields[\"active\"] != null) {")
+            .contains("val optionalCompactRawValue = formFields[\"optionalCompact\"]")
+            .contains("val optionalCompact = optionalCompactRawValue?.let { rawValue ->")
     }
 
     private fun generate(target: ClientCodeGenTargetType): String {
@@ -127,6 +164,36 @@ class CodeGeneratorNativeFormObjectTest {
                       deepFilter:
                         style: deepObject
                         explode: true
+              responses: { '204': { description: ok } }
+          /optional:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      properties:
+                        optionalFilter: { ${'$'}ref: '#/components/schemas/Filter' }
+                    encoding:
+                      optionalFilter:
+                        style: form
+                        explode: true
+              responses: { '204': { description: ok } }
+          /optional-compact:
+            post:
+              requestBody:
+                required: true
+                content:
+                  application/x-www-form-urlencoded:
+                    schema:
+                      type: object
+                      properties:
+                        optionalCompact: { ${'$'}ref: '#/components/schemas/Filter' }
+                    encoding:
+                      optionalCompact:
+                        style: form
+                        explode: false
               responses: { '204': { description: ok } }
         components:
           schemas:
