@@ -32,7 +32,6 @@ import com.cjbooms.fabrikt.model.HeaderParam
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
-import com.cjbooms.fabrikt.model.MultipartPartEncoding
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
@@ -601,7 +600,7 @@ data class SimpleClientOperationStatement(
                 MemberName(packages.client, "buildSequentialMultipartBody"),
                 sequential.name,
                 sequential.mediaType,
-                sequential.toEncodingCodeBlock(),
+                sequential.toEncodingCodeBlock(packages.client),
             )
             return
         }
@@ -699,69 +698,6 @@ data class SimpleClientOperationStatement(
 
         this.add("\nval multipartBody = multipartBuilder.build()")
     }
-
-    private fun SequentialMultipartParameter.toEncodingCodeBlock(): CodeBlock =
-        CodeBlock.of(
-            "%T(contentTypes = listOf(%S), requiredHeaders = emptySet(), prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
-            "MultipartEncoding".toClassName(packages.client),
-            mediaType,
-            prefixEncodings.toEncodingListCodeBlock(),
-            itemEncoding?.toEncodingCodeBlock() ?: CodeBlock.of("null"),
-            minimumPartCount,
-            maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
-        )
-
-    private fun List<MultipartPartEncoding>.toEncodingListCodeBlock(): CodeBlock =
-        if (isEmpty()) {
-            CodeBlock.of("emptyList()")
-        } else {
-            CodeBlock
-                .builder()
-                .add("listOf(")
-                .apply {
-                    this@toEncodingListCodeBlock.forEachIndexed { index, encoding ->
-                        if (index > 0) add(", ")
-                        add("%L", encoding.toEncodingCodeBlock())
-                    }
-                }.add(")")
-                .build()
-        }
-
-    private fun MultipartPartEncoding.toEncodingCodeBlock(): CodeBlock =
-        CodeBlock.of(
-            "%T(contentTypes = %L, requiredHeaders = %L, prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
-            "MultipartEncoding".toClassName(packages.client),
-            contentTypes.toStringListCodeBlock(),
-            requiredHeaders.toStringSetCodeBlock(),
-            prefixEncodings.toEncodingListCodeBlock(),
-            itemEncoding?.toEncodingCodeBlock() ?: CodeBlock.of("null"),
-            minimumPartCount,
-            maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
-        )
-
-    private fun Collection<String>.toStringListCodeBlock(): CodeBlock =
-        CodeBlock
-            .builder()
-            .add("listOf(")
-            .apply {
-                this@toStringListCodeBlock.forEachIndexed { index, value ->
-                    if (index > 0) add(", ")
-                    add("%S", value)
-                }
-            }.add(")")
-            .build()
-
-    private fun Collection<String>.toStringSetCodeBlock(): CodeBlock =
-        CodeBlock
-            .builder()
-            .add("setOf(")
-            .apply {
-                this@toStringSetCodeBlock.forEachIndexed { index, value ->
-                    if (index > 0) add(", ")
-                    add("%S", value)
-                }
-            }.add(")")
-            .build()
 
     private fun CodeBlock.Builder.addMultipartPartHeaders(
         parameter: MultipartParameter,
