@@ -317,6 +317,28 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates Kotlinx serializers for native additional properties`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val generated = generateAdditionalProperties(version)
+
+        assertThat(generated.getValue("Subject"))
+            .contains("@Serializable(with = Subject.Serializer::class)")
+            .contains("public val additionalProperties: MutableMap<String, JsonElement?> = mutableMapOf()")
+            .contains("values[\"id\"] = json.encodeToJsonElement<String>(value.id)")
+            .contains("if (json.configuration.encodeDefaults || value.count != 5)")
+            .contains("additionalProperties = values.mapValues")
+            .contains("json.decodeFromJsonElement<JsonElement?>(item)")
+        assertThat(generated.getValue("TypedSubject"))
+            .contains("public val additionalProperties: MutableMap<String, Int?> = mutableMapOf()")
+            .contains("json.decodeFromJsonElement<Int?>(item)")
+        assertThat(generated.getValue("NamedSubject"))
+            .contains("public val additionalProperties: String?")
+            .contains("public val additionalPropertiesExtra: MutableMap<String, Boolean?> = mutableMapOf()")
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `applies native reference siblings to generated models`(version: String) {
         val generated = generateReferenceSiblings(version)
@@ -473,6 +495,17 @@ class NativeModelGeneratorTest {
             .single { it.name == "Subject" }
             .toString()
 
+    private fun generateAdditionalProperties(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(additionalPropertiesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
     private fun generateDirectionalProperties(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
@@ -594,6 +627,34 @@ class NativeModelGeneratorTest {
                   type: object
                   additionalProperties:
                     type: [string, integer, 'null']
+        """.trimIndent()
+
+    private val additionalPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Additional properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                count: { type: integer, default: 5 }
+              additionalProperties: true
+            TypedSubject:
+              type: object
+              properties:
+                label: { type: string }
+              additionalProperties: { type: integer }
+            NamedSubject:
+              type: object
+              properties:
+                additionalProperties: { type: string }
+              additionalProperties: { type: boolean }
         """.trimIndent()
 
     private val compositionUnionOpenApi =
