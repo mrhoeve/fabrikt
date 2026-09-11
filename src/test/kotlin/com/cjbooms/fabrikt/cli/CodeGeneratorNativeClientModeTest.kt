@@ -987,6 +987,41 @@ class CodeGeneratorNativeClientModeTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `negotiates response content across successful statuses`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipleResponseContentOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated).contains("acceptHeader: String = \"application/json\"")
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated).contains(".`header`(\"Accept\", acceptHeader)")
+            ClientCodeGenTargetType.OPEN_FEIGN ->
+                assertThat(generated).contains("\"Accept: {acceptHeader}\"")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                assertThat(generated).contains("@RequestHeader(\"Accept\") acceptHeader: String")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("`header`(\"Accept\", acceptHeader)")
+                    .doesNotContain("`header`(\"Accept\", \"application/json\")")
+        }
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -1058,6 +1093,30 @@ class CodeGeneratorNativeClientModeTest {
                     schema: { type: string }
               responses:
                 '204': { description: Accepted }
+        """.trimIndent()
+
+    private val multipleResponseContentOpenApi =
+        """
+        openapi: 3.1.1
+        info: { title: Response representations, version: "1.0" }
+        paths:
+          /payloads:
+            get:
+              operationId: findPayload
+              responses:
+                '200':
+                  description: Structured payload
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          value: { type: string }
+                '202':
+                  description: Deferred payload
+                  content:
+                    text/plain:
+                      schema: { type: string }
         """.trimIndent()
 
     private val responseSelectionOpenApi =
