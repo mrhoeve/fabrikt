@@ -450,11 +450,14 @@ class CodeGeneratorNativeClientModeTest {
             .contains("maximumPartCount = 4")
             .contains("public data class MultipartPart(")
             .contains("public val parts: Iterable<MultipartPart>? = null")
-            .contains("Exactly one of body or parts must be supplied")
+            .contains("public val requestBody: RequestBody? = null")
+            .contains("Exactly one of body, parts, or requestBody must be supplied")
+            .contains("private class SequentialMultipartBody(")
+            .contains("override fun writeTo(sink: BufferedSink)")
             .contains("var partCount = 0")
             .contains("require(partCount >= encoding.minimumPartCount)")
-            .contains("builder.addPart(headers.build(), part.toRequestBody(partEncoding))")
-            .contains("return buildSequentialMultipartBody(nestedParts, selectedContentType, requireNotNull(encoding))")
+            .contains("part.requestBody?.writeTo(sink) ?: sink.write(requireNotNull(part.body))")
+            .contains("writeSequentialMultipart(sink, nestedParts, requireNotNull(partEncoding)")
     }
 
     @Test
