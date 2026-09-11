@@ -342,6 +342,61 @@ class CodeGeneratorNativeServerModeTest {
         }
     }
 
+    @Test
+    fun `streams positional multipart bodies into native Ktor controllers`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(sequentialMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("parts: Flow<SequentialMultipart.Part>")
+            .contains("public object SequentialMultipart")
+            .contains("public val body: ByteReadChannel?")
+            .contains("public val parts: Flow<Part>?")
+            .contains("val events = parseMultipart(input, contentType, contentLength)")
+            .contains("Expected at most \$maximum multipart parts")
+            .contains("val nestedParts = if (nested) read(event.body")
+            .contains("controller.uploadArchive(parts, call)")
+    }
+
+    @Test
+    fun `keeps optional positional multipart bodies optional in native Ktor controllers`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(sequentialMultipartOpenApi.replace("required: true", "required: false")),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("parts: Flow<SequentialMultipart.Part>?")
+            .contains("call.request.headers[HttpHeaders.ContentType]?.let { contentType ->")
+            .contains("controller.uploadArchive(parts, call)")
+    }
+
     private val openApi =
         """
         openapi: VERSION
@@ -504,6 +559,39 @@ class CodeGeneratorNativeServerModeTest {
                           items: { type: string }
               responses:
                 '204': { description: Created }
+        """.trimIndent()
+
+    private val sequentialMultipartOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Native sequential multipart server
+          version: "1.0"
+        paths:
+          /archives:
+            post:
+              operationId: uploadArchive
+              requestBody:
+                required: true
+                content:
+                  multipart/mixed:
+                    schema:
+                      type: array
+                      minItems: 1
+                      maxItems: 4
+                      prefixItems:
+                        - type: string
+                      items:
+                        type: string
+                        contentEncoding: binary
+                    prefixEncoding:
+                      - contentType: application/json
+                    itemEncoding:
+                      contentType: multipart/mixed
+                      itemEncoding:
+                        contentType: application/octet-stream
+              responses:
+                '204': { description: Uploaded }
         """.trimIndent()
 
     private val multipartHeaderOpenApi =

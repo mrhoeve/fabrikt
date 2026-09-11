@@ -10,6 +10,7 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.generators.client.toEncodingCodeBlock
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.SecuritySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.securitySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.toSuccessResponseType
@@ -23,6 +24,7 @@ import com.cjbooms.fabrikt.model.KotlinTypes
 import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
@@ -136,6 +138,9 @@ class KtorControllerInterfaceGenerator(
     }
 
     private fun generate(context: GeneratorEndpointContext): KtorControllers {
+        val sequentialMultipart = ClassName(packages.controllers, "SequentialMultipart")
+        val sequentialMultipartType =
+            ClassName("kotlinx.coroutines.flow", "Flow").parameterizedBy(sequentialMultipart.nestedClass("Part"))
         val controllerInterfaces =
             context.groupedPaths(groupingStrategy).map { (resourceName, paths) ->
                 val controllerBuilder = TypeSpec.interfaceBuilder(ControllerGeneratorUtils.controllerName(resourceName))
@@ -148,14 +153,14 @@ class KtorControllerInterfaceGenerator(
 
                 paths.forEach { path ->
                     path.operations.filterNot { it.method.equals("HEAD", ignoreCase = true) }.forEach { operation ->
-                        routeFunBuilder.addCode(buildRouteCode(context, operation, path))
+                        routeFunBuilder.addCode(buildRouteCode(context, operation, path, sequentialMultipartType))
                         routeFunBuilder.addKdoc(
                             "- %L %L %L\n",
                             operation.method.toUpperCase(),
                             path.path,
                             (operation.summary ?: operation.description).orEmpty(),
                         )
-                        controllerBuilder.addFunction(buildControllerFun(context, operation, path))
+                        controllerBuilder.addFunction(buildControllerFun(context, operation, path, sequentialMultipartType))
                     }
                 }
                 controllerBuilder.addType(
@@ -173,21 +178,30 @@ class KtorControllerInterfaceGenerator(
                 )
                 controllerBuilder.build()
             }
-        return KtorControllers(controllerInterfaces.map { ControllerType(it, packages.base) }.toSet())
+        return KtorControllers(
+            controllerInterfaces.map { ControllerType(it, packages.base) }.toSet(),
+            if (context.hasSequentialMultipartBodies()) {
+                setOf(ControllerLibraryType(KtorSequentialMultipartServerLibrary.type(packages), packages.base))
+            } else {
+                emptySet()
+            },
+        )
     }
 
     private fun buildControllerFun(
         context: GeneratorEndpointContext,
         operation: GeneratorOperation,
         path: GeneratorPathItem,
+        sequentialMultipartType: TypeName,
     ): FunSpec {
         val builder =
             FunSpec
                 .builder(context.methodName(operation, path.path))
                 .addModifiers(setOf(KModifier.SUSPEND, KModifier.ABSTRACT))
-        val params = context.incomingParameters(operation, path.parameters)
+        val params = context.incomingParameters(operation, path.parameters, sequentialMultipartType = sequentialMultipartType)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         val multipartParams = params.filterIsInstance<MultipartParameter>()
+        val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>()
         val formParams = params.filterIsInstance<FormParameter>()
         headerParams.forEach { parameter ->
             if (parameter.supportsKtorHeaderConversion()) {
@@ -211,6 +225,7 @@ class KtorControllerInterfaceGenerator(
             builder.addParameter(parameter.toParameterSpecBuilder().build())
             parameter.headers.forEach { header -> builder.addParameter(header.toParameterSpecBuilder(parameter).build()) }
         }
+        sequentialMultipart.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         formParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
         builder.addKdoc(buildControllerFunKdoc(context, operation, params))
         val responseType = context.successResponseType(operation, packages.base)
@@ -229,6 +244,7 @@ class KtorControllerInterfaceGenerator(
         context: GeneratorEndpointContext,
         operation: GeneratorOperation,
         path: GeneratorPathItem,
+        sequentialMultipartType: TypeName,
     ): CodeBlock {
         val builder = CodeBlock.builder()
         val security = operation.securitySupport(context.operations.security.securitySupport())
@@ -250,9 +266,10 @@ class KtorControllerInterfaceGenerator(
                 ).indent()
         }
 
-        val params = context.incomingParameters(operation, path.parameters)
+        val params = context.incomingParameters(operation, path.parameters, sequentialMultipartType = sequentialMultipartType)
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
         val multipartParams = params.filterIsInstance<MultipartParameter>()
+        val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
         val formParams = params.filterIsInstance<FormParameter>()
         val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
         if (customMethod) {
@@ -392,9 +409,51 @@ class KtorControllerInterfaceGenerator(
             }
         }
         builder.addMultipartParameters(multipartParams)
+        sequentialMultipart?.let { parameter ->
+            val multipart = ClassName(packages.controllers, "SequentialMultipart")
+            val call = MemberName("io.ktor.server.application", "call")
+            val receiveChannel = MemberName("io.ktor.server.request", "receiveChannel")
+            val httpHeaders = ClassName("io.ktor.http", "HttpHeaders")
+            val encoding = parameter.toEncodingCodeBlock(multipart.nestedClass("Encoding"))
+            if (parameter.isRequired) {
+                builder.addStatement(
+                    "val %N = %T.read(%M.%M(), requireNotNull(%M.request.headers[%T.ContentType]), %M.request.headers[%T.ContentLength]?.toLongOrNull(), %L)",
+                    parameter.name,
+                    multipart,
+                    call,
+                    receiveChannel,
+                    call,
+                    httpHeaders,
+                    call,
+                    httpHeaders,
+                    encoding,
+                )
+            } else {
+                builder.addStatement(
+                    "val %N = %M.request.headers[%T.ContentType]?.let { contentType -> %T.read(%M.%M(), contentType, %M.request.headers[%T.ContentLength]?.toLongOrNull(), %L) }",
+                    parameter.name,
+                    call,
+                    httpHeaders,
+                    multipart,
+                    call,
+                    receiveChannel,
+                    call,
+                    httpHeaders,
+                    encoding,
+                )
+            }
+        }
         val methodParameters =
-            listOf(headerParams, cookieParams, pathParams, queryParams, bodyParams, multipartParams, formParams)
-                .asSequence()
+            listOf(
+                headerParams,
+                cookieParams,
+                pathParams,
+                queryParams,
+                bodyParams,
+                multipartParams,
+                listOfNotNull(sequentialMultipart),
+                formParams,
+            ).asSequence()
                 .flatten()
                 .flatMap { parameter ->
                     sequenceOf(parameter.name) +
@@ -1351,7 +1410,8 @@ class KtorControllerInterfaceGenerator(
 
     data class KtorControllers(
         val controllers: Set<ControllerType>,
-    ) : KotlinTypes(controllers) {
+        val libraries: Set<ControllerLibraryType> = emptySet(),
+    ) : KotlinTypes(controllers + libraries) {
         override val files: Collection<FileSpec> =
             super.files.map { fileSpec ->
                 fileSpec
