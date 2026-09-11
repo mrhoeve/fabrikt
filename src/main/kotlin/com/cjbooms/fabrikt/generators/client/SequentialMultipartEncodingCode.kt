@@ -6,17 +6,20 @@ import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.CodeBlock
 
 internal fun SequentialMultipartParameter.toEncodingCodeBlock(clientPackage: String): CodeBlock =
+    toEncodingCodeBlock(ClassName(clientPackage, "MultipartEncoding"))
+
+internal fun SequentialMultipartParameter.toEncodingCodeBlock(multipartEncoding: ClassName): CodeBlock =
     CodeBlock.of(
         "%T(contentTypes = listOf(%S), requiredHeaders = emptySet(), prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
-        ClassName(clientPackage, "MultipartEncoding"),
+        multipartEncoding,
         mediaType,
-        prefixEncodings.toEncodingListCodeBlock(clientPackage),
-        itemEncoding?.toEncodingCodeBlock(clientPackage) ?: CodeBlock.of("null"),
+        prefixEncodings.toEncodingListCodeBlock(multipartEncoding),
+        itemEncoding?.toEncodingCodeBlock(multipartEncoding) ?: CodeBlock.of("null"),
         minimumPartCount,
         maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
     )
 
-private fun List<MultipartPartEncoding>.toEncodingListCodeBlock(clientPackage: String): CodeBlock =
+private fun List<MultipartPartEncoding>.toEncodingListCodeBlock(multipartEncoding: ClassName): CodeBlock =
     if (isEmpty()) {
         CodeBlock.of("emptyList()")
     } else {
@@ -26,20 +29,20 @@ private fun List<MultipartPartEncoding>.toEncodingListCodeBlock(clientPackage: S
             .apply {
                 this@toEncodingListCodeBlock.forEachIndexed { index, encoding ->
                     if (index > 0) add(", ")
-                    add("%L", encoding.toEncodingCodeBlock(clientPackage))
+                    add("%L", encoding.toEncodingCodeBlock(multipartEncoding))
                 }
             }.add(")")
             .build()
     }
 
-private fun MultipartPartEncoding.toEncodingCodeBlock(clientPackage: String): CodeBlock =
+private fun MultipartPartEncoding.toEncodingCodeBlock(multipartEncoding: ClassName): CodeBlock =
     CodeBlock.of(
         "%T(contentTypes = %L, requiredHeaders = %L, prefixEncodings = %L, itemEncoding = %L, minimumPartCount = %L, maximumPartCount = %L)",
-        ClassName(clientPackage, "MultipartEncoding"),
+        multipartEncoding,
         contentTypes.toStringCollectionCodeBlock("listOf"),
         requiredHeaders.toStringCollectionCodeBlock("setOf"),
-        prefixEncodings.toEncodingListCodeBlock(clientPackage),
-        itemEncoding?.toEncodingCodeBlock(clientPackage) ?: CodeBlock.of("null"),
+        prefixEncodings.toEncodingListCodeBlock(multipartEncoding),
+        itemEncoding?.toEncodingCodeBlock(multipartEncoding) ?: CodeBlock.of("null"),
         minimumPartCount,
         maximumPartCount?.let { CodeBlock.of("%L", it) } ?: CodeBlock.of("null"),
     )

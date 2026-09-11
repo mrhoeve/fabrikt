@@ -155,9 +155,9 @@ internal class GeneratorEndpointContext(
         operation: GeneratorOperation,
         pathParameters: List<GeneratorParameter>,
         extraParameters: List<IncomingParameter> = emptyList(),
-        sequentialMultipartPartType: ClassName? = null,
+        sequentialMultipartType: TypeName? = null,
     ): List<IncomingParameter> {
-        val bodies = operation.requestBody?.let { bodyParameters(it, sequentialMultipartPartType) }.orEmpty()
+        val bodies = operation.requestBody?.let { bodyParameters(it, sequentialMultipartType) }.orEmpty()
         val merged =
             pathParameters.filter { path ->
                 operation.parameters.none { it.name == path.name && it.placement == path.placement }
@@ -196,7 +196,7 @@ internal class GeneratorEndpointContext(
             operation,
             path.parameters,
             securityParameters(operation, path.parameters) + acceptParameter,
-            ClassName(clientPackage(basePackage), "MultipartPart"),
+            Iterable::class.asClassName().parameterizedBy(ClassName(clientPackage(basePackage), "MultipartPart")),
         )
     }
 
@@ -399,6 +399,7 @@ internal class GeneratorEndpointContext(
             operations.paths.flatMap { path ->
                 path.operations.flatMap { operation ->
                     operation.requestBody
+                        ?.takeUnless { multipartBody(it) is GeneratorMultipartBody.Sequential }
                         ?.let(::bodyParameters)
                         .orEmpty()
                         .filterIsInstance<FormParameter>()
@@ -417,6 +418,7 @@ internal class GeneratorEndpointContext(
                 path.operations
                     .flatMap { operation ->
                         operation.requestBody
+                            ?.takeUnless { multipartBody(it) is GeneratorMultipartBody.Sequential }
                             ?.let(::bodyParameters)
                             .orEmpty()
                             .filterIsInstance<FormParameter>()
@@ -453,18 +455,18 @@ internal class GeneratorEndpointContext(
 
     private fun bodyParameters(
         requestBody: com.cjbooms.fabrikt.parser.GeneratorRequestBody,
-        sequentialMultipartPartType: ClassName? = null,
+        sequentialMultipartType: TypeName? = null,
     ): List<IncomingParameter> {
         val multipartBody = multipartBody(requestBody)
         if (multipartBody is GeneratorMultipartBody.Sequential) {
-            requireNotNull(sequentialMultipartPartType) {
-                "Native sequential multipart parameters require a target-specific multipart part type."
+            requireNotNull(sequentialMultipartType) {
+                "Native sequential multipart parameters require a target-specific multipart type."
             }
             return listOf(
                 SequentialMultipartParameter(
                     oasName = "parts",
                     description = requestBody.description,
-                    type = Iterable::class.asClassName().parameterizedBy(sequentialMultipartPartType),
+                    type = sequentialMultipartType,
                     isRequired = requestBody.required,
                     mediaType = multipartBody.mediaType.key,
                     minimumPartCount = multipartBody.minimumPartCount,
