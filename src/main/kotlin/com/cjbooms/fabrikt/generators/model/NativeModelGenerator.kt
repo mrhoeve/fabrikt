@@ -37,6 +37,10 @@ internal class NativeModelGenerator(
     private val validationAnnotations = MutableSettings.validationLibrary.annotations
 
     fun generate(descriptors: Collection<GeneratorModelDescriptor>): Models {
+        val objectModelIdentities =
+            descriptors
+                .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
+                .mapTo(mutableSetOf(), GeneratorModelDescriptor::schemaIdentity)
         val interfacesByMember =
             descriptors
                 .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
@@ -51,7 +55,10 @@ internal class NativeModelGenerator(
                     when {
                         descriptor.scalarUnionVariants.isNotEmpty() -> descriptor.toScalarUnion()
                         descriptor.resolvedType() == null -> null
-                        descriptor.oneOfMembers.isNotEmpty() -> descriptor.toUnionInterface()
+                        descriptor.oneOfMembers.isNotEmpty() ->
+                            descriptor.toUnionInterface(
+                                descriptor.oneOfMembers.all { member -> member.schemaIdentity in objectModelIdentities },
+                            )
                         descriptor.resolvedType() == OasType.Object ->
                             descriptor.toDataClass(
                                 interfacesByMember[MemberDirection(descriptor.schemaIdentity, descriptor.direction)].orEmpty(),
@@ -181,15 +188,24 @@ internal class NativeModelGenerator(
         return generateSequence("additionalProperties") { it + "Extra" }.first(names::add)
     }
 
-    private fun GeneratorModelDescriptor.toUnionInterface(): TypeSpec {
+    private fun GeneratorModelDescriptor.toUnionInterface(supportsKotlinxObjectUnionSerializer: Boolean): TypeSpec {
         val members = oneOfMembers
+        val unionType = modelType(name)
         val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
         description?.let { type.addKdoc("%L", it) }
-        serializationAnnotations.addClassAnnotation(type)
+        if (
+            discriminator == null &&
+            MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION &&
+            supportsKotlinxObjectUnionSerializer
+        ) {
+            NativeObjectUnionSerialization.apply(type, unionType, members.map { it.typeName() })
+        } else {
+            serializationAnnotations.addClassAnnotation(type)
+        }
         if (discriminator != null) {
             serializationAnnotations.addBasePolymorphicTypeAnnotation(type, discriminator.propertyName)
             serializationAnnotations.addPolymorphicSubTypesAnnotation(type, discriminatorMappings(members))
-        } else {
+        } else if (MutableSettings.serializationLibrary != SerializationLibrary.KOTLINX_SERIALIZATION) {
             serializationAnnotations.addPolymorphicSubTypeDeductionAnnotation(type, members.map { it.typeName() })
         }
         return type.build()
