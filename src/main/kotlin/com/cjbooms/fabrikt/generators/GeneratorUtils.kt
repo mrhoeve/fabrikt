@@ -366,6 +366,7 @@ object GeneratorUtils {
                         allowReserved = p.allowReserved,
                         objectProperties = p.objectProperties,
                         defaultValue = p.defaultValue,
+                        contentType = p.contentType,
                     )
             }
         }

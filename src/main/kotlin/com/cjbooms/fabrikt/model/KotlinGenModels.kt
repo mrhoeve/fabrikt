@@ -235,9 +235,10 @@ class RequestParameter(
     val allowReserved: Boolean = false,
     val objectProperties: List<FormObjectProperty> = emptyList(),
     val defaultValue: Any? = null,
+    val contentType: String? = null,
 ) : IncomingParameter(oasName, description, type, isRequired) {
     init {
-        require(parameterLocation !is CookieParam || typeInfo.supportsCookieSerialization()) {
+        require(parameterLocation !is CookieParam || contentType != null || typeInfo.supportsCookieSerialization()) {
             "Cookie parameter '$originalName' has an unsupported type. " +
                 "Cookie parameters support scalar values, enums, and arrays of those types."
         }

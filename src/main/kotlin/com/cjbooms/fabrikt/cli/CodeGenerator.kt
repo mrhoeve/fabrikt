@@ -72,14 +72,17 @@ class CodeGenerator internal constructor(
         when (MutableSettings.clientTarget) {
             ClientCodeGenTargetType.OK_HTTP -> {
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)
+                endpointContext?.requireSupportedParameterContent("OkHttp client")
             }
-            ClientCodeGenTargetType.KTOR -> Unit
+            ClientCodeGenTargetType.KTOR -> endpointContext?.requireSupportedParameterContent("Ktor client")
             ClientCodeGenTargetType.OPEN_FEIGN -> {
+                endpointContext?.requireNoParameterContent("OpenFeign client")
                 endpointContext?.requireScalarFormParameters("OpenFeign client")
                 endpointContext?.requireNoObjectFormParameters("OpenFeign client")
                 endpointContext?.requireNoMultipartEncodingHeaders("OpenFeign client")
             }
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> {
+                endpointContext?.requireNoParameterContent("Spring HTTP interface client")
                 endpointContext?.requireNoObjectFormParameters("Spring HTTP interface client")
                 endpointContext?.requireNoMultipartEncodingHeaders("Spring HTTP interface client")
             }
@@ -146,6 +149,7 @@ class CodeGenerator internal constructor(
             endpointContext?.requireNoSequentialMultipart("${MutableSettings.controllerTarget.displayName} controller")
         }
         endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
+        endpointContext?.requireNoParameterContent("${MutableSettings.controllerTarget.displayName} controller")
         if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.KTOR) {
             endpointContext?.requireNoMultipartEncodingHeaders("${MutableSettings.controllerTarget.displayName} controller")
         }

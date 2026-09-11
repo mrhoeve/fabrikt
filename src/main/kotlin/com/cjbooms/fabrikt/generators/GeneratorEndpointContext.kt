@@ -136,6 +136,35 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun requireNoParameterContent(target: String) {
+        val unsupported = parameterContentOperations()
+        require(unsupported.isEmpty()) {
+            "$target cannot represent native content-based parameters for: ${unsupported.joinToString()}."
+        }
+    }
+
+    fun requireSupportedParameterContent(target: String) {
+        val unsupported =
+            parameterContentOperations { mediaType ->
+                mediaType.equals("text/plain", ignoreCase = true) || mediaType.isJsonMediaType()
+            }
+        require(unsupported.isEmpty()) {
+            "$target supports native content-based parameters only for text/plain and JSON media types: ${unsupported.joinToString()}."
+        }
+    }
+
+    private fun parameterContentOperations(supported: (String) -> Boolean = { false }): List<String> =
+        operations.paths.flatMap { path ->
+            path.operations.flatMap { operation ->
+                (path.parameters + operation.parameters)
+                    .flatMap { parameter -> parameter.content.map { parameter to it.key } }
+                    .filterNot { (_, mediaType) -> supported(mediaType) }
+                    .map { (parameter, mediaType) ->
+                        "${operation.method.uppercase()} ${path.path} (${parameter.name}: $mediaType)"
+                    }
+            }
+        }
+
     fun methodName(
         operation: GeneratorOperation,
         path: String,
@@ -576,10 +605,14 @@ internal class GeneratorEndpointContext(
         val name = parameter.name ?: return null
         val placement = parameter.placement ?: return null
         val parameterLocation = runCatching { RequestParameterLocation(placement) }.getOrNull() ?: return null
-        val schema = parameter.schema ?: parameter.content.firstNotNullOfOrNull { it.effectiveSchema() } ?: return null
+        require(parameter.content.size <= 1) {
+            "Parameter '$name' must define at most one content media type."
+        }
+        val content = parameter.content.singleOrNull()
+        val schema = parameter.schema ?: content?.effectiveSchema() ?: return null
         val resolvedSchema = schemas.resolve(schema) as? GeneratorObjectSchema
         val resolution = resolveType(schema, GeneratorModelDirection.REQUEST)
-        val objectProperties = resolvedSchema?.formObjectProperties().orEmpty()
+        val objectProperties = if (content == null) resolvedSchema?.formObjectProperties().orEmpty() else emptyList()
         return RequestParameter(
             oasName = name,
             description = parameter.description,
@@ -597,6 +630,7 @@ internal class GeneratorEndpointContext(
             allowReserved = parameter.allowReserved ?: false,
             objectProperties = objectProperties,
             defaultValue = resolvedSchema?.metadata?.defaultValue?.toValue(),
+            contentType = content?.key,
         )
     }
 
@@ -809,6 +843,7 @@ internal class GeneratorEndpointContext(
                         allowReserved = parameter.allowReserved,
                         objectProperties = parameter.objectProperties,
                         defaultValue = parameter.defaultValue,
+                        contentType = parameter.contentType,
                     )
             }
         }
@@ -840,6 +875,9 @@ internal class GeneratorEndpointContext(
     private fun GeneratorObjectSchema?.isSimple(): Boolean =
         this != null &&
             types.any { it in setOf(SourceSchemaType.STRING, SourceSchemaType.INTEGER, SourceSchemaType.NUMBER, SourceSchemaType.BOOLEAN) }
+
+    private fun String.isJsonMediaType(): Boolean =
+        equals("application/json", ignoreCase = true) || substringBefore(';').endsWith("+json", ignoreCase = true)
 
     private fun KotlinTypeInfo.supportsFormSerialization(): Boolean =
         when (this) {
