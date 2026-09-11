@@ -589,7 +589,30 @@ class CodeGeneratorNativeClientModeTest {
 
         assertThatThrownBy { generateClient(parameterContentOpenApi) }
             .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("cannot represent native content-based parameters")
+            .hasMessageContaining("supports native content-based parameters only for text/plain")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["OPEN_FEIGN", "SPRING_HTTP_INTERFACE"])
+    fun `binds text parameter content in annotation clients`(target: String) {
+        val clientTarget = ClientCodeGenTargetType.valueOf(target)
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = clientTarget,
+        )
+
+        val generated = generateClient(textParameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("selector: Int")
+            .contains("active: Boolean = false")
+        when (clientTarget) {
+            ClientCodeGenTargetType.OPEN_FEIGN ->
+                assertThat(generated).contains("@Param(\"selector\")", "@Param(\"active\")")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                assertThat(generated).contains("@PathVariable(\"selector\")", "@RequestParam(\"active\")")
+            else -> error("Unsupported annotation client target $clientTarget")
+        }
     }
 
     @ParameterizedTest
@@ -1277,6 +1300,32 @@ class CodeGeneratorNativeClientModeTest {
               properties:
                 term: { type: string }
                 page: { type: integer }
+        """.trimIndent()
+
+    private val textParameterContentOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native text parameter content client
+          version: "1.0"
+        paths:
+          /things/{selector}:
+            get:
+              operationId: findThings
+              parameters:
+                - name: selector
+                  in: path
+                  required: true
+                  content:
+                    text/plain:
+                      schema: { type: integer }
+                - name: active
+                  in: query
+                  content:
+                    text/plain:
+                      schema: { type: boolean, default: false }
+              responses:
+                '204': { description: Found }
         """.trimIndent()
 
     private val formOpenApi =
