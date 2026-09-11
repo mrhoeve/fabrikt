@@ -398,17 +398,24 @@ class CodeGeneratorNativeServerModeTest {
     }
 
     @Test
-    fun `rejects non-JSON parameter content in native Ktor controllers`() {
+    fun `deserializes text parameter content in native Ktor controllers`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CONTROLLERS),
             controllerTarget = ControllerCodeGenTargetType.KTOR,
         )
 
-        assertThatThrownBy { generateControllers(parameterContentOpenApi.replace("application/json", "text/plain")) }
-            .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining(
-                "supports native content-based parameters only for JSON and form-encoded OpenAPI 3.2 querystring parameters",
-            )
+        val generated = generateControllers(textParameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("selector: Int")
+            .contains("active: Boolean,")
+            .contains("parametersOf(\"selector\",")
+            .contains("listOf(fabriktSelectorContentValue)")
+            .contains("getTypedOrFail<Int>")
+            .contains("parametersOf(\"active\", listOf(value))")
+            .contains("getTypedOrFail<Boolean>")
+            .contains("} ?: false")
+            .doesNotContain("parameterContentObjectMapper")
     }
 
     private fun generateControllers(openApi: String): String =
@@ -871,6 +878,32 @@ class CodeGeneratorNativeServerModeTest {
               properties:
                 term: { type: string }
                 page: { type: integer }
+        """.trimIndent()
+
+    private val textParameterContentOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native text parameter content server
+          version: "1.0"
+        paths:
+          /things/{selector}:
+            get:
+              operationId: findThings
+              parameters:
+                - name: selector
+                  in: path
+                  required: true
+                  content:
+                    text/plain:
+                      schema: { type: integer }
+                - name: active
+                  in: query
+                  content:
+                    text/plain:
+                      schema: { type: boolean, default: false }
+              responses:
+                '204': { description: Found }
         """.trimIndent()
 
     private val cookieOpenApi =
