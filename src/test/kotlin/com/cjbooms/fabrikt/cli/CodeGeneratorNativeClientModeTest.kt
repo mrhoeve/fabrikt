@@ -583,7 +583,9 @@ class CodeGeneratorNativeClientModeTest {
 
         assertThatThrownBy { generateClient(parameterContentOpenApi.replace("application/json", "application/xml")) }
             .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("supports native content-based parameters only for text/plain and JSON media types")
+            .hasMessageContaining(
+                "supports native content-based parameters only for text/plain, JSON, and form-encoded OpenAPI 3.2 querystring parameters",
+            )
     }
 
     private fun generateClient(openApi: String): String =

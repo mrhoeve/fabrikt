@@ -377,7 +377,9 @@ class CodeGeneratorNativeServerModeTest {
 
         assertThatThrownBy { generateControllers(parameterContentOpenApi.replace("application/json", "text/plain")) }
             .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("supports native content-based parameters only for JSON media types")
+            .hasMessageContaining(
+                "supports native content-based parameters only for JSON and form-encoded OpenAPI 3.2 querystring parameters",
+            )
     }
 
     private fun generateControllers(openApi: String): String =
