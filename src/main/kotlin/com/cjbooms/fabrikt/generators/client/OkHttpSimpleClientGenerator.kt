@@ -641,11 +641,11 @@ data class SimpleClientOperationStatement(
         val toRequestBody = "toRequestBody".toClassName("okhttp3.RequestBody.Companion")
         parameters.filterIsInstance<BodyParameter>().firstOrNull()?.let {
             this.add(
-                "\n.%N(objectMapper.writeValueAsString(%N).%T(%S.%T()))",
+                "\n.%N(objectMapper.writeValueAsString(%N).%T(%L.%T()))",
                 verb,
                 it.name,
                 toRequestBody,
-                requestContentType,
+                requestContentTypeExpression("application/json"),
                 "toMediaType".toClassName("okhttp3.MediaType.Companion"),
             )
         } ?: this.add("\n.%N(ByteArray(0).%T())", verb, toRequestBody)
@@ -663,14 +663,31 @@ data class SimpleClientOperationStatement(
             return
         }
         add(
-            "objectMapper.writeValueAsString(%N).%T(%S.%T())",
+            "objectMapper.writeValueAsString(%N).%T(%L.%T())",
             body.name,
             "toRequestBody".toClassName("okhttp3.RequestBody.Companion"),
-            requestContentType ?: "application/json",
+            requestContentTypeExpression("application/json"),
             "toMediaType".toClassName("okhttp3.MediaType.Companion"),
         )
         unindent()
         add("\n)")
+    }
+
+    private fun requestContentTypeExpression(fallback: String): CodeBlock {
+        val default = requestContentType ?: fallback
+        val parameter =
+            parameters
+                .filterIsInstance<RequestParameter>()
+                .firstOrNull {
+                    it.parameterLocation is HeaderParam && it.originalName.equals("Content-Type", ignoreCase = true)
+                } ?: return CodeBlock.of("%S", default)
+        val enum = parameter.typeInfo is KotlinTypeInfo.Enum
+        return when {
+            enum && parameter.isNullable -> CodeBlock.of("%N?.value ?: %S", parameter.name, default)
+            enum -> CodeBlock.of("%N.value", parameter.name)
+            parameter.isNullable -> CodeBlock.of("%N ?: %S", parameter.name, default)
+            else -> CodeBlock.of("%N", parameter.name)
+        }
     }
 
     private fun CodeBlock.Builder.addMultipartBodyStatement() {

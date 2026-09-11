@@ -215,8 +215,9 @@ internal class GeneratorEndpointContext(
         operation: GeneratorOperation,
         path: GeneratorPathItem,
     ): List<IncomingParameter> {
+        val declaredParameters = path.parameters + operation.parameters
         val hasAcceptParameter =
-            (path.parameters + operation.parameters).any {
+            declaredParameters.any {
                 it.placement == "header" && it.name.equals("Accept", ignoreCase = true)
             }
         val primaryResponse = operation.responses.firstOrNull { it.status != "default" && it.content.isNotEmpty() }
@@ -237,10 +238,40 @@ internal class GeneratorEndpointContext(
             } else {
                 emptyList()
             }
+        val requestContentTypes =
+            operation.requestBody
+                ?.content
+                ?.map(GeneratorMediaType::key)
+                .orEmpty()
+        val hasContentTypeParameter =
+            declaredParameters.any {
+                it.placement == "header" && it.name.equals("Content-Type", ignoreCase = true)
+            }
+        val contentTypeParameter =
+            if (
+                requestContentTypes.size > 1 &&
+                requestContentTypes.none { it.startsWith("multipart/") || it.isFormMediaType() } &&
+                !hasContentTypeParameter
+            ) {
+                listOf(
+                    RequestParameter(
+                        oasName = "contentType",
+                        description = null,
+                        type = String::class.asTypeName(),
+                        isRequired = true,
+                        originalName = "Content-Type",
+                        parameterLocation = HeaderParam,
+                        typeInfo = KotlinTypeInfo.Text,
+                        defaultValue = requestContentTypes.first(),
+                    ),
+                )
+            } else {
+                emptyList()
+            }
         return incomingParameters(
             operation,
             path.parameters,
-            securityParameters(operation, path.parameters) + acceptParameter,
+            securityParameters(operation, path.parameters) + acceptParameter + contentTypeParameter,
             Iterable::class.asClassName().parameterizedBy(ClassName(clientPackage(basePackage), "MultipartPart")),
         )
     }

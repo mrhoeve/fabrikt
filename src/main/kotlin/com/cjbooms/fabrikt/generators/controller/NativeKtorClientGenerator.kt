@@ -86,6 +86,8 @@ internal class NativeKtorClientGenerator(
         val multipartParams = parameters.filterIsInstance<MultipartParameter>()
         val formParams = parameters.filterIsInstance<FormParameter>()
         val sequentialMultipart = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
+        val hasContentTypeParameter =
+            headerParams.any { it.originalName.equals("Content-Type", ignoreCase = true) }
         val contentParameters =
             parameters
                 .filterIsInstance<RequestParameter>()
@@ -111,7 +113,7 @@ internal class NativeKtorClientGenerator(
                                 context.primaryResponseContentType(operation) ?: "application/json",
                             )
                             if (requestBodies.isNotEmpty()) {
-                                if (sequentialMultipart == null) {
+                                if (sequentialMultipart == null && !hasContentTypeParameter) {
                                     addStatement(
                                         "%M(\"Content-Type\", %S)",
                                         MemberName("io.ktor.client.request", "header"),
