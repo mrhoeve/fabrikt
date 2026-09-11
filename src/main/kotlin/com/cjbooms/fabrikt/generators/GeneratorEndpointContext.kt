@@ -21,6 +21,7 @@ import com.cjbooms.fabrikt.model.MultipartPartEncoding
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.RequestParameterLocation
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
+import com.cjbooms.fabrikt.parser.GeneratorEncoding
 import com.cjbooms.fabrikt.parser.GeneratorHeader
 import com.cjbooms.fabrikt.parser.GeneratorMediaType
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
@@ -32,9 +33,11 @@ import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.parser.GeneratorResponse
 import com.cjbooms.fabrikt.parser.GeneratorSchema
 import com.cjbooms.fabrikt.parser.GeneratorSchemaDocument
+import com.cjbooms.fabrikt.parser.GeneratorSchemaValueConstraint
 import com.cjbooms.fabrikt.parser.GeneratorSecurityAlternative
 import com.cjbooms.fabrikt.parser.GeneratorSecuritySelection
 import com.cjbooms.fabrikt.parser.SourceSchemaType
+import com.cjbooms.fabrikt.parser.valueConstraint
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.NormalisedString.camelCase
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
@@ -46,6 +49,8 @@ import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.asClassName
 import com.squareup.kotlinpoet.asTypeName
+
+private const val CONTENT_TRANSFER_ENCODING = "Content-Transfer-Encoding"
 
 internal class GeneratorEndpointContext(
     val operations: GeneratorOperationDocument,
@@ -483,6 +488,8 @@ internal class GeneratorEndpointContext(
                 val resolved = schemas.resolve(property) as? GeneratorObjectSchema
                 val item = resolved?.items?.let(schemas::resolve) as? GeneratorObjectSchema
                 val encoding = multipart.encoding[name]
+                val partSchema = if (SourceSchemaType.ARRAY in resolved.typesOrEmpty()) item else resolved
+                val fixedHeaders = multipartFixedHeaders(partSchema, encoding)
                 val binary =
                     (SourceSchemaType.STRING in resolved.typesOrEmpty() && resolved?.metadata?.format == "binary") ||
                         (
@@ -511,14 +518,11 @@ internal class GeneratorEndpointContext(
                             ?.headers
                             .orEmpty()
                             .values
-                            .filterNot { it.name.equals("Content-Type", ignoreCase = true) }
-                            .mapNotNull { header -> multipartHeader(name, header) },
-                    fixedHeaders =
-                        (if (SourceSchemaType.ARRAY in resolved.typesOrEmpty()) item else resolved)
-                            ?.metadata
-                            ?.contentEncoding
-                            ?.let { mapOf("Content-Transfer-Encoding" to it) }
-                            .orEmpty(),
+                            .filterNot { header ->
+                                header.name.equals("Content-Type", ignoreCase = true) ||
+                                    fixedHeaders.keys.any { it.equals(header.name, ignoreCase = true) }
+                            }.mapNotNull { header -> multipartHeader(name, header) },
+                    fixedHeaders = fixedHeaders,
                 )
             }
         }
@@ -615,6 +619,46 @@ internal class GeneratorEndpointContext(
         )
     }
 
+    private fun multipartFixedHeaders(
+        schema: GeneratorObjectSchema?,
+        encoding: GeneratorEncoding?,
+    ): Map<String, String> {
+        val header =
+            encoding
+                ?.headers
+                ?.values
+                ?.firstOrNull { it.name.equals(CONTENT_TRANSFER_ENCODING, ignoreCase = true) }
+        val allowedValues = header?.allowedValues()
+        val contentEncoding = schema?.metadata?.contentEncoding
+
+        if (contentEncoding != null && allowedValues != null) {
+            require(allowedValues.any { it.isTextual && it.textValue().equals(contentEncoding, ignoreCase = true) }) {
+                "Multipart $CONTENT_TRANSFER_ENCODING header does not allow schema contentEncoding '$contentEncoding'."
+            }
+        }
+
+        val fixedValue =
+            contentEncoding
+                ?: allowedValues
+                    ?.takeIf { header.required }
+                    ?.takeIf { values -> values.all(JsonNode::isTextual) }
+                    ?.map(JsonNode::textValue)
+                    ?.distinctBy { it.lowercase() }
+                    ?.singleOrNull()
+                ?: return emptyMap()
+        return mapOf(CONTENT_TRANSFER_ENCODING to fixedValue)
+    }
+
+    private fun GeneratorHeader.allowedValues(): List<JsonNode>? {
+        val headerSchema = schema ?: content.firstNotNullOfOrNull { it.effectiveSchema() } ?: return null
+        val resolved = schemas.resolve(headerSchema) as? GeneratorObjectSchema ?: return null
+        return when (val constraint = resolved.valueConstraint()) {
+            is GeneratorSchemaValueConstraint.Allowed -> constraint.values
+            GeneratorSchemaValueConstraint.Impossible -> emptyList()
+            GeneratorSchemaValueConstraint.Unconstrained -> null
+        }
+    }
+
     private fun multipartPartEncoding(part: GeneratorSequentialMultipartPart): MultipartPartEncoding =
         multipartPartEncoding(part.schema, part.encoding)
 
@@ -625,6 +669,7 @@ internal class GeneratorEndpointContext(
         val resolvedSchema = schema?.let(schemas::resolve) as? GeneratorObjectSchema
         val prefixSchemas = resolvedSchema?.prefixItems.orEmpty()
         val prefixCount = maxOf(prefixSchemas.size, encoding?.prefixEncoding?.size ?: 0)
+        val fixedHeaders = multipartFixedHeaders(resolvedSchema, encoding)
         return MultipartPartEncoding(
             contentTypes = encoding?.contentType.toContentTypes(resolvedSchema),
             requiredHeaders =
@@ -632,14 +677,12 @@ internal class GeneratorEndpointContext(
                     ?.headers
                     .orEmpty()
                     .values
-                    .filter { it.required && !it.name.equals("Content-Type", ignoreCase = true) }
-                    .mapTo(linkedSetOf(), GeneratorHeader::name),
-            fixedHeaders =
-                resolvedSchema
-                    ?.metadata
-                    ?.contentEncoding
-                    ?.let { mapOf("Content-Transfer-Encoding" to it) }
-                    .orEmpty(),
+                    .filter { header ->
+                        header.required &&
+                            !header.name.equals("Content-Type", ignoreCase = true) &&
+                            fixedHeaders.keys.none { it.equals(header.name, ignoreCase = true) }
+                    }.mapTo(linkedSetOf(), GeneratorHeader::name),
+            fixedHeaders = fixedHeaders,
             prefixEncodings =
                 (0 until prefixCount).map { index ->
                     multipartPartEncoding(
