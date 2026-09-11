@@ -76,13 +76,13 @@ class CodeGenerator internal constructor(
             }
             ClientCodeGenTargetType.KTOR -> endpointContext?.requireSupportedParameterContent("Ktor client")
             ClientCodeGenTargetType.OPEN_FEIGN -> {
-                endpointContext?.requireNoParameterContent("OpenFeign client")
+                endpointContext?.requirePlainTextParameterContent("OpenFeign client")
                 endpointContext?.requireScalarFormParameters("OpenFeign client")
                 endpointContext?.requireNoObjectFormParameters("OpenFeign client")
                 endpointContext?.requireNoMultipartEncodingHeaders("OpenFeign client")
             }
             ClientCodeGenTargetType.SPRING_HTTP_INTERFACE -> {
-                endpointContext?.requireNoParameterContent("Spring HTTP interface client")
+                endpointContext?.requirePlainTextParameterContent("Spring HTTP interface client")
                 endpointContext?.requireNoObjectFormParameters("Spring HTTP interface client")
                 endpointContext?.requireNoMultipartEncodingHeaders("Spring HTTP interface client")
             }
