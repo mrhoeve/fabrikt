@@ -88,6 +88,8 @@ internal class NativeKtorClientGenerator(
         val sequentialMultipart = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
         val hasContentTypeParameter =
             headerParams.any { it.originalName.equals("Content-Type", ignoreCase = true) }
+        val hasAcceptParameter =
+            headerParams.any { it.originalName.equals("Accept", ignoreCase = true) }
         val contentParameters =
             parameters
                 .filterIsInstance<RequestParameter>()
@@ -107,11 +109,13 @@ internal class NativeKtorClientGenerator(
                         .beginControlFlow("return try")
                         .addRequestStart(operation.method)
                         .apply {
-                            addStatement(
-                                "%M(\"Accept\", %S)",
-                                MemberName("io.ktor.client.request", "header"),
-                                context.primaryResponseContentType(operation) ?: "application/json",
-                            )
+                            if (!hasAcceptParameter) {
+                                addStatement(
+                                    "%M(\"Accept\", %S)",
+                                    MemberName("io.ktor.client.request", "header"),
+                                    context.primaryResponseContentType(operation) ?: "application/json",
+                                )
+                            }
                             if (requestBodies.isNotEmpty()) {
                                 if (sequentialMultipart == null && !hasContentTypeParameter) {
                                     addStatement(

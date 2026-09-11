@@ -220,9 +220,15 @@ internal class GeneratorEndpointContext(
             declaredParameters.any {
                 it.placement == "header" && it.name.equals("Accept", ignoreCase = true)
             }
-        val primaryResponse = operation.responses.firstOrNull { it.status != "default" && it.content.isNotEmpty() }
+        val primaryResponse = operation.primarySuccessResponse()
+        val responseContentTypes =
+            operation
+                .successResponses()
+                .flatMap(GeneratorResponse::content)
+                .map(GeneratorMediaType::key)
+                .distinct()
         val acceptParameter =
-            if (primaryResponse?.content?.size.orZero() > 1 && !hasAcceptParameter) {
+            if (responseContentTypes.size > 1 && !hasAcceptParameter) {
                 listOf(
                     RequestParameter(
                         oasName = "acceptHeader",
@@ -232,7 +238,7 @@ internal class GeneratorEndpointContext(
                         originalName = "Accept",
                         parameterLocation = HeaderParam,
                         typeInfo = KotlinTypeInfo.Text,
-                        defaultValue = primaryResponse?.content?.firstOrNull()?.key,
+                        defaultValue = primaryResponse?.content?.firstOrNull()?.key ?: responseContentTypes.first(),
                     ),
                 )
             } else {
@@ -1014,8 +1020,6 @@ internal class GeneratorEndpointContext(
             isTextual -> textValue()
             else -> this
         }
-
-    private fun Int?.orZero(): Int = this ?: 0
 }
 
 internal enum class ClientAuthenticationType {
