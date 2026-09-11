@@ -215,6 +215,7 @@ data class FormObjectProperty(
     val fieldName: String,
     val propertyName: String,
     val typeInfo: KotlinTypeInfo,
+    val type: TypeName,
     val nullable: Boolean,
 )
 

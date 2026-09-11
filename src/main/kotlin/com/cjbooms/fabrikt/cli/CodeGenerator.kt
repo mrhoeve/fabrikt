@@ -148,7 +148,9 @@ class CodeGenerator internal constructor(
         if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.KTOR) {
             endpointContext?.requireNoSequentialMultipart("${MutableSettings.controllerTarget.displayName} controller")
         }
-        endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
+        if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.KTOR) {
+            endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
+        }
         if (MutableSettings.controllerTarget == ControllerCodeGenTargetType.KTOR) {
             endpointContext?.requireJsonParameterContent("Ktor controller")
         } else {

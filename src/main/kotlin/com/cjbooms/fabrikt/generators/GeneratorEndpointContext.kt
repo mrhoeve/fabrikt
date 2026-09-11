@@ -901,6 +901,7 @@ internal class GeneratorEndpointContext(
                 fieldName = name,
                 propertyName = name.toKotlinParameterName(),
                 typeInfo = resolution.typeInfo,
+                type = toModelType(basePackage, resolution.typeInfo, false),
                 nullable = name !in requiredProperties || resolution.nullable,
             )
         }

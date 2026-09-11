@@ -17,6 +17,7 @@ import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.toSucc
 import com.cjbooms.fabrikt.generators.model.ModelGenerator
 import com.cjbooms.fabrikt.model.ControllerLibraryType
 import com.cjbooms.fabrikt.model.ControllerType
+import com.cjbooms.fabrikt.model.FormObjectProperty
 import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
@@ -455,14 +456,18 @@ class KtorControllerInterfaceGenerator(
                 MemberName("io.ktor.server.request", "receiveParameters"),
             )
             formParams.forEach { parameter ->
-                builder.addStatement(
-                    "val %N = formFields.%M<%T>(%S, call.application.%M)",
-                    parameter.name,
-                    MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
-                    parameter.type.copy(nullable = false),
-                    parameter.fieldName,
-                    MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
-                )
+                if (parameter.objectProperties.isEmpty()) {
+                    builder.addStatement(
+                        "val %N = formFields.%M<%T>(%S, call.application.%M)",
+                        parameter.name,
+                        MemberName(packages.controllers, if (parameter.isRequired) "getTypedOrFail" else "getTyped"),
+                        parameter.type.copy(nullable = false),
+                        parameter.fieldName,
+                        MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                    )
+                } else {
+                    builder.addFormObjectParameter(parameter)
+                }
             }
         }
         builder.addMultipartParameters(multipartParams)
@@ -553,6 +558,112 @@ class KtorControllerInterfaceGenerator(
             }
         addStatement("val parameterContentObjectMapper = %T.builder().findAndAddModules().build()", ClassName(mapperPackage, "JsonMapper"))
     }
+
+    private fun CodeBlock.Builder.addFormObjectParameter(parameter: FormParameter) {
+        val fieldsName = "${parameter.name}Fields"
+        if (parameter.explode) {
+            addFormObjectValue(parameter, "formFields", parameter.explodedFormObjectPresence())
+            return
+        }
+
+        val rawValueName = "${parameter.name}RawValue"
+        if (parameter.isRequired) {
+            addStatement(
+                "val %N = formFields.%M<String>(%S, call.application.%M)",
+                rawValueName,
+                MemberName(packages.controllers, "getTypedOrFail"),
+                parameter.fieldName,
+                MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+            )
+            addCompactFormObjectFields(parameter, rawValueName, fieldsName)
+            addFormObjectValue(parameter, fieldsName)
+        } else {
+            addStatement("val %N = formFields[%S]", rawValueName, parameter.fieldName)
+            addStatement("val %N = %N?.let { rawValue ->", parameter.name, rawValueName)
+            indent()
+            addCompactFormObjectFields(parameter, "rawValue", fieldsName)
+            addFormObjectConstructor(parameter, fieldsName, exploded = false)
+            unindent()
+            addStatement("}")
+        }
+    }
+
+    private fun CodeBlock.Builder.addCompactFormObjectFields(
+        parameter: FormParameter,
+        rawValueName: String,
+        fieldsName: String,
+    ) {
+        val valuesName = "${parameter.name}Values"
+        addStatement("val %N = %N.split(%S)", valuesName, rawValueName, ",")
+        addStatement("if (%N.size %% 2 != 0) {", valuesName)
+        indent()
+        addStatement(
+            "throw %M(%S)",
+            MemberName("io.ktor.server.plugins", "BadRequestException"),
+            "Form field ${parameter.fieldName} must contain alternating property names and values",
+        )
+        unindent()
+        addStatement("}")
+        addStatement("val %N = %M {", fieldsName, MemberName("io.ktor.http", "parameters"))
+        indent()
+        addStatement("%N.chunked(2).forEach { (name, value) -> append(name, value) }", valuesName)
+        unindent()
+        addStatement("}")
+    }
+
+    private fun CodeBlock.Builder.addFormObjectValue(
+        parameter: FormParameter,
+        fieldsName: String,
+        presence: CodeBlock? = null,
+    ) {
+        if (presence == null || parameter.isRequired) {
+            add("val %N = ", parameter.name)
+            addFormObjectConstructor(parameter, fieldsName, exploded = parameter.explode)
+            return
+        }
+        addStatement("val %N = if (%L) {", parameter.name, presence)
+        indent()
+        addFormObjectConstructor(parameter, fieldsName, exploded = parameter.explode)
+        unindent()
+        addStatement("} else { null }")
+    }
+
+    private fun CodeBlock.Builder.addFormObjectConstructor(
+        parameter: FormParameter,
+        fieldsName: String,
+        exploded: Boolean,
+    ) {
+        add("%T(\n", parameter.type.copy(nullable = false))
+        indent()
+        parameter.objectProperties.forEach { property ->
+            add(
+                "%N = %N.%M<%T>(%S, call.application.%M),\n",
+                property.propertyName,
+                fieldsName,
+                MemberName(packages.controllers, if (property.nullable) "getTyped" else "getTypedOrFail"),
+                property.type.copy(nullable = false),
+                if (exploded) parameter.formObjectFieldName(property) else property.fieldName,
+                MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+            )
+        }
+        unindent()
+        add(")\n")
+    }
+
+    private fun FormParameter.explodedFormObjectPresence(): CodeBlock {
+        val fields = objectProperties.map { formObjectFieldName(it) }
+        return CodeBlock
+            .builder()
+            .apply {
+                fields.forEachIndexed { index, field ->
+                    if (index > 0) add(" || ")
+                    add("formFields[%S] != null", field)
+                }
+            }.build()
+    }
+
+    private fun FormParameter.formObjectFieldName(property: FormObjectProperty): String =
+        if (style == "deepObject") "$fieldName[${property.fieldName}]" else property.fieldName
 
     private fun CodeBlock.Builder.addContentParameter(
         parameter: RequestParameter,
