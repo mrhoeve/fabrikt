@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.generators
 
+import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.model.JacksonMetadata.JSON_NODE_CLASS
 import com.cjbooms.fabrikt.generators.model.ModelGenerator.Companion.toModelType
@@ -484,7 +485,15 @@ internal class GeneratorEndpointContext(
         val responses = operation.successResponses().flatMap(GeneratorResponse::content)
         val schemas = responses.mapNotNull { it.effectiveSchema() }
         if (schemas.map { this.schemas.resolve(it).identity }.distinct().size > 1) {
-            return if (responses.all { "json" in it.key.lowercase() }) JSON_NODE_CLASS else Any::class.asTypeName()
+            return if (responses.all { "json" in it.key.lowercase() }) {
+                if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+                    KotlinTypeInfo.JsonElement.modelKClass.asTypeName()
+                } else {
+                    JSON_NODE_CLASS
+                }
+            } else {
+                Any::class.asTypeName()
+            }
         }
         val schema = operation.primarySuccessResponse()?.content?.firstNotNullOfOrNull { it.effectiveSchema() }
         return schema
