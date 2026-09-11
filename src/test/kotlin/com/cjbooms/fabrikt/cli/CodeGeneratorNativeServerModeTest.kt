@@ -285,6 +285,31 @@ class CodeGeneratorNativeServerModeTest {
             .doesNotContain("documentContentType")
     }
 
+    @Test
+    fun `validates multipart content transfer encodings in native Ktor controllers`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(contentEncodedMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("part.headers[\"Content-Transfer-Encoding\"]?.equals(\"base64\", ignoreCase = true)")
+            .contains("Multipart part header Content-Transfer-Encoding must have value 'base64'")
+            .doesNotContain("documentContentTransferEncoding:")
+    }
+
     @ParameterizedTest
     @ValueSource(strings = ["SPRING", "MICRONAUT"])
     fun `rejects multipart part headers for native annotation based controllers`(target: ControllerCodeGenTargetType) {
@@ -369,6 +394,9 @@ class CodeGeneratorNativeServerModeTest {
             .contains("val events = parseMultipart(input, contentType, contentLength)")
             .contains("Expected at most \$maximum multipart parts")
             .contains("val nestedParts = if (nested) read(event.body")
+            .contains("Content-Transfer-Encoding")
+            .contains("binary")
+            .contains("Multipart part header '\$name' must have value '\$expectedValue' for part \$partCount")
             .contains("controller.uploadArchive(parts, call)")
     }
 
@@ -655,6 +683,12 @@ class CodeGeneratorNativeServerModeTest {
               responses:
                 '204': { description: Uploaded }
         """.trimIndent()
+
+    private val contentEncodedMultipartOpenApi =
+        multipartOpenApi.replace(
+            "document: { type: string, format: binary }",
+            "document: { type: string, format: binary, contentEncoding: base64 }",
+        )
 
     private val percentEncodedDocumentationOpenApi =
         """

@@ -417,6 +417,36 @@ class CodeGeneratorNativeClientModeTest {
             .contains("\"application/merge-patch+json\".toMediaType()")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["OK_HTTP", "KTOR"])
+    fun `writes multipart content transfer encodings in native clients`(target: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.valueOf(target),
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(contentEncodedMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("Content-Transfer-Encoding")
+            .contains("base64")
+            .doesNotContain("documentContentTransferEncoding:")
+    }
+
     @Test
     fun `generates ordered and nested multipart OkHttp clients`() {
         MutableSettings.updateSettings(
@@ -443,9 +473,11 @@ class CodeGeneratorNativeClientModeTest {
         assertThat(generated)
             .contains("parts: Iterable<MultipartPart>")
             .contains("val multipartBody = buildSequentialMultipartBody(parts, \"multipart/mixed\"")
-            .contains("contentTypes = listOf(\"application/json\")")
-            .contains("contentTypes = listOf(\"image/png\", \"image/jpeg\")")
+            .contains("listOf(\"application/json\")")
+            .contains("listOf(\"image/png\", \"image/jpeg\")")
             .contains("requiredHeaders = setOf(\"X-Part-Id\")")
+            .contains("Content-Transfer-Encoding")
+            .contains("base64")
             .contains("minimumPartCount = 1")
             .contains("maximumPartCount = 4")
             .contains("public data class MultipartPart(")
@@ -457,6 +489,7 @@ class CodeGeneratorNativeClientModeTest {
             .contains("var partCount = 0")
             .contains("require(partCount >= encoding.minimumPartCount)")
             .contains("part.requestBody?.writeTo(sink) ?: sink.write(requireNotNull(part.body))")
+            .contains("Multipart part header '\$name' must have value '\$expectedValue'")
             .contains("writeSequentialMultipart(sink, nestedParts, requireNotNull(partEncoding)")
     }
 
@@ -492,6 +525,9 @@ class CodeGeneratorNativeClientModeTest {
             .contains("OutgoingContent.WriteChannelContent()")
             .contains("override suspend fun writeTo(channel: ByteWriteChannel)")
             .contains("channel.writeFully(byteArrayOf(13, 10, 13, 10))")
+            .contains("Content-Transfer-Encoding")
+            .contains("base64")
+            .contains("channel.writeStringUtf8(expectedValue)")
             .contains("writeSequentialMultipart(channel, nestedParts, requireNotNull(partEncoding)")
     }
 
@@ -910,6 +946,12 @@ class CodeGeneratorNativeClientModeTest {
                 '204': { description: Uploaded }
         """.trimIndent()
 
+    private val contentEncodedMultipartOpenApi =
+        multipartOpenApi.replace(
+            "document: { type: string, format: binary }",
+            "document: { type: string, format: binary, contentEncoding: base64 }",
+        )
+
     private val sequentialMultipartOpenApi =
         """
         openapi: 3.2.0
@@ -936,7 +978,9 @@ class CodeGeneratorNativeClientModeTest {
                           prefixItems:
                             - { type: string }
                           items: {}
-                      items: { type: string }
+                      items:
+                        type: string
+                        contentEncoding: base64
                     prefixEncoding:
                       - contentType: application/json
                       - contentType: multipart/mixed
