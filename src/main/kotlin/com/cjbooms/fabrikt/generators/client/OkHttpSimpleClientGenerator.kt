@@ -685,7 +685,7 @@ data class SimpleClientOperationStatement(
             )
             return
         }
-        if (nativeGeneration && parameters.filterIsInstance<MultipartParameter>().any { it.fixedHeaders.isNotEmpty() }) {
+        if (nativeGeneration) {
             this.add("\nval multipartBuilder = %T.Builder()", "MultipartBody".toClassName("okhttp3"))
         } else {
             this.add("\nval multipartBuilder = %T()", "MultipartBody.Builder".toClassName("okhttp3"))
