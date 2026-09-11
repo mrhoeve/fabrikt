@@ -10,6 +10,7 @@ import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
 import com.cjbooms.fabrikt.generators.MutableSettings
+import com.cjbooms.fabrikt.generators.OasDefault
 import com.cjbooms.fabrikt.generators.client.toEncodingCodeBlock
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.SecuritySupport
 import com.cjbooms.fabrikt.generators.controller.ControllerGeneratorUtils.securitySupport
@@ -361,8 +362,9 @@ class KtorControllerInterfaceGenerator(
                     )
                 } else {
                     builder.addStatement(
-                        "val ${parameter.name} = %M.request.headers[\"${parameter.originalName}\"]",
+                        "val ${parameter.name} = %M.request.headers[\"${parameter.originalName}\"]%L",
                         MemberName("io.ktor.server.application", "call"),
+                        parameter.defaultFallback(),
                     )
                 }
                 return@forEach
@@ -372,18 +374,20 @@ class KtorControllerInterfaceGenerator(
             val splitValues = parameter.typeInfo is KotlinTypeInfo.Array
             if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
                     MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
                     splitValues,
+                    parameter.defaultFallback(),
                 )
             } else {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
                     splitValues,
+                    parameter.defaultFallback(),
                 )
             }
         }
@@ -405,18 +409,20 @@ class KtorControllerInterfaceGenerator(
             val splitValues = parameter.typeInfo is KotlinTypeInfo.Array && parameter.explode == false
             if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", call.application.%M, splitValues = %L)%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
                     MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
                     splitValues,
+                    parameter.defaultFallback(),
                 )
             } else {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)",
+                    "val ${parameter.name} = %M.request.headers.%M<$type>(\"${parameter.originalName}\", splitValues = %L)%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
                     splitValues,
+                    parameter.defaultFallback(),
                 )
             }
         }
@@ -437,16 +443,18 @@ class KtorControllerInterfaceGenerator(
             val method = if (parameter.isRequired) "getTypedOrFail" else "getTyped"
             if (parameter.requiresKtorDataConversionPlugin()) {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\", call.application.%M)",
+                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\", call.application.%M)%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
                     MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+                    parameter.defaultFallback(),
                 )
             } else {
                 builder.addStatement(
-                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\")",
+                    "val ${parameter.name} = %M.request.queryParameters.%M<$type>(\"${parameter.originalName}\")%L",
                     MemberName("io.ktor.server.application", "call"),
                     MemberName(packages.controllers, method),
+                    parameter.defaultFallback(),
                 )
             }
         }
@@ -789,7 +797,16 @@ class KtorControllerInterfaceGenerator(
         unindent()
         addStatement("}")
         unindent()
-        addStatement("}")
+        addStatement("}%L", parameter.defaultFallback())
+    }
+
+    private fun RequestParameter.defaultFallback(): CodeBlock {
+        if (isRequired || defaultValue == null) return CodeBlock.of("")
+        val default =
+            requireNotNull(OasDefault.from(typeInfo, type, defaultValue)) {
+                "Ktor controllers cannot render the default value for parameter '$originalName'."
+            }
+        return CodeBlock.of(" ?: %L", default.getDefault())
     }
 
     private fun RequestParameter.decodeParameterContent(
