@@ -277,6 +277,22 @@ class CodeGeneratorNativeClientModeTest {
     }
 
     @Test
+    fun `uses JsonElement for heterogeneous JSON responses in native Ktor clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+            serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION,
+        )
+
+        val generated = generateClient(heterogeneousJsonResponsesOpenApi)
+
+        assertThat(generated)
+            .contains("import kotlinx.serialization.json.JsonElement")
+            .contains("NetworkResult<JsonElement>")
+            .doesNotContain("jackson.databind.JsonNode")
+    }
+
+    @Test
     fun `generates multipart Spring HTTP interface clients from native operations`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
@@ -1028,6 +1044,29 @@ class CodeGeneratorNativeClientModeTest {
               responses:
                 '204':
                   description: Uploaded
+        """.trimIndent()
+
+    private val heterogeneousJsonResponsesOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Heterogeneous JSON responses
+          version: "1.0"
+        paths:
+          /subject:
+            get:
+              operationId: findSubject
+              responses:
+                '200':
+                  description: Text result
+                  content:
+                    application/json:
+                      schema: { type: string }
+                '202':
+                  description: Numeric result
+                  content:
+                    application/json:
+                      schema: { type: integer }
         """.trimIndent()
 
     private val multipartHeaderOpenApi =
