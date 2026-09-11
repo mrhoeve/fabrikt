@@ -63,6 +63,26 @@ class CodeGeneratorNativeMethodValidationTest {
         }
     }
 
+    @Test
+    fun `generates TRACE operations through generic Ktor routing`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CONTROLLERS),
+            controllerTarget = ControllerCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            generator(queryOpenApi.replace("query:", "trace:").replace("querySubjects", "traceSubjects"))
+                .generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("route(\"/subjects\", HttpMethod(\"TRACE\"))")
+            .contains("handle {")
+            .doesNotContain("io.ktor.server.routing.trace")
+    }
+
     @ParameterizedTest
     @EnumSource(ClientCodeGenTargetType::class)
     fun `generates OpenAPI 3_2 query operations for client targets`(target: ClientCodeGenTargetType) {
