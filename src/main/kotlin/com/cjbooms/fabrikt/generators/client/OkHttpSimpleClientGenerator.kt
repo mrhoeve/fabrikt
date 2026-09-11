@@ -604,7 +604,11 @@ data class SimpleClientOperationStatement(
             )
             return
         }
-        this.add("\nval multipartBuilder = %T()", "MultipartBody.Builder".toClassName("okhttp3"))
+        if (nativeGeneration && parameters.filterIsInstance<MultipartParameter>().any { it.fixedHeaders.isNotEmpty() }) {
+            this.add("\nval multipartBuilder = %T.Builder()", "MultipartBody".toClassName("okhttp3"))
+        } else {
+            this.add("\nval multipartBuilder = %T()", "MultipartBody.Builder".toClassName("okhttp3"))
+        }
         if (nativeGeneration) {
             this.add(
                 "\n.setType(%S.%T())",
@@ -621,7 +625,7 @@ data class SimpleClientOperationStatement(
             .filter { it.isBinaryFile && it.isArray }
             .forEach { param ->
                 this.add("\n%N?.forEachIndexed { index, fileData ->", param.name)
-                if (param.headers.isEmpty()) {
+                if (param.headers.isEmpty() && param.fixedHeaders.isEmpty()) {
                     this.add(
                         "\n      multipartBuilder.addFormDataPart(%S, fileData.filename, fileData.requestBody)",
                         param.partName,
@@ -641,7 +645,7 @@ data class SimpleClientOperationStatement(
                 if (!param.isRequired) this.add("\n%N?.let {", param.name)
                 when {
                     param.isBinaryFile -> {
-                        if (nativeGeneration && param.headers.isNotEmpty()) {
+                        if (nativeGeneration && (param.headers.isNotEmpty() || param.fixedHeaders.isNotEmpty())) {
                             addMultipartPartHeaders(param, "${param.name}.filename")
                             this.add("\n    multipartBuilder.addPart(${param.name}PartHeaders, %N.requestBody)", param.name)
                         } else {
@@ -685,7 +689,7 @@ data class SimpleClientOperationStatement(
                                 param.contentType ?: "text/plain",
                                 "toMediaType".toClassName("okhttp3.MediaType.Companion"),
                             )
-                        if (param.headers.isEmpty()) {
+                        if (param.headers.isEmpty() && param.fixedHeaders.isEmpty()) {
                             this.add("\n    multipartBuilder.addFormDataPart(%S, null, %L)", param.partName, requestBody)
                         } else {
                             addMultipartPartHeaders(param)
@@ -712,6 +716,9 @@ data class SimpleClientOperationStatement(
             }
         add("\n    val ${parameter.name}PartHeadersBuilder = %T.Builder()", "Headers".toClassName("okhttp3"))
         add("\n      .add(%S, %L)", "Content-Disposition", contentDisposition)
+        parameter.fixedHeaders.forEach { (name, value) ->
+            add("\n      .add(%S, %S)", name, value)
+        }
         parameter.headers.forEach { header ->
             val headerValue = parameter.headerValue(header.name, index)
             if (header.isRequired) {

@@ -145,6 +145,7 @@ class MultipartParameter(
     val contentType: String? = null,
     val isArray: Boolean = schema?.type == "array",
     val headers: List<MultipartHeaderParameter> = emptyList(),
+    val fixedHeaders: Map<String, String> = emptyMap(),
 ) : IncomingParameter(oasName, description, type, isRequired)
 
 class SequentialMultipartParameter(
@@ -163,6 +164,7 @@ class SequentialMultipartParameter(
 data class MultipartPartEncoding(
     val contentTypes: List<String>,
     val requiredHeaders: Set<String>,
+    val fixedHeaders: Map<String, String>,
     val prefixEncodings: List<MultipartPartEncoding>,
     val itemEncoding: MultipartPartEncoding?,
     val minimumPartCount: Int,

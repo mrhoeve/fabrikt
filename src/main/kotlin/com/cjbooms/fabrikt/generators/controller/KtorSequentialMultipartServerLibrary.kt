@@ -23,12 +23,13 @@ internal object KtorSequentialMultipartServerLibrary {
         val partFlow = flow.parameterizedBy(part)
         val stringList = List::class.asClassName().parameterizedBy(String::class.asTypeName())
         val headers = Map::class.asClassName().parameterizedBy(String::class.asTypeName(), stringList)
+        val fixedHeaders = Map::class.asClassName().parameterizedBy(String::class.asTypeName(), String::class.asTypeName())
         val encodings = List::class.asClassName().parameterizedBy(encoding)
 
         return TypeSpec
             .objectBuilder(multipart)
             .addType(partType(part, byteReadChannel, partFlow, headers))
-            .addType(encodingType(encoding, stringList, encodings))
+            .addType(encodingType(encoding, stringList, fixedHeaders, encodings))
             .addFunction(readFunction(part, encoding, byteReadChannel, partFlow))
             .addFunction(headerFunction(headers))
             .addFunction(contentTypeMatchFunction())
@@ -63,6 +64,7 @@ internal object KtorSequentialMultipartServerLibrary {
     private fun encodingType(
         encoding: ClassName,
         stringList: com.squareup.kotlinpoet.TypeName,
+        fixedHeaders: com.squareup.kotlinpoet.TypeName,
         encodings: com.squareup.kotlinpoet.TypeName,
     ): TypeSpec =
         TypeSpec
@@ -73,6 +75,7 @@ internal object KtorSequentialMultipartServerLibrary {
                     .constructorBuilder()
                     .addParameter("contentTypes", stringList)
                     .addParameter("requiredHeaders", Set::class.asClassName().parameterizedBy(String::class.asTypeName()))
+                    .addParameter("fixedHeaders", fixedHeaders)
                     .addParameter("prefixEncodings", encodings)
                     .addParameter("itemEncoding", encoding.copy(nullable = true))
                     .addParameter("minimumPartCount", Int::class)
@@ -84,7 +87,8 @@ internal object KtorSequentialMultipartServerLibrary {
                     .builder("requiredHeaders", Set::class.asClassName().parameterizedBy(String::class.asTypeName()))
                     .initializer("requiredHeaders")
                     .build(),
-            ).addProperty(PropertySpec.builder("prefixEncodings", encodings).initializer("prefixEncodings").build())
+            ).addProperty(PropertySpec.builder("fixedHeaders", fixedHeaders).initializer("fixedHeaders").build())
+            .addProperty(PropertySpec.builder("prefixEncodings", encodings).initializer("prefixEncodings").build())
             .addProperty(PropertySpec.builder("itemEncoding", encoding.copy(nullable = true)).initializer("itemEncoding").build())
             .addProperty(PropertySpec.builder("minimumPartCount", Int::class).initializer("minimumPartCount").build())
             .addProperty(
@@ -149,6 +153,11 @@ internal object KtorSequentialMultipartServerLibrary {
                     .addStatement(
                         "require(headers.keys.any { it.equals(requiredHeader, ignoreCase = true) }) { %P }",
                         "Multipart part header '\$requiredHeader' is required for part \$partCount",
+                    ).endControlFlow()
+                    .beginControlFlow("partEncoding?.fixedHeaders?.forEach { (name, expectedValue) ->")
+                    .addStatement(
+                        "require(headers.header(name)?.equals(expectedValue, ignoreCase = true) == true) { %P }",
+                        "Multipart part header '\$name' must have value '\$expectedValue' for part \$partCount",
                     ).endControlFlow()
                     .addStatement("val nested = selectedContentType.substringBefore(';').trim().startsWith(%S)", "multipart/")
                     .addStatement(

@@ -523,7 +523,7 @@ class KtorControllerInterfaceGenerator(
         beginControlFlow("try")
         beginControlFlow("when (part.name)")
         parameters.forEach { parameter ->
-            if (parameter.headers.isEmpty()) {
+            if (parameter.headers.isEmpty() && parameter.fixedHeaders.isEmpty()) {
                 add("%S -> ", parameter.partName)
             } else {
                 beginControlFlow("%S ->", parameter.partName)
@@ -550,7 +550,7 @@ class KtorControllerInterfaceGenerator(
                     endControlFlow()
                 }
             }
-            if (parameter.headers.isNotEmpty()) endControlFlow()
+            if (parameter.headers.isNotEmpty() || parameter.fixedHeaders.isNotEmpty()) endControlFlow()
         }
         addStatement("else -> Unit")
         endControlFlow()
@@ -566,6 +566,15 @@ class KtorControllerInterfaceGenerator(
     }
 
     private fun CodeBlock.Builder.addMultipartHeaderCapture(parameter: MultipartParameter) {
+        parameter.fixedHeaders.forEach { (name, value) ->
+            beginControlFlow("if (part.headers[%S]?.equals(%S, ignoreCase = true) != true)", name, value)
+            addStatement(
+                "throw %T(%S)",
+                ClassName("io.ktor.server.plugins", "BadRequestException"),
+                "Multipart part header $name must have value '$value'",
+            )
+            endControlFlow()
+        }
         parameter.headers.forEach { header ->
             addStatement(
                 if (parameter.isArray) "%NRawParts += part.headers[%S]" else "%NRawPart = part.headers[%S]",

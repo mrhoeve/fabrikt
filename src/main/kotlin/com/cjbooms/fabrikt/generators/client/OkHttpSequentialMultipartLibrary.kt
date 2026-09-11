@@ -22,13 +22,14 @@ internal object OkHttpSequentialMultipartLibrary {
         val requestBody = ClassName("okhttp3", "RequestBody")
         val stringList = List::class.asClassName().parameterizedBy(String::class.asTypeName())
         val stringSet = Set::class.asClassName().parameterizedBy(String::class.asTypeName())
+        val stringMap = Map::class.asClassName().parameterizedBy(String::class.asTypeName(), String::class.asTypeName())
         val parts = Iterable::class.asClassName().parameterizedBy(multipartPart)
         val encodingList = List::class.asClassName().parameterizedBy(multipartEncoding)
 
         return FileSpec
             .builder(packages.client, "SequentialMultipart")
             .addType(multipartPartType(multipartPart, parts, requestBody))
-            .addType(multipartEncodingType(multipartEncoding, stringList, stringSet, encodingList))
+            .addType(multipartEncodingType(multipartEncoding, stringList, stringSet, stringMap, encodingList))
             .addType(multipartBodyType(multipartBody, multipartEncoding, parts))
             .addFunction(buildBodyFunction(multipartBody, multipartEncoding, parts, requestBody))
             .addFunction(writeMultipartFunction(multipartEncoding, parts))
@@ -95,6 +96,7 @@ internal object OkHttpSequentialMultipartLibrary {
         multipartEncoding: ClassName,
         stringList: com.squareup.kotlinpoet.TypeName,
         stringSet: com.squareup.kotlinpoet.TypeName,
+        stringMap: com.squareup.kotlinpoet.TypeName,
         encodingList: com.squareup.kotlinpoet.TypeName,
     ): TypeSpec =
         TypeSpec
@@ -105,6 +107,7 @@ internal object OkHttpSequentialMultipartLibrary {
                     .constructorBuilder()
                     .addParameter("contentTypes", stringList)
                     .addParameter("requiredHeaders", stringSet)
+                    .addParameter("fixedHeaders", stringMap)
                     .addParameter("prefixEncodings", encodingList)
                     .addParameter("itemEncoding", multipartEncoding.copy(nullable = true))
                     .addParameter("minimumPartCount", Int::class)
@@ -112,6 +115,7 @@ internal object OkHttpSequentialMultipartLibrary {
                     .build(),
             ).addProperty(PropertySpec.builder("contentTypes", stringList).initializer("contentTypes").build())
             .addProperty(PropertySpec.builder("requiredHeaders", stringSet).initializer("requiredHeaders").build())
+            .addProperty(PropertySpec.builder("fixedHeaders", stringMap).initializer("fixedHeaders").build())
             .addProperty(PropertySpec.builder("prefixEncodings", encodingList).initializer("prefixEncodings").build())
             .addProperty(PropertySpec.builder("itemEncoding", multipartEncoding.copy(nullable = true)).initializer("itemEncoding").build())
             .addProperty(PropertySpec.builder("minimumPartCount", Int::class).initializer("minimumPartCount").build())
@@ -230,6 +234,17 @@ internal object OkHttpSequentialMultipartLibrary {
                         "fabrikt-",
                         ClassName("java.util", "UUID"),
                     ).addStatement("sink.writeUtf8(%S).writeUtf8(boundary).writeByte(13).writeByte(10)", "--")
+                    .beginControlFlow("partEncoding?.fixedHeaders?.forEach { (name, expectedValue) ->")
+                    .addStatement("val suppliedHeader = part.headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }")
+                    .addStatement(
+                        "require(suppliedHeader == null || suppliedHeader.value.equals(expectedValue, ignoreCase = true)) { %P }",
+                        "Multipart part header '\$name' must have value '\$expectedValue'",
+                    ).beginControlFlow("if (suppliedHeader == null)")
+                    .addStatement(
+                        "sink.writeUtf8(name).writeUtf8(%S).writeUtf8(expectedValue).writeByte(13).writeByte(10)",
+                        ": ",
+                    ).endControlFlow()
+                    .endControlFlow()
                     .beginControlFlow("part.headers.forEach { (name, value) ->")
                     .addStatement(
                         "require(!name.equals(%S, ignoreCase = true) && !name.equals(%S, ignoreCase = true)) { %P }",

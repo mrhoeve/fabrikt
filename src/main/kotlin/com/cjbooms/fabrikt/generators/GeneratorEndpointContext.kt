@@ -119,12 +119,11 @@ internal class GeneratorEndpointContext(
                 path.operations
                     .filter { operation ->
                         operation.requestBody
-                            ?.content
+                            ?.takeUnless { multipartBody(it) is GeneratorMultipartBody.Sequential }
+                            ?.let(::bodyParameters)
                             .orEmpty()
-                            .filter { it.key.startsWith("multipart/") }
-                            .flatMap { it.encoding.values }
-                            .flatMap { it.headers.values }
-                            .any { !it.name.equals("Content-Type", ignoreCase = true) }
+                            .filterIsInstance<MultipartParameter>()
+                            .any { it.headers.isNotEmpty() || it.fixedHeaders.isNotEmpty() }
                     }.map { operation -> "${operation.method.uppercase()} ${path.path}" }
             }
         require(operationsWithPartHeaders.isEmpty()) {
@@ -514,6 +513,12 @@ internal class GeneratorEndpointContext(
                             .values
                             .filterNot { it.name.equals("Content-Type", ignoreCase = true) }
                             .mapNotNull { header -> multipartHeader(name, header) },
+                    fixedHeaders =
+                        (if (SourceSchemaType.ARRAY in resolved.typesOrEmpty()) item else resolved)
+                            ?.metadata
+                            ?.contentEncoding
+                            ?.let { mapOf("Content-Transfer-Encoding" to it) }
+                            .orEmpty(),
                 )
             }
         }
@@ -629,6 +634,12 @@ internal class GeneratorEndpointContext(
                     .values
                     .filter { it.required && !it.name.equals("Content-Type", ignoreCase = true) }
                     .mapTo(linkedSetOf(), GeneratorHeader::name),
+            fixedHeaders =
+                resolvedSchema
+                    ?.metadata
+                    ?.contentEncoding
+                    ?.let { mapOf("Content-Transfer-Encoding" to it) }
+                    .orEmpty(),
             prefixEncodings =
                 (0 until prefixCount).map { index ->
                     multipartPartEncoding(
@@ -715,6 +726,7 @@ internal class GeneratorEndpointContext(
                         contentType = parameter.contentType,
                         isArray = parameter.isArray,
                         headers = parameter.headers,
+                        fixedHeaders = parameter.fixedHeaders,
                     )
                 is SequentialMultipartParameter ->
                     SequentialMultipartParameter(

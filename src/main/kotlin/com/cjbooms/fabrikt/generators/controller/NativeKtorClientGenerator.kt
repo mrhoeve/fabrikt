@@ -412,6 +412,9 @@ internal class NativeKtorClientGenerator(
                 "filename=\"${parameter.partName}\"",
             )
         }
+        parameter.fixedHeaders.forEach { (name, value) ->
+            addStatement("append(%S, %S)", name, value)
+        }
         parameter.headers.forEach { header ->
             val headerValue = parameter.headerValue(header.name)
             if (header.isRequired) {

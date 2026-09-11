@@ -22,13 +22,14 @@ internal object KtorSequentialMultipartLibrary {
         val contentType = ClassName("io.ktor.http", "ContentType")
         val stringList = List::class.asClassName().parameterizedBy(String::class.asTypeName())
         val stringSet = Set::class.asClassName().parameterizedBy(String::class.asTypeName())
+        val stringMap = Map::class.asClassName().parameterizedBy(String::class.asTypeName(), String::class.asTypeName())
         val parts = Iterable::class.asClassName().parameterizedBy(multipartPart)
         val encodingList = List::class.asClassName().parameterizedBy(multipartEncoding)
 
         return FileSpec
             .builder(packages.client, "SequentialMultipart")
             .addType(multipartPartType(multipartPart, parts))
-            .addType(multipartEncodingType(multipartEncoding, stringList, stringSet, encodingList))
+            .addType(multipartEncodingType(multipartEncoding, stringList, stringSet, stringMap, encodingList))
             .addType(multipartContentType(multipartContent, multipartEncoding, parts, contentType))
             .addFunction(buildContentFunction(multipartContent, multipartEncoding, parts))
             .addFunction(writeMultipartFunction(multipartEncoding, parts, contentType))
@@ -85,6 +86,7 @@ internal object KtorSequentialMultipartLibrary {
         multipartEncoding: ClassName,
         stringList: com.squareup.kotlinpoet.TypeName,
         stringSet: com.squareup.kotlinpoet.TypeName,
+        stringMap: com.squareup.kotlinpoet.TypeName,
         encodingList: com.squareup.kotlinpoet.TypeName,
     ): TypeSpec =
         TypeSpec
@@ -95,6 +97,7 @@ internal object KtorSequentialMultipartLibrary {
                     .constructorBuilder()
                     .addParameter("contentTypes", stringList)
                     .addParameter("requiredHeaders", stringSet)
+                    .addParameter("fixedHeaders", stringMap)
                     .addParameter("prefixEncodings", encodingList)
                     .addParameter("itemEncoding", multipartEncoding.copy(nullable = true))
                     .addParameter("minimumPartCount", Int::class)
@@ -102,6 +105,7 @@ internal object KtorSequentialMultipartLibrary {
                     .build(),
             ).addProperty(PropertySpec.builder("contentTypes", stringList).initializer("contentTypes").build())
             .addProperty(PropertySpec.builder("requiredHeaders", stringSet).initializer("requiredHeaders").build())
+            .addProperty(PropertySpec.builder("fixedHeaders", stringMap).initializer("fixedHeaders").build())
             .addProperty(PropertySpec.builder("prefixEncodings", encodingList).initializer("prefixEncodings").build())
             .addProperty(PropertySpec.builder("itemEncoding", multipartEncoding.copy(nullable = true)).initializer("itemEncoding").build())
             .addProperty(PropertySpec.builder("minimumPartCount", Int::class).initializer("minimumPartCount").build())
@@ -220,6 +224,18 @@ internal object KtorSequentialMultipartLibrary {
                     ).addStatement("channel.%M(%S)", writeStringUtf8, "--")
                     .addStatement("channel.%M(boundary)", writeStringUtf8)
                     .addStatement("channel.%M(byteArrayOf(13, 10))", writeFully)
+                    .beginControlFlow("partEncoding?.fixedHeaders?.forEach { (name, expectedValue) ->")
+                    .addStatement("val suppliedHeader = part.headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }")
+                    .addStatement(
+                        "require(suppliedHeader == null || suppliedHeader.value.equals(expectedValue, ignoreCase = true)) { %P }",
+                        "Multipart part header '\$name' must have value '\$expectedValue'",
+                    ).beginControlFlow("if (suppliedHeader == null)")
+                    .addStatement("channel.%M(name)", writeStringUtf8)
+                    .addStatement("channel.%M(%S)", writeStringUtf8, ": ")
+                    .addStatement("channel.%M(expectedValue)", writeStringUtf8)
+                    .addStatement("channel.%M(byteArrayOf(13, 10))", writeFully)
+                    .endControlFlow()
+                    .endControlFlow()
                     .beginControlFlow("part.headers.forEach { (name, value) ->")
                     .addStatement(
                         "require(!name.equals(%S, ignoreCase = true) && !name.equals(%S, ignoreCase = true)) { %P }",
