@@ -668,7 +668,7 @@ internal class GeneratorEndpointContext(
                     } else {
                         JSON_NODE_CLASS
                     }
-                else -> Any::class.asTypeName()
+                else -> ByteArray::class.asTypeName()
             }
         val bodyName =
             distinctSchemas

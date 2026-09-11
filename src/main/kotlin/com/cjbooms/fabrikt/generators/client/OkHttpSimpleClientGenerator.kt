@@ -707,13 +707,13 @@ data class SimpleClientOperationStatement(
         val toRequestBody = "toRequestBody".toClassName("okhttp3.RequestBody.Companion")
         add("\nval fabriktContentType = %L", requestContentTypeExpression("application/octet-stream"))
         add("\nval fabriktRequestBodyBytes = when {")
+        add("\n  %N is ByteArray -> %N", body.name, body.name)
         add(
             "\n  fabriktContentType.substringBefore(';').let { it.equals(%S, ignoreCase = true) || it.endsWith(%S, ignoreCase = true) } -> objectMapper.writeValueAsBytes(%N)",
             "application/json",
             "+json",
             body.name,
         )
-        add("\n  %N is ByteArray -> %N", body.name, body.name)
         add("\n  else -> %N.toString().toByteArray()", body.name)
         add("\n}")
         add("\nval fabriktRequestBody = fabriktRequestBodyBytes.%T(fabriktContentType.%T())", toRequestBody, toMediaType)
