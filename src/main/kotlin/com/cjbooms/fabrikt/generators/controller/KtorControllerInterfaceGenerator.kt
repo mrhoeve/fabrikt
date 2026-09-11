@@ -578,7 +578,11 @@ class KtorControllerInterfaceGenerator(
     }
 
     private fun CodeBlock.Builder.addParameterContentMapper(parameters: List<RequestParameter>) {
-        if (parameters.isEmpty() || !MutableSettings.serializationLibrary.isJackson) return
+        if (parameters.none { it.contentType?.contains("json", ignoreCase = true) == true } ||
+            !MutableSettings.serializationLibrary.isJackson
+        ) {
+            return
+        }
         val mapperPackage =
             when (MutableSettings.serializationLibrary) {
                 SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind.json"
@@ -823,8 +827,11 @@ class KtorControllerInterfaceGenerator(
     private fun RequestParameter.decodeParameterContent(
         rawValue: CodeBlock,
         type: TypeName,
-    ): CodeBlock =
-        when (MutableSettings.serializationLibrary) {
+    ): CodeBlock {
+        if (contentType.equals("text/plain", ignoreCase = true)) {
+            return convertedHeaderValue(originalName, rawValue, typeInfo, type)
+        }
+        return when (MutableSettings.serializationLibrary) {
             SerializationLibrary.JACKSON ->
                 CodeBlock.of(
                     "parameterContentObjectMapper.%M<%T>(%L)",
@@ -848,6 +855,7 @@ class KtorControllerInterfaceGenerator(
                     rawValue,
                 )
         }
+    }
 
     private fun CodeBlock.Builder.addMultipartParameters(parameters: List<MultipartParameter>) {
         if (parameters.isEmpty()) return

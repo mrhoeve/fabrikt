@@ -157,16 +157,6 @@ internal class GeneratorEndpointContext(
         }
     }
 
-    fun requireJsonParameterContent(target: String) {
-        val unsupported =
-            parameterContentOperations { parameter, mediaType ->
-                mediaType.isJsonMediaType() || (parameter.placement == "querystring" && mediaType.isFormMediaType())
-            }
-        require(unsupported.isEmpty()) {
-            "$target supports native content-based parameters only for JSON and form-encoded OpenAPI 3.2 querystring parameters: ${unsupported.joinToString()}."
-        }
-    }
-
     private fun parameterContentOperations(supported: (GeneratorParameter, String) -> Boolean = { _, _ -> false }): List<String> =
         operations.paths.flatMap { path ->
             path.operations.flatMap { operation ->
