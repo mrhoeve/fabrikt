@@ -204,6 +204,9 @@ class OkHttpSimpleClientGenerator(
                     parameters,
                     options,
                     nativeGeneration = true,
+                    rawTextResponse =
+                        returnType == String::class.asTypeName() &&
+                            context.responseContentTypes(operation).all { it.substringBefore(';').startsWith("text/") },
                 ).toStatement(),
             ).returns("ApiResponse".toClassName(packages.client).parameterizedBy(returnType))
             .build()
@@ -230,7 +233,12 @@ class OkHttpSimpleClientGenerator(
             add(
                 SimpleFile(
                     clientDir.resolve("HttpUtil.kt"),
-                    OkHttpClientLibraryFiles.httpUtil(packages, nonNullDataPayloads).toString(),
+                    OkHttpClientLibraryFiles
+                        .httpUtil(
+                            packages,
+                            nonNullDataPayloads,
+                            includeTextResponseSupport = generatorContext?.hasTextResponses() == true,
+                        ).toString(),
                 ),
             )
             add(SimpleFile(clientDir.resolve("OAuth.kt"), OkHttpClientLibraryFiles.oAuth(packages).toString()))
@@ -256,6 +264,7 @@ data class SimpleClientOperationStatement(
     private val parameters: List<IncomingParameter>,
     private val options: Set<ClientCodeGenOptionType>,
     private val nativeGeneration: Boolean = false,
+    private val rawTextResponse: Boolean = false,
 ) {
     fun toStatement(): CodeBlock =
         CodeBlock
@@ -628,6 +637,13 @@ data class SimpleClientOperationStatement(
 
     private fun CodeBlock.Builder.addRequestExecutionStatement() =
         when (returnType) {
+            String::class.asTypeName() ->
+                if (rawTextResponse) {
+                    this.add("\nreturn request.executeText(okHttpClient)\n")
+                } else {
+                    this.add("\nreturn request.execute(okHttpClient, objectMapper, jacksonTypeRef())\n")
+                }
+
             ByteArray::class.asTypeName() ->
                 this.add("\nreturn request.execute(okHttpClient)\n")
 

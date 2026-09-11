@@ -221,12 +221,7 @@ internal class GeneratorEndpointContext(
                 it.placement == "header" && it.name.equals("Accept", ignoreCase = true)
             }
         val primaryResponse = operation.primarySuccessResponse()
-        val responseContentTypes =
-            operation
-                .successResponses()
-                .flatMap(GeneratorResponse::content)
-                .map(GeneratorMediaType::key)
-                .distinct()
+        val responseContentTypes = responseContentTypes(operation)
         val acceptParameter =
             if (responseContentTypes.size > 1 && !hasAcceptParameter) {
                 listOf(
@@ -376,6 +371,18 @@ internal class GeneratorEndpointContext(
             ?.content
             ?.firstOrNull()
             ?.key
+
+    fun responseContentTypes(operation: GeneratorOperation): List<String> =
+        operation
+            .successResponses()
+            .flatMap(GeneratorResponse::content)
+            .map(GeneratorMediaType::key)
+            .distinct()
+
+    fun hasTextResponses(): Boolean =
+        operations.paths
+            .flatMap(GeneratorPathItem::operations)
+            .any { operation -> responseContentTypes(operation).any { it.substringBefore(';').startsWith("text/") } }
 
     fun requestContentType(operation: GeneratorOperation): String? =
         operation.requestBody

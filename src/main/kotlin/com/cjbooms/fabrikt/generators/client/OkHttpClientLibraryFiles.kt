@@ -137,6 +137,7 @@ object OkHttpClientLibraryFiles {
     fun httpUtil(
         packages: Packages,
         nonNullDataPayloads: Boolean,
+        includeTextResponseSupport: Boolean = false,
     ): FileSpec =
         FileSpec
             .builder(packages.client, "HttpUtil")
@@ -155,7 +156,11 @@ object OkHttpClientLibraryFiles {
                         return this
                         """.trimIndent(),
                     ).build(),
-            ).addFunction(
+            ).apply {
+                if (includeTextResponseSupport) {
+                    addFunction(textExecuteFunction(packages, nonNullDataPayloads))
+                }
+            }.addFunction(
                 FunSpec
                     .builder("formParam")
                     .addAnnotation(suppressUnused)
@@ -434,6 +439,40 @@ object OkHttpClientLibraryFiles {
                     ).addProperty(PropertySpec.builder("requestBody", requestBody).initializer("requestBody").build())
                     .addProperty(PropertySpec.builder("filename", String::class).initializer("filename").build())
                     .build(),
+            ).build()
+
+    private fun textExecuteFunction(
+        packages: Packages,
+        nonNullDataPayloads: Boolean,
+    ): FunSpec =
+        FunSpec
+            .builder("executeText")
+            .addAnnotation(throwsApiException(packages))
+            .receiver(request)
+            .addParameter("client", okHttpClient)
+            .returns(apiResponse(packages).parameterizedBy(String::class.asTypeName()))
+            .addCode(
+                if (nonNullDataPayloads) {
+                    CodeBlock
+                        .builder()
+                        .add("return doRequest(client)·{·response·->\n")
+                        .indent()
+                        .add(
+                            "response.body?.string()·?:·throw·ApiException(" +
+                                "\"[\${response.code}]:·Response·body·expected·but·not·returned\")\n",
+                        ).unindent()
+                        .add("}\n")
+                        .build()
+                } else {
+                    CodeBlock
+                        .builder()
+                        .add("return doRequest(client)·{·responseBody·->\n")
+                        .indent()
+                        .add("responseBody?.string()\n")
+                        .unindent()
+                        .add("}\n")
+                        .build()
+                },
             ).build()
 
     fun oAuth(packages: Packages): FileSpec {
