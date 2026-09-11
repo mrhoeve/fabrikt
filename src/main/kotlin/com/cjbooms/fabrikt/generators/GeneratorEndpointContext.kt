@@ -17,8 +17,10 @@ import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
+import com.cjbooms.fabrikt.model.MultipartPartEncoding
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.RequestParameterLocation
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.parser.GeneratorHeader
 import com.cjbooms.fabrikt.parser.GeneratorMediaType
 import com.cjbooms.fabrikt.parser.GeneratorObjectSchema
@@ -40,7 +42,9 @@ import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 import com.fasterxml.jackson.databind.JsonNode
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.CodeBlock
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.TypeName
+import com.squareup.kotlinpoet.asClassName
 import com.squareup.kotlinpoet.asTypeName
 
 internal class GeneratorEndpointContext(
@@ -151,8 +155,9 @@ internal class GeneratorEndpointContext(
         operation: GeneratorOperation,
         pathParameters: List<GeneratorParameter>,
         extraParameters: List<IncomingParameter> = emptyList(),
+        sequentialMultipartPartType: ClassName? = null,
     ): List<IncomingParameter> {
-        val bodies = operation.requestBody?.let(::bodyParameters).orEmpty()
+        val bodies = operation.requestBody?.let { bodyParameters(it, sequentialMultipartPartType) }.orEmpty()
         val merged =
             pathParameters.filter { path ->
                 operation.parameters.none { it.name == path.name && it.placement == path.placement }
@@ -187,7 +192,12 @@ internal class GeneratorEndpointContext(
             } else {
                 emptyList()
             }
-        return incomingParameters(operation, path.parameters, securityParameters(operation, path.parameters) + acceptParameter)
+        return incomingParameters(
+            operation,
+            path.parameters,
+            securityParameters(operation, path.parameters) + acceptParameter,
+            ClassName(clientPackage(basePackage), "MultipartPart"),
+        )
     }
 
     private fun securityParameters(
@@ -313,7 +323,12 @@ internal class GeneratorEndpointContext(
         operation.requestBody?.content?.any { it.key.startsWith("multipart/") } == true
 
     fun multipartBody(operation: GeneratorOperation): GeneratorMultipartBody? {
-        val mediaType = operation.requestBody?.content?.firstOrNull { it.key.startsWith("multipart/") } ?: return null
+        val requestBody = operation.requestBody ?: return null
+        return multipartBody(requestBody)
+    }
+
+    private fun multipartBody(requestBody: com.cjbooms.fabrikt.parser.GeneratorRequestBody): GeneratorMultipartBody? {
+        val mediaType = requestBody.content.firstOrNull { it.key.startsWith("multipart/") } ?: return null
         val schema = mediaType.schema?.let(schemas::resolve) as? GeneratorObjectSchema
         val sequential =
             mediaType.itemSchema != null ||
@@ -376,6 +391,9 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun hasSequentialMultipartBodies(): Boolean =
+        operations.paths.any { path -> path.operations.any { multipartBody(it) is GeneratorMultipartBody.Sequential } }
+
     fun requireScalarFormParameters(target: String) {
         val unsupported =
             operations.paths.flatMap { path ->
@@ -433,7 +451,30 @@ internal class GeneratorEndpointContext(
         return SourceSchemaType.ARRAY in schema.types && schema.metadata.format == "event-stream"
     }
 
-    private fun bodyParameters(requestBody: com.cjbooms.fabrikt.parser.GeneratorRequestBody): List<IncomingParameter> {
+    private fun bodyParameters(
+        requestBody: com.cjbooms.fabrikt.parser.GeneratorRequestBody,
+        sequentialMultipartPartType: ClassName? = null,
+    ): List<IncomingParameter> {
+        val multipartBody = multipartBody(requestBody)
+        if (multipartBody is GeneratorMultipartBody.Sequential) {
+            requireNotNull(sequentialMultipartPartType) {
+                "Native sequential multipart parameters require a target-specific multipart part type."
+            }
+            return listOf(
+                SequentialMultipartParameter(
+                    oasName = "parts",
+                    description = requestBody.description,
+                    type = List::class.asClassName().parameterizedBy(sequentialMultipartPartType),
+                    isRequired = requestBody.required,
+                    mediaType = multipartBody.mediaType.key,
+                    minimumPartCount = multipartBody.minimumPartCount,
+                    maximumPartCount = multipartBody.maximumPartCount,
+                    prefixEncodings = multipartBody.prefixParts.map(::multipartPartEncoding),
+                    itemEncoding = multipartBody.remainingPart?.let(::multipartPartEncoding),
+                    streaming = multipartBody.streaming,
+                ),
+            )
+        }
         val multipart = requestBody.content.firstOrNull { it.key.startsWith("multipart/") }
         if (multipart != null) {
             val schema = multipart.effectiveSchema()?.let(schemas::resolve) as? GeneratorObjectSchema ?: return emptyList()
@@ -567,6 +608,59 @@ internal class GeneratorEndpointContext(
         )
     }
 
+    private fun multipartPartEncoding(part: GeneratorSequentialMultipartPart): MultipartPartEncoding =
+        multipartPartEncoding(part.schema, part.encoding)
+
+    private fun multipartPartEncoding(
+        schema: GeneratorSchema?,
+        encoding: com.cjbooms.fabrikt.parser.GeneratorEncoding?,
+    ): MultipartPartEncoding {
+        val resolvedSchema = schema?.let(schemas::resolve) as? GeneratorObjectSchema
+        val prefixSchemas = resolvedSchema?.prefixItems.orEmpty()
+        val prefixCount = maxOf(prefixSchemas.size, encoding?.prefixEncoding?.size ?: 0)
+        return MultipartPartEncoding(
+            contentTypes = encoding?.contentType.toContentTypes(resolvedSchema),
+            requiredHeaders =
+                encoding
+                    ?.headers
+                    .orEmpty()
+                    .values
+                    .filter { it.required && !it.name.equals("Content-Type", ignoreCase = true) }
+                    .mapTo(linkedSetOf(), GeneratorHeader::name),
+            prefixEncodings =
+                (0 until prefixCount).map { index ->
+                    multipartPartEncoding(
+                        prefixSchemas.getOrNull(index) ?: resolvedSchema?.items,
+                        encoding?.prefixEncoding?.getOrNull(index),
+                    )
+                },
+            itemEncoding =
+                (resolvedSchema?.items ?: schema?.takeIf { encoding?.itemEncoding != null })
+                    ?.let { multipartPartEncoding(it, encoding?.itemEncoding) },
+            minimumPartCount = resolvedSchema?.constraints?.minItems ?: 0,
+            maximumPartCount = resolvedSchema?.constraints?.maxItems,
+        )
+    }
+
+    private fun String?.toContentTypes(schema: GeneratorObjectSchema?): List<String> =
+        this
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            ?.takeIf(List<String>::isNotEmpty)
+            ?: listOf(schema.defaultMultipartContentType())
+
+    private fun GeneratorObjectSchema?.defaultMultipartContentType(): String =
+        when {
+            this == null || types.isEmpty() -> "application/octet-stream"
+            SourceSchemaType.STRING in types && metadata.contentEncoding != null -> "application/octet-stream"
+            SourceSchemaType.STRING in types ||
+                SourceSchemaType.INTEGER in types ||
+                SourceSchemaType.NUMBER in types ||
+                SourceSchemaType.BOOLEAN in types -> "text/plain"
+            else -> "application/json"
+        }
+
     private fun typeName(
         schema: GeneratorSchema,
         required: Boolean,
@@ -619,6 +713,19 @@ internal class GeneratorEndpointContext(
                         contentType = parameter.contentType,
                         isArray = parameter.isArray,
                         headers = parameter.headers,
+                    )
+                is SequentialMultipartParameter ->
+                    SequentialMultipartParameter(
+                        oasName = "multipart_${parameter.oasName}".toKotlinParameterName(),
+                        description = parameter.description,
+                        type = parameter.type,
+                        isRequired = parameter.isRequired,
+                        mediaType = parameter.mediaType,
+                        minimumPartCount = parameter.minimumPartCount,
+                        maximumPartCount = parameter.maximumPartCount,
+                        prefixEncodings = parameter.prefixEncodings,
+                        itemEncoding = parameter.itemEncoding,
+                        streaming = parameter.streaming,
                     )
                 is BodyParameter ->
                     BodyParameter(

@@ -1,7 +1,7 @@
 package com.cjbooms.fabrikt.generators
 
-import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
+import com.cjbooms.fabrikt.parser.SchemaGenerationMode
 import com.cjbooms.fabrikt.parser.toGeneratorOperationDocument
 import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import org.assertj.core.api.Assertions.assertThat
@@ -12,7 +12,13 @@ class GeneratorSequentialMultipartBodyTest {
     @Test
     fun `maps positional schemas and encodings by index`() {
         val context = context(sequentialMultipartOpenApi)
-        val body = context.multipartBody(context.operations.paths.single().operations.single())
+        val body =
+            context.multipartBody(
+                context.operations.paths
+                    .single()
+                    .operations
+                    .single(),
+            )
 
         assertThat(body).isInstanceOf(GeneratorMultipartBody.Sequential::class.java)
         body as GeneratorMultipartBody.Sequential
@@ -37,7 +43,13 @@ class GeneratorSequentialMultipartBodyTest {
     @Test
     fun `models streaming multipart item schemas`() {
         val context = context(streamingMultipartOpenApi)
-        val body = context.multipartBody(context.operations.paths.single().operations.single())
+        val body =
+            context.multipartBody(
+                context.operations.paths
+                    .single()
+                    .operations
+                    .single(),
+            )
 
         assertThat(body).isInstanceOf(GeneratorMultipartBody.Sequential::class.java)
         body as GeneratorMultipartBody.Sequential
@@ -51,8 +63,14 @@ class GeneratorSequentialMultipartBodyTest {
     fun `rejects positional encoding without an item schema or array schema`() {
         val context = context(invalidSequentialMultipartOpenApi)
 
-        assertThatThrownBy { context.multipartBody(context.operations.paths.single().operations.single()) }
-            .isInstanceOf(IllegalArgumentException::class.java)
+        assertThatThrownBy {
+            context.multipartBody(
+                context.operations.paths
+                    .single()
+                    .operations
+                    .single(),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("requires an array schema")
     }
 

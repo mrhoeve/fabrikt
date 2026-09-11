@@ -23,6 +23,7 @@ import com.cjbooms.fabrikt.model.IncomingParameter
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.groupByPathSegment
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.routeToPathsByFirstTag
@@ -179,6 +180,11 @@ object ClientGeneratorUtils {
                             multipartParameterToSpecBuilder?.invoke(it) ?: it.toParameterSpecBuilder(
                                 treatAnyTypeHeadersAsStrings = true,
                             )
+                        }
+                        is SequentialMultipartParameter -> {
+                            val builder = it.toParameterSpecBuilder(treatAnyTypeHeadersAsStrings = true)
+                            if (!it.isRequired) builder.defaultValue("null")
+                            builder
                         }
                     }
                 builder.build()

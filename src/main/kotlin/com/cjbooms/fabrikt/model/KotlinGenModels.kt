@@ -147,6 +147,28 @@ class MultipartParameter(
     val headers: List<MultipartHeaderParameter> = emptyList(),
 ) : IncomingParameter(oasName, description, type, isRequired)
 
+class SequentialMultipartParameter(
+    oasName: String,
+    description: String?,
+    type: TypeName,
+    isRequired: Boolean,
+    val mediaType: String,
+    val minimumPartCount: Int,
+    val maximumPartCount: Int?,
+    val prefixEncodings: List<MultipartPartEncoding>,
+    val itemEncoding: MultipartPartEncoding?,
+    val streaming: Boolean,
+) : IncomingParameter(oasName, description, type, isRequired)
+
+data class MultipartPartEncoding(
+    val contentTypes: List<String>,
+    val requiredHeaders: Set<String>,
+    val prefixEncodings: List<MultipartPartEncoding>,
+    val itemEncoding: MultipartPartEncoding?,
+    val minimumPartCount: Int,
+    val maximumPartCount: Int?,
+)
+
 data class MultipartHeaderParameter(
     val name: String,
     val originalName: String,

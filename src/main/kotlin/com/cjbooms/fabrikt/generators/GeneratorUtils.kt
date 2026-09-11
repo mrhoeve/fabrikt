@@ -12,6 +12,7 @@ import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.isSimpleType
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.safeName
@@ -324,6 +325,20 @@ object GeneratorUtils {
                         contentType = p.contentType,
                         isRequired = p.isRequired,
                         headers = p.headers,
+                    )
+
+                is SequentialMultipartParameter ->
+                    SequentialMultipartParameter(
+                        oasName = "multipart_${p.oasName}".toKotlinParameterName(),
+                        description = p.description,
+                        type = p.type,
+                        isRequired = p.isRequired,
+                        mediaType = p.mediaType,
+                        minimumPartCount = p.minimumPartCount,
+                        maximumPartCount = p.maximumPartCount,
+                        prefixEncodings = p.prefixEncodings,
+                        itemEncoding = p.itemEncoding,
+                        streaming = p.streaming,
                     )
 
                 is BodyParameter ->

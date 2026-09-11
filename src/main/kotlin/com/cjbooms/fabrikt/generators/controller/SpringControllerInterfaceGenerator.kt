@@ -25,6 +25,7 @@ import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SourceApi
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
@@ -163,6 +164,8 @@ class SpringControllerInterfaceGenerator(
                             .addSpringParamAnnotation(it)
                             .maybeAddAnnotation(validationAnnotations.parameterValid())
                             .build()
+                    is SequentialMultipartParameter ->
+                        throw UnsupportedOperationException("Sequential multipart parameters are not supported for Spring controllers")
 
                     is BodyParameter ->
                         it
@@ -246,6 +249,8 @@ class SpringControllerInterfaceGenerator(
                             .addSpringParamAnnotation(it)
                             .maybeAddAnnotation(validationAnnotations.parameterValid())
                             .build()
+                    is SequentialMultipartParameter ->
+                        throw UnsupportedOperationException("Sequential multipart parameters are not supported for Spring controllers")
                     is BodyParameter ->
                         it
                             .toParameterSpecBuilder()
