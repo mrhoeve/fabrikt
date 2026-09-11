@@ -948,6 +948,45 @@ class CodeGeneratorNativeClientModeTest {
             .contains("X-API-Key")
     }
 
+    @ParameterizedTest
+    @EnumSource(ClientCodeGenTargetType::class)
+    fun `allows clients to select a request content representation`(target: ClientCodeGenTargetType) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = target,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(multipleRequestContentOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("body: JsonNode")
+            .contains("contentType: String = \"application/json\"")
+        when (target) {
+            ClientCodeGenTargetType.OK_HTTP ->
+                assertThat(generated)
+                    .contains("contentType.toMediaType()")
+                    .contains(".`header`(\"Content-Type\", contentType)")
+            ClientCodeGenTargetType.OPEN_FEIGN ->
+                assertThat(generated).contains("\"Content-Type: {contentType}\"")
+            ClientCodeGenTargetType.SPRING_HTTP_INTERFACE ->
+                assertThat(generated).contains("@RequestHeader(\"Content-Type\") contentType: String")
+            ClientCodeGenTargetType.KTOR ->
+                assertThat(generated)
+                    .contains("`header`(\"Content-Type\", contentType)")
+                    .doesNotContain("`header`(\"Content-Type\", \"application/json\")")
+        }
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -996,6 +1035,29 @@ class CodeGeneratorNativeClientModeTest {
                 secret:
                   type: string
                   writeOnly: true
+        """.trimIndent()
+
+    private val multipleRequestContentOpenApi =
+        """
+        openapi: 3.1.1
+        info: { title: Request representations, version: "1.0" }
+        paths:
+          /payloads:
+            post:
+              operationId: createPayload
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [value]
+                      properties:
+                        value: { type: string }
+                  application/vnd.example+json:
+                    schema: { type: string }
+              responses:
+                '204': { description: Accepted }
         """.trimIndent()
 
     private val responseSelectionOpenApi =
