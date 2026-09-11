@@ -157,6 +157,13 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun requirePlainTextParameterContent(target: String) {
+        val unsupported = parameterContentOperations { _, mediaType -> mediaType.equals("text/plain", ignoreCase = true) }
+        require(unsupported.isEmpty()) {
+            "$target supports native content-based parameters only for text/plain: ${unsupported.joinToString()}."
+        }
+    }
+
     private fun parameterContentOperations(supported: (GeneratorParameter, String) -> Boolean = { _, _ -> false }): List<String> =
         operations.paths.flatMap { path ->
             path.operations.flatMap { operation ->
