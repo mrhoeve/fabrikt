@@ -484,12 +484,12 @@ class CodeGeneratorNativeClientModeTest {
             .contains("parts: Iterable<MultipartPart>")
             .contains("setBody(buildSequentialMultipartContent(parts, \"multipart/mixed\"")
             .contains("public data class MultipartPart(")
-            .contains("val boundary = \"fabrikt-\" + UUID.randomUUID()")
+            .contains("private val boundary: String = \"fabrikt-\" + UUID.randomUUID()")
             .contains("require(partCount >= encoding.minimumPartCount)")
-            .contains("output.write(encodedPart.contentType.toString().toByteArray())")
-            .contains("output.write(byteArrayOf(13, 10, 13, 10))")
-            .contains("return encodeSequentialMultipart(nestedParts, selectedContentType, requireNotNull(encoding))")
-            .contains("ByteArrayContent(encoded.body, encoded.contentType)")
+            .contains("OutgoingContent.WriteChannelContent()")
+            .contains("override suspend fun writeTo(channel: ByteWriteChannel)")
+            .contains("channel.writeFully(byteArrayOf(13, 10, 13, 10))")
+            .contains("writeSequentialMultipart(channel, nestedParts, requireNotNull(partEncoding)")
     }
 
     @ParameterizedTest
