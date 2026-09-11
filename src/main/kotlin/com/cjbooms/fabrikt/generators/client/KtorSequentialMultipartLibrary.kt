@@ -21,16 +21,16 @@ internal object KtorSequentialMultipartLibrary {
         val contentType = ClassName("io.ktor.http", "ContentType")
         val stringList = List::class.asClassName().parameterizedBy(String::class.asTypeName())
         val stringSet = Set::class.asClassName().parameterizedBy(String::class.asTypeName())
-        val partList = List::class.asClassName().parameterizedBy(multipartPart)
+        val parts = Iterable::class.asClassName().parameterizedBy(multipartPart)
         val encodingList = List::class.asClassName().parameterizedBy(multipartEncoding)
 
         return FileSpec
             .builder(packages.client, "SequentialMultipart")
-            .addType(multipartPartType(multipartPart, partList))
+            .addType(multipartPartType(multipartPart, parts))
             .addType(multipartEncodingType(multipartEncoding, stringList, stringSet, encodingList))
             .addType(encodedPartType(encodedPart, contentType))
-            .addFunction(buildContentFunction(multipartEncoding, partList))
-            .addFunction(encodeMultipartFunction(multipartEncoding, encodedPart, partList, contentType))
+            .addFunction(buildContentFunction(multipartEncoding, parts))
+            .addFunction(encodeMultipartFunction(multipartEncoding, encodedPart, parts, contentType))
             .addFunction(encodePartFunction(multipartPart, multipartEncoding, encodedPart, contentType))
             .addFunction(contentTypeMatchFunction())
             .build()
@@ -38,7 +38,7 @@ internal object KtorSequentialMultipartLibrary {
 
     private fun multipartPartType(
         multipartPart: ClassName,
-        partList: com.squareup.kotlinpoet.TypeName,
+        parts: com.squareup.kotlinpoet.TypeName,
     ): TypeSpec =
         TypeSpec
             .classBuilder(multipartPart)
@@ -51,7 +51,7 @@ internal object KtorSequentialMultipartLibrary {
                             .builder("body", ByteArray::class.asTypeName().copy(nullable = true))
                             .defaultValue("null")
                             .build(),
-                    ).addParameter(ParameterSpec.builder("parts", partList.copy(nullable = true)).defaultValue("null").build())
+                    ).addParameter(ParameterSpec.builder("parts", parts.copy(nullable = true)).defaultValue("null").build())
                     .addParameter(
                         ParameterSpec
                             .builder("contentType", String::class.asTypeName().copy(nullable = true))
@@ -66,7 +66,7 @@ internal object KtorSequentialMultipartLibrary {
                             .build(),
                     ).build(),
             ).addProperty(PropertySpec.builder("body", ByteArray::class.asTypeName().copy(nullable = true)).initializer("body").build())
-            .addProperty(PropertySpec.builder("parts", partList.copy(nullable = true)).initializer("parts").build())
+            .addProperty(PropertySpec.builder("parts", parts.copy(nullable = true)).initializer("parts").build())
             .addProperty(
                 PropertySpec.builder("contentType", String::class.asTypeName().copy(nullable = true)).initializer("contentType").build(),
             ).addProperty(
@@ -132,12 +132,12 @@ internal object KtorSequentialMultipartLibrary {
 
     private fun buildContentFunction(
         multipartEncoding: ClassName,
-        partList: com.squareup.kotlinpoet.TypeName,
+        parts: com.squareup.kotlinpoet.TypeName,
     ): FunSpec =
         FunSpec
             .builder("buildSequentialMultipartContent")
             .addModifiers(KModifier.INTERNAL)
-            .addParameter("parts", partList)
+            .addParameter("parts", parts)
             .addParameter("mediaType", String::class)
             .addParameter("encoding", multipartEncoding)
             .returns(ClassName("io.ktor.http.content", "ByteArrayContent"))
@@ -148,29 +148,28 @@ internal object KtorSequentialMultipartLibrary {
     private fun encodeMultipartFunction(
         multipartEncoding: ClassName,
         encodedPart: ClassName,
-        partList: com.squareup.kotlinpoet.TypeName,
+        parts: com.squareup.kotlinpoet.TypeName,
         contentType: ClassName,
     ): FunSpec =
         FunSpec
             .builder("encodeSequentialMultipart")
             .addModifiers(KModifier.PRIVATE)
-            .addParameter("parts", partList)
+            .addParameter("parts", parts)
             .addParameter("mediaType", String::class)
             .addParameter("encoding", multipartEncoding)
             .returns(encodedPart)
             .addCode(
                 CodeBlock
                     .builder()
-                    .addStatement(
-                        "require(parts.size >= encoding.minimumPartCount) { %P }",
-                        "Expected at least \${encoding.minimumPartCount} multipart parts, but received \${parts.size}",
-                    ).addStatement(
-                        "encoding.maximumPartCount?.let { maximum -> require(parts.size <= maximum) { %P } }",
-                        "Expected at most \$maximum multipart parts, but received \${parts.size}",
-                    ).addStatement("val boundary = %S + %T.randomUUID()", "fabrikt-", ClassName("java.util", "UUID"))
+                    .addStatement("val boundary = %S + %T.randomUUID()", "fabrikt-", ClassName("java.util", "UUID"))
                     .addStatement("val output = %T()", ClassName("java.io", "ByteArrayOutputStream"))
+                    .addStatement("var partCount = 0")
                     .beginControlFlow("parts.forEachIndexed { index, part ->")
-                    .addStatement("val partEncoding = encoding.prefixEncodings.getOrNull(index) ?: encoding.itemEncoding")
+                    .addStatement("partCount++")
+                    .addStatement(
+                        "encoding.maximumPartCount?.let { maximum -> require(partCount <= maximum) { %P } }",
+                        "Expected at most \$maximum multipart parts, but received at least \$partCount",
+                    ).addStatement("val partEncoding = encoding.prefixEncodings.getOrNull(index) ?: encoding.itemEncoding")
                     .addStatement("val encodedPart = part.encode(partEncoding)")
                     .addStatement("output.write(%S.toByteArray())", "--")
                     .addStatement("output.write(boundary.toByteArray())")
@@ -200,6 +199,9 @@ internal object KtorSequentialMultipartLibrary {
                     .addStatement("output.write(%S.toByteArray())", "--")
                     .addStatement("output.write(byteArrayOf(13, 10))")
                     .addStatement(
+                        "require(partCount >= encoding.minimumPartCount) { %P }",
+                        "Expected at least \${encoding.minimumPartCount} multipart parts, but received \$partCount",
+                    ).addStatement(
                         "return %T(output.toByteArray(), %T.parse(mediaType).withParameter(%S, boundary))",
                         encodedPart,
                         contentType,

@@ -464,7 +464,7 @@ internal class GeneratorEndpointContext(
                 SequentialMultipartParameter(
                     oasName = "parts",
                     description = requestBody.description,
-                    type = List::class.asClassName().parameterizedBy(sequentialMultipartPartType),
+                    type = Iterable::class.asClassName().parameterizedBy(sequentialMultipartPartType),
                     isRequired = requestBody.required,
                     mediaType = multipartBody.mediaType.key,
                     minimumPartCount = multipartBody.minimumPartCount,

@@ -441,7 +441,7 @@ class CodeGeneratorNativeClientModeTest {
                 }
 
         assertThat(generated)
-            .contains("parts: List<MultipartPart>")
+            .contains("parts: Iterable<MultipartPart>")
             .contains("val multipartBody = buildSequentialMultipartBody(parts, \"multipart/mixed\"")
             .contains("contentTypes = listOf(\"application/json\")")
             .contains("contentTypes = listOf(\"image/png\", \"image/jpeg\")")
@@ -449,8 +449,10 @@ class CodeGeneratorNativeClientModeTest {
             .contains("minimumPartCount = 1")
             .contains("maximumPartCount = 4")
             .contains("public data class MultipartPart(")
-            .contains("public val parts: List<MultipartPart>? = null")
+            .contains("public val parts: Iterable<MultipartPart>? = null")
             .contains("Exactly one of body or parts must be supplied")
+            .contains("var partCount = 0")
+            .contains("require(partCount >= encoding.minimumPartCount)")
             .contains("builder.addPart(headers.build(), part.toRequestBody(partEncoding))")
             .contains("return buildSequentialMultipartBody(nestedParts, selectedContentType, requireNotNull(encoding))")
     }
@@ -479,10 +481,11 @@ class CodeGeneratorNativeClientModeTest {
                 }
 
         assertThat(generated)
-            .contains("parts: List<MultipartPart>")
+            .contains("parts: Iterable<MultipartPart>")
             .contains("setBody(buildSequentialMultipartContent(parts, \"multipart/mixed\"")
             .contains("public data class MultipartPart(")
             .contains("val boundary = \"fabrikt-\" + UUID.randomUUID()")
+            .contains("require(partCount >= encoding.minimumPartCount)")
             .contains("output.write(encodedPart.contentType.toString().toByteArray())")
             .contains("output.write(byteArrayOf(13, 10, 13, 10))")
             .contains("return encodeSequentialMultipart(nestedParts, selectedContentType, requireNotNull(encoding))")

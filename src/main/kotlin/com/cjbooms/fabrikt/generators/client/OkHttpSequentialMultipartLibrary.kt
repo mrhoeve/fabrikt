@@ -19,7 +19,7 @@ internal object OkHttpSequentialMultipartLibrary {
         val multipartEncoding = ClassName(packages.client, "MultipartEncoding")
         val stringList = List::class.asClassName().parameterizedBy(String::class.asTypeName())
         val stringSet = Set::class.asClassName().parameterizedBy(String::class.asTypeName())
-        val partList = List::class.asClassName().parameterizedBy(multipartPart)
+        val parts = Iterable::class.asClassName().parameterizedBy(multipartPart)
         val encodingList = List::class.asClassName().parameterizedBy(multipartEncoding)
 
         return FileSpec
@@ -38,7 +38,7 @@ internal object OkHttpSequentialMultipartLibrary {
                                         ByteArray::class.asTypeName().copy(nullable = true),
                                     ).defaultValue("null")
                                     .build(),
-                            ).addParameter(ParameterSpec.builder("parts", partList.copy(nullable = true)).defaultValue("null").build())
+                            ).addParameter(ParameterSpec.builder("parts", parts.copy(nullable = true)).defaultValue("null").build())
                             .addParameter(
                                 ParameterSpec
                                     .builder(
@@ -56,7 +56,7 @@ internal object OkHttpSequentialMultipartLibrary {
                             ).build(),
                     ).addProperty(
                         PropertySpec.builder("body", ByteArray::class.asTypeName().copy(nullable = true)).initializer("body").build(),
-                    ).addProperty(PropertySpec.builder("parts", partList.copy(nullable = true)).initializer("parts").build())
+                    ).addProperty(PropertySpec.builder("parts", parts.copy(nullable = true)).initializer("parts").build())
                     .addProperty(
                         PropertySpec
                             .builder(
@@ -102,7 +102,7 @@ internal object OkHttpSequentialMultipartLibrary {
                             ).initializer("maximumPartCount")
                             .build(),
                     ).build(),
-            ).addFunction(buildBodyFunction(packages, multipartPart, multipartEncoding, partList))
+            ).addFunction(buildBodyFunction(packages, multipartPart, multipartEncoding, parts))
             .addFunction(partBodyFunction(packages, multipartPart, multipartEncoding))
             .addFunction(contentTypeMatchFunction())
             .build()
@@ -112,12 +112,12 @@ internal object OkHttpSequentialMultipartLibrary {
         packages: Packages,
         multipartPart: ClassName,
         multipartEncoding: ClassName,
-        partList: com.squareup.kotlinpoet.TypeName,
+        parts: com.squareup.kotlinpoet.TypeName,
     ): FunSpec =
         FunSpec
             .builder("buildSequentialMultipartBody")
             .addModifiers(KModifier.INTERNAL)
-            .addParameter("parts", partList)
+            .addParameter("parts", parts)
             .addParameter("mediaType", String::class)
             .addParameter("encoding", multipartEncoding)
             .returns(ClassName("okhttp3", "RequestBody"))
@@ -125,17 +125,16 @@ internal object OkHttpSequentialMultipartLibrary {
                 CodeBlock
                     .builder()
                     .addStatement(
-                        "require(parts.size >= encoding.minimumPartCount) { %P }",
-                        "Expected at least \${encoding.minimumPartCount} multipart parts, but received \${parts.size}",
-                    ).addStatement(
-                        "encoding.maximumPartCount?.let { maximum -> require(parts.size <= maximum) { %P } }",
-                        "Expected at most \$maximum multipart parts, but received \${parts.size}",
-                    ).addStatement(
                         "val builder = %T.Builder().setType(mediaType.%M())",
                         ClassName("okhttp3", "MultipartBody"),
                         com.squareup.kotlinpoet.MemberName("okhttp3.MediaType.Companion", "toMediaType"),
-                    ).beginControlFlow("parts.forEachIndexed { index, part ->")
-                    .addStatement("val partEncoding = encoding.prefixEncodings.getOrNull(index) ?: encoding.itemEncoding")
+                    ).addStatement("var partCount = 0")
+                    .beginControlFlow("parts.forEachIndexed { index, part ->")
+                    .addStatement("partCount++")
+                    .addStatement(
+                        "encoding.maximumPartCount?.let { maximum -> require(partCount <= maximum) { %P } }",
+                        "Expected at most \$maximum multipart parts, but received at least \$partCount",
+                    ).addStatement("val partEncoding = encoding.prefixEncodings.getOrNull(index) ?: encoding.itemEncoding")
                     .addStatement("val headers = %T.Builder()", ClassName("okhttp3", "Headers"))
                     .beginControlFlow("part.headers.forEach { (name, value) ->")
                     .addStatement(
@@ -147,7 +146,10 @@ internal object OkHttpSequentialMultipartLibrary {
                     .endControlFlow()
                     .addStatement("builder.addPart(headers.build(), part.toRequestBody(partEncoding))")
                     .endControlFlow()
-                    .addStatement("return builder.build()")
+                    .addStatement(
+                        "require(partCount >= encoding.minimumPartCount) { %P }",
+                        "Expected at least \${encoding.minimumPartCount} multipart parts, but received \$partCount",
+                    ).addStatement("return builder.build()")
                     .build(),
             ).build()
 
