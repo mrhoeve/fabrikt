@@ -1022,6 +1022,35 @@ class CodeGeneratorNativeClientModeTest {
         }
     }
 
+    @Test
+    fun `serializes OkHttp request bodies according to their selected media type`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(nonJsonRequestContentOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .filterIsInstance<KotlinSourceSet>()
+                .flatMap { it.files }
+                .joinToString("\n")
+
+        assertThat(generated)
+            .contains("val fabriktContentType = \"text/plain\"")
+            .contains("contentType: String = \"application/json\"")
+            .contains("objectMapper.writeValueAsBytes(body)")
+            .contains("body is ByteArray -> body")
+            .contains("else -> body.toString().toByteArray()")
+            .contains("fabriktRequestBodyBytes.toRequestBody(fabriktContentType.toMediaType())")
+            .doesNotContain("objectMapper.writeValueAsString(body).toRequestBody(\"text/plain\"")
+    }
+
     private val openApi =
         """
         openapi: 3.1.1
@@ -1117,6 +1146,38 @@ class CodeGeneratorNativeClientModeTest {
                   content:
                     text/plain:
                       schema: { type: string }
+        """.trimIndent()
+
+    private val nonJsonRequestContentOpenApi =
+        """
+        openapi: 3.1.1
+        info: { title: Non-JSON requests, version: "1.0" }
+        paths:
+          /text:
+            post:
+              operationId: sendText
+              requestBody:
+                required: true
+                content:
+                  text/plain:
+                    schema: { type: string }
+              responses:
+                '204': { description: Accepted }
+          /dynamic:
+            post:
+              operationId: sendDynamic
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value: { type: string }
+                  application/octet-stream:
+                    schema: { type: string, format: binary }
+              responses:
+                '204': { description: Accepted }
         """.trimIndent()
 
     private val responseSelectionOpenApi =
