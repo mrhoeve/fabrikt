@@ -153,6 +153,13 @@ internal class GeneratorEndpointContext(
         }
     }
 
+    fun requireJsonParameterContent(target: String) {
+        val unsupported = parameterContentOperations { mediaType -> mediaType.isJsonMediaType() }
+        require(unsupported.isEmpty()) {
+            "$target supports native content-based parameters only for JSON media types: ${unsupported.joinToString()}."
+        }
+    }
+
     private fun parameterContentOperations(supported: (String) -> Boolean = { false }): List<String> =
         operations.paths.flatMap { path ->
             path.operations.flatMap { operation ->
