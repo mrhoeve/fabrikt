@@ -66,6 +66,7 @@ class CodeGenerator internal constructor(
 
     private fun generateClient(): Collection<GeneratedFile> {
         val endpointContext = nativeEndpointContext()
+        endpointContext?.requireNoSequentialMultipart("${MutableSettings.clientTarget.displayName} client")
         when (MutableSettings.clientTarget) {
             ClientCodeGenTargetType.OK_HTTP -> {
                 endpointContext?.requireSupportedMultipartMethods("OkHttp client", OK_HTTP_MULTIPART_METHODS)
@@ -139,6 +140,7 @@ class CodeGenerator internal constructor(
 
     private fun controllers(): List<FileSpec> {
         val endpointContext = nativeEndpointContext()
+        endpointContext?.requireNoSequentialMultipart("${MutableSettings.controllerTarget.displayName} controller")
         endpointContext?.requireNoObjectFormParameters("${MutableSettings.controllerTarget.displayName} controller")
         if (MutableSettings.controllerTarget != ControllerCodeGenTargetType.KTOR) {
             endpointContext?.requireNoMultipartEncodingHeaders("${MutableSettings.controllerTarget.displayName} controller")

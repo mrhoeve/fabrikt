@@ -310,7 +310,71 @@ internal class GeneratorEndpointContext(
     }
 
     fun hasMultipartRequestBody(operation: GeneratorOperation): Boolean =
-        operation.requestBody?.content?.any { it.key.startsWith("multipart/form-data") } == true
+        operation.requestBody?.content?.any { it.key.startsWith("multipart/") } == true
+
+    fun multipartBody(operation: GeneratorOperation): GeneratorMultipartBody? {
+        val mediaType = operation.requestBody?.content?.firstOrNull { it.key.startsWith("multipart/") } ?: return null
+        val schema = mediaType.schema?.let(schemas::resolve) as? GeneratorObjectSchema
+        val sequential =
+            mediaType.itemSchema != null ||
+                mediaType.prefixEncoding.isNotEmpty() ||
+                mediaType.itemEncoding != null ||
+                schema?.let { SourceSchemaType.ARRAY in it.types || it.prefixItems.isNotEmpty() || it.items != null } == true
+        if (!sequential) return GeneratorMultipartBody.Named(mediaType)
+
+        require(mediaType.encoding.isEmpty()) {
+            "Multipart media type '${mediaType.key}' cannot combine named and positional encodings."
+        }
+        require(mediaType.itemSchema != null || schema != null) {
+            "Multipart media type '${mediaType.key}' requires itemSchema or an array schema for positional encoding."
+        }
+        if (mediaType.itemSchema == null) {
+            require(schema?.let { SourceSchemaType.ARRAY in it.types || it.prefixItems.isNotEmpty() || it.items != null } == true) {
+                "Multipart media type '${mediaType.key}' requires an array schema for positional encoding."
+            }
+        }
+
+        val minimumPartCount = schema?.constraints?.minItems ?: 0
+        val prefixSchemas = schema?.prefixItems.orEmpty()
+        val prefixCount = maxOf(prefixSchemas.size, mediaType.prefixEncoding.size)
+        val remainingSchema = mediaType.itemSchema ?: schema?.items
+        return GeneratorMultipartBody.Sequential(
+            mediaType = mediaType,
+            prefixParts =
+                (0 until prefixCount).map { index ->
+                    GeneratorSequentialMultipartPart(
+                        index = index,
+                        schema = prefixSchemas.getOrNull(index) ?: schema?.items,
+                        encoding = mediaType.prefixEncoding.getOrNull(index),
+                        required = index < minimumPartCount,
+                    )
+                },
+            remainingPart =
+                remainingSchema?.let {
+                    GeneratorSequentialMultipartPart(
+                        index = null,
+                        schema = it,
+                        encoding = mediaType.itemEncoding,
+                        required = minimumPartCount > prefixCount,
+                    )
+                },
+            minimumPartCount = minimumPartCount,
+            maximumPartCount = schema?.constraints?.maxItems,
+            streaming = mediaType.itemSchema != null,
+        )
+    }
+
+    fun requireNoSequentialMultipart(target: String) {
+        val unsupported =
+            operations.paths.flatMap { path ->
+                path.operations
+                    .filter { multipartBody(it) is GeneratorMultipartBody.Sequential }
+                    .map { operation -> "${operation.method.uppercase()} ${path.path}" }
+            }
+        require(unsupported.isEmpty()) {
+            "$target does not yet support native sequential multipart generation for: ${unsupported.joinToString()}."
+        }
+    }
 
     fun requireScalarFormParameters(target: String) {
         val unsupported =
@@ -370,7 +434,7 @@ internal class GeneratorEndpointContext(
     }
 
     private fun bodyParameters(requestBody: com.cjbooms.fabrikt.parser.GeneratorRequestBody): List<IncomingParameter> {
-        val multipart = requestBody.content.firstOrNull { it.key.startsWith("multipart/form-data") }
+        val multipart = requestBody.content.firstOrNull { it.key.startsWith("multipart/") }
         if (multipart != null) {
             val schema = multipart.effectiveSchema()?.let(schemas::resolve) as? GeneratorObjectSchema ?: return emptyList()
             return schema.properties.map { (name, property) ->
