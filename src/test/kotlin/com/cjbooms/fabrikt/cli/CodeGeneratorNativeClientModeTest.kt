@@ -455,6 +455,40 @@ class CodeGeneratorNativeClientModeTest {
             .contains("return buildSequentialMultipartBody(nestedParts, selectedContentType, requireNotNull(encoding))")
     }
 
+    @Test
+    fun `generates ordered and nested multipart Ktor clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+        )
+
+        val generated =
+            CodeGenerator(
+                Packages("com.example"),
+                SourceApi(sequentialMultipartOpenApi),
+                Paths.get(""),
+                Paths.get(""),
+                SchemaGenerationMode.NATIVE,
+            ).generate()
+                .joinToString("\n") { file ->
+                    when (file) {
+                        is KotlinSourceSet -> file.files.joinToString("\n")
+                        is SimpleFile -> file.content
+                        else -> ""
+                    }
+                }
+
+        assertThat(generated)
+            .contains("parts: List<MultipartPart>")
+            .contains("setBody(buildSequentialMultipartContent(parts, \"multipart/mixed\"")
+            .contains("public data class MultipartPart(")
+            .contains("val boundary = \"fabrikt-\" + UUID.randomUUID()")
+            .contains("output.write(encodedPart.contentType.toString().toByteArray())")
+            .contains("output.write(byteArrayOf(13, 10, 13, 10))")
+            .contains("return encodeSequentialMultipart(nestedParts, selectedContentType, requireNotNull(encoding))")
+            .contains("ByteArrayContent(encoded.body, encoded.contentType)")
+    }
+
     @ParameterizedTest
     @EnumSource(ClientCodeGenTargetType::class)
     fun `generates form urlencoded clients from native operations`(target: ClientCodeGenTargetType) {

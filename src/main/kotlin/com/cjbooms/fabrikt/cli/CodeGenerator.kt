@@ -66,7 +66,7 @@ class CodeGenerator internal constructor(
 
     private fun generateClient(): Collection<GeneratedFile> {
         val endpointContext = nativeEndpointContext()
-        if (MutableSettings.clientTarget != ClientCodeGenTargetType.OK_HTTP) {
+        if (MutableSettings.clientTarget !in setOf(ClientCodeGenTargetType.OK_HTTP, ClientCodeGenTargetType.KTOR)) {
             endpointContext?.requireNoSequentialMultipart("${MutableSettings.clientTarget.displayName} client")
         }
         when (MutableSettings.clientTarget) {

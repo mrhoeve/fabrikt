@@ -7,6 +7,8 @@ import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.client.ClientGenerator
+import com.cjbooms.fabrikt.generators.client.KtorSequentialMultipartLibrary
+import com.cjbooms.fabrikt.generators.client.toEncodingCodeBlock
 import com.cjbooms.fabrikt.generators.toWireValue
 import com.cjbooms.fabrikt.model.ClientType
 import com.cjbooms.fabrikt.model.Clients
@@ -17,6 +19,7 @@ import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.RequestParameter
+import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SimpleFile
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
@@ -78,7 +81,8 @@ internal class NativeKtorClientGenerator(
         val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parameters.splitByType()
         val multipartParams = parameters.filterIsInstance<MultipartParameter>()
         val formParams = parameters.filterIsInstance<FormParameter>()
-        val requestBodies = bodyParams + multipartParams + formParams
+        val sequentialMultipart = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
+        val requestBodies = bodyParams + multipartParams + formParams + listOfNotNull(sequentialMultipart)
         val responseType = context.successResponseType(operation, packages.base)
         val function =
             FunSpec
@@ -98,13 +102,17 @@ internal class NativeKtorClientGenerator(
                                 context.primaryResponseContentType(operation) ?: "application/json",
                             )
                             if (requestBodies.isNotEmpty()) {
-                                addStatement(
-                                    "%M(\"Content-Type\", %S)",
-                                    MemberName("io.ktor.client.request", "header"),
-                                    context.requestContentType(operation) ?: "application/json",
-                                )
+                                if (sequentialMultipart == null) {
+                                    addStatement(
+                                        "%M(\"Content-Type\", %S)",
+                                        MemberName("io.ktor.client.request", "header"),
+                                        context.requestContentType(operation) ?: "application/json",
+                                    )
+                                }
                                 if (formParams.isNotEmpty()) {
                                     addFormBody(formParams)
+                                } else if (sequentialMultipart != null) {
+                                    addSequentialMultipartBody(sequentialMultipart)
                                 } else if (multipartParams.isEmpty()) {
                                     addStatement("%M(%L)", MemberName("io.ktor.client.request", "setBody"), bodyParams.first().name)
                                 } else {
@@ -254,6 +262,17 @@ internal class NativeKtorClientGenerator(
         addStatement(")")
         unindent()
         addStatement(")")
+    }
+
+    private fun CodeBlock.Builder.addSequentialMultipartBody(parameter: SequentialMultipartParameter) {
+        addStatement(
+            "%M(%M(%N, %S, %L))",
+            MemberName("io.ktor.client.request", "setBody"),
+            MemberName(packages.client, "buildSequentialMultipartContent"),
+            parameter.name,
+            parameter.mediaType,
+            parameter.toEncodingCodeBlock(packages.client),
+        )
     }
 
     private fun CodeBlock.Builder.addFormBody(parameters: List<FormParameter>) {
@@ -649,6 +668,14 @@ internal class NativeKtorClientGenerator(
             )
             if (context.usesAllowReservedQueryParameters()) {
                 add(SimpleFile(clientDir.resolve("KtorHttpUtil.kt"), KtorClientLibraryFiles.ktorHttpUtil(packages.client).toString()))
+            }
+            if (context.hasSequentialMultipartBodies()) {
+                add(
+                    SimpleFile(
+                        clientDir.resolve("SequentialMultipart.kt"),
+                        KtorSequentialMultipartLibrary.file(packages).toString(),
+                    ),
+                )
             }
         }
     }
