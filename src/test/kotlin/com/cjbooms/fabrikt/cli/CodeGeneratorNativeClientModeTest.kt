@@ -521,6 +521,88 @@ class CodeGeneratorNativeClientModeTest {
     }
 
     @Test
+    fun `serializes JSON parameter content in native OkHttp clients`() {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.OK_HTTP,
+        )
+
+        val generated = generateClient(parameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("objectMapper.writeValueAsString(selector)")
+            .contains("objectMapper.writeValueAsString(filter)")
+            .contains("objectMapper.writeValueAsString(it)")
+            .contains("\"X-Filter\"")
+            .contains("\"filterState=\"")
+    }
+
+    @ParameterizedTest
+    @EnumSource(SerializationLibrary::class)
+    fun `serializes JSON parameter content in native Ktor clients`(serializationLibrary: SerializationLibrary) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.KTOR,
+            serializationLibrary = serializationLibrary,
+        )
+
+        val generated = generateClient(parameterContentOpenApi)
+
+        assertThat(generated)
+            .contains("fabriktSelectorContentValue")
+            .contains("fabriktFilterContentValue")
+            .contains("fabriktXFilterContentValue")
+            .contains("fabriktFilterStateContentValue")
+        if (serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+            assertThat(generated).contains("Json.encodeToString").doesNotContain("parameterContentObjectMapper")
+        } else {
+            assertThat(generated).contains("parameterContentObjectMapper.writeValueAsString")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["OPEN_FEIGN", "SPRING_HTTP_INTERFACE"])
+    fun `rejects content-based parameters for annotation clients`(target: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.valueOf(target),
+        )
+
+        assertThatThrownBy { generateClient(parameterContentOpenApi) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("cannot represent native content-based parameters")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["OK_HTTP", "KTOR"])
+    fun `rejects unsupported parameter content media types`(target: String) {
+        MutableSettings.updateSettings(
+            genTypes = setOf(CodeGenerationType.CLIENT),
+            clientTarget = ClientCodeGenTargetType.valueOf(target),
+        )
+
+        assertThatThrownBy { generateClient(parameterContentOpenApi.replace("application/json", "application/xml")) }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("supports native content-based parameters only for text/plain and JSON media types")
+    }
+
+    private fun generateClient(openApi: String): String =
+        CodeGenerator(
+            Packages("com.example"),
+            SourceApi(openApi),
+            Paths.get(""),
+            Paths.get(""),
+            SchemaGenerationMode.NATIVE,
+        ).generate()
+            .joinToString("\n") { file ->
+                when (file) {
+                    is KotlinSourceSet -> file.files.joinToString("\n")
+                    is SimpleFile -> file.content
+                    else -> ""
+                }
+            }
+
+    @Test
     fun `generates ordered and nested multipart OkHttp clients`() {
         MutableSettings.updateSettings(
             genTypes = setOf(CodeGenerationType.CLIENT),
@@ -1105,6 +1187,52 @@ class CodeGeneratorNativeClientModeTest {
                           schema: { type: string }
               responses:
                 '204': { description: Accepted }
+        """.trimIndent()
+
+    private val parameterContentOpenApi =
+        """
+        openapi: 3.1.1
+        info:
+          title: Native parameter content client
+          version: "1.0"
+        paths:
+          /things/{selector}:
+            parameters:
+              - name: selector
+                in: path
+                required: true
+                content:
+                  application/json:
+                    schema: { ${'$'}ref: '#/components/schemas/Filter' }
+            get:
+              operationId: findThings
+              parameters:
+                - name: filter
+                  in: query
+                  required: true
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+                - name: X-Filter
+                  in: header
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+                - name: filterState
+                  in: cookie
+                  content:
+                    application/json:
+                      schema: { ${'$'}ref: '#/components/schemas/Filter' }
+              responses:
+                '204': { description: Found }
+        components:
+          schemas:
+            Filter:
+              type: object
+              required: [term]
+              properties:
+                term: { type: string }
+                page: { type: integer }
         """.trimIndent()
 
     private val formOpenApi =
