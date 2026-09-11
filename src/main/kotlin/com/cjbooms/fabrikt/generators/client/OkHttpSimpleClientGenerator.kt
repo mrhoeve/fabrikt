@@ -34,6 +34,7 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
 import com.cjbooms.fabrikt.model.PathParam
 import com.cjbooms.fabrikt.model.QueryParam
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SimpleFile
@@ -288,7 +289,7 @@ data class SimpleClientOperationStatement(
         if (!nativeGeneration) return addLegacyQueryParamStatement()
         parameters
             .filterIsInstance<RequestParameter>()
-            .filter { it.parameterLocation == QueryParam }
+            .filter { it.parameterLocation == QueryParam || it.parameterLocation == QueryStringParam }
             .forEach { addQueryParameter(it) }
         this.add("\n.also { builder -> additionalQueryParameters.forEach { builder.queryParam(it.key, it.value) } }")
         return this.add("\n.build()\n")
@@ -317,6 +318,10 @@ data class SimpleClientOperationStatement(
     }
 
     private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.parameterLocation is QueryStringParam) {
+            addQueryStringParameter(parameter)
+            return
+        }
         if (parameter.contentType != null) {
             addContentQueryParameter(parameter)
             return
@@ -374,6 +379,35 @@ data class SimpleClientOperationStatement(
         } else {
             add("\n.%T(%S, %N)", "queryParam".toClassName(packages.client), parameter.originalName, parameter.name)
         }
+    }
+
+    private fun CodeBlock.Builder.addQueryStringParameter(parameter: RequestParameter) {
+        add("\n.also { builder ->")
+        val optional = !parameter.isRequired
+        if (optional) add("\n%N?.let { value ->", parameter.name)
+        val valueName = if (optional) "value" else parameter.name
+        parameter.objectProperties.forEach { property ->
+            val expression = "$valueName.${property.propertyName}"
+            val method = if (property.allowReserved) "addEncodedQueryParameter" else "addQueryParameter"
+            val fieldName = if (property.allowReserved) property.fieldName.percentEncodeQueryName() else property.fieldName
+            val typeInfo = property.typeInfo
+            if (typeInfo is KotlinTypeInfo.Array && property.explode) {
+                val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                add(
+                    if (property.nullable) "\n%L?.forEach { builder.%L(%S, %L) }" else "\n%L.forEach { builder.%L(%S, %L) }",
+                    expression,
+                    method,
+                    fieldName,
+                    itemValue,
+                )
+            } else if (property.nullable) {
+                add("\n%L?.let { builder.%L(%S, %L) }", expression, method, fieldName, formValue("it", typeInfo))
+            } else {
+                add("\nbuilder.%L(%S, %L)", method, fieldName, formValue(expression, typeInfo))
+            }
+        }
+        if (optional) add("\n}")
+        add("\n}")
     }
 
     private fun CodeBlock.Builder.addContentQueryParameter(parameter: RequestParameter) {

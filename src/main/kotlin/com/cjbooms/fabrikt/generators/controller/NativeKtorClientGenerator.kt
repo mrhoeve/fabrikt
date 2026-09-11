@@ -18,6 +18,7 @@ import com.cjbooms.fabrikt.model.FormParameter
 import com.cjbooms.fabrikt.model.GeneratedFile
 import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.MultipartParameter
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SimpleFile
@@ -78,11 +79,16 @@ internal class NativeKtorClientGenerator(
         operation: GeneratorOperation,
     ): FunSpec {
         val parameters = context.clientParameters(operation, path)
-        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parameters.splitByType()
+        val parametersByType = parameters.splitByType()
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parametersByType
+        val queryStringParams = parametersByType.queryStringParams
         val multipartParams = parameters.filterIsInstance<MultipartParameter>()
         val formParams = parameters.filterIsInstance<FormParameter>()
         val sequentialMultipart = parameters.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
-        val contentParameters = parameters.filterIsInstance<RequestParameter>().filter { it.contentType != null }
+        val contentParameters =
+            parameters
+                .filterIsInstance<RequestParameter>()
+                .filter { it.contentType != null && it.parameterLocation !is QueryStringParam }
         val requestBodies = bodyParams + multipartParams + formParams + listOfNotNull(sequentialMultipart)
         val responseType = context.successResponseType(operation, packages.base)
         val function =
@@ -94,7 +100,7 @@ internal class NativeKtorClientGenerator(
                     CodeBlock
                         .builder()
                         .addParameterContentValues(contentParameters)
-                        .addUrl(path.path, pathParams, queryParams)
+                        .addUrl(path.path, pathParams, queryParams + queryStringParams)
                         .beginControlFlow("return try")
                         .addRequestStart(operation.method)
                         .apply {
@@ -176,7 +182,7 @@ internal class NativeKtorClientGenerator(
         multipartParams.forEach { part ->
             part.headers.forEach { header -> function.addParameter(header.toParameterSpecBuilder(part).build()) }
         }
-        (pathParams + queryParams + headerParams + cookieParams).forEach { parameter ->
+        (pathParams + queryParams + queryStringParams + headerParams + cookieParams).forEach { parameter ->
             function.addParameter(
                 parameter
                     .toParameterSpecBuilder()
@@ -527,6 +533,10 @@ internal class NativeKtorClientGenerator(
     }
 
     private fun CodeBlock.Builder.addQueryParameter(parameter: RequestParameter) {
+        if (parameter.parameterLocation is QueryStringParam) {
+            addQueryStringParameter(parameter)
+            return
+        }
         if (parameter.contentType != null) {
             val value = parameter.contentValueExpression()
             if (parameter.isRequired) {
@@ -597,6 +607,42 @@ internal class NativeKtorClientGenerator(
                 parameter.name,
                 queryPart(parameter.originalName, formValue("it", typeInfo), parameter.allowReserved),
             )
+        }
+    }
+
+    private fun CodeBlock.Builder.addQueryStringParameter(parameter: RequestParameter) {
+        val optional = !parameter.isRequired
+        if (optional) {
+            addStatement("%N?.let { value ->", parameter.name)
+            indent()
+        }
+        val valueName = if (optional) "value" else parameter.name
+        parameter.objectProperties.forEach { property ->
+            val expression = "$valueName.${property.propertyName}"
+            val typeInfo = property.typeInfo
+            if (typeInfo is KotlinTypeInfo.Array && property.explode) {
+                val itemValue = if (typeInfo.parameterizedType is KotlinTypeInfo.Enum) "it.value" else "it.toString()"
+                addStatement(
+                    if (property.nullable) "%L?.forEach { add(%L) }" else "%L.forEach { add(%L) }",
+                    expression,
+                    queryPart(property.fieldName, CodeBlock.of("%L", itemValue), property.allowReserved),
+                )
+            } else if (property.nullable) {
+                addStatement(
+                    "%L?.let { add(%L) }",
+                    expression,
+                    queryPart(property.fieldName, formValue("it", typeInfo), property.allowReserved),
+                )
+            } else {
+                addStatement(
+                    "add(%L)",
+                    queryPart(property.fieldName, formValue(expression, typeInfo), property.allowReserved),
+                )
+            }
+        }
+        if (optional) {
+            unindent()
+            addStatement("}")
         }
     }
 
