@@ -534,7 +534,7 @@ internal class GeneratorEndpointContext(
                     JSON_NODE_CLASS
                 }
             } else {
-                Any::class.asTypeName()
+                ByteArray::class.asTypeName()
             }
         }
         val schema = operation.primarySuccessResponse()?.content?.firstNotNullOfOrNull { it.effectiveSchema() }
