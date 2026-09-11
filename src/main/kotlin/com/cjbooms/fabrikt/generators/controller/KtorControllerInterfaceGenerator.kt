@@ -24,6 +24,7 @@ import com.cjbooms.fabrikt.model.KotlinTypeInfo
 import com.cjbooms.fabrikt.model.KotlinTypes
 import com.cjbooms.fabrikt.model.MultipartHeaderParameter
 import com.cjbooms.fabrikt.model.MultipartParameter
+import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
 import com.cjbooms.fabrikt.model.SourceApi
@@ -200,7 +201,9 @@ class KtorControllerInterfaceGenerator(
                 .builder(context.methodName(operation, path.path))
                 .addModifiers(setOf(KModifier.SUSPEND, KModifier.ABSTRACT))
         val params = context.incomingParameters(operation, path.parameters, sequentialMultipartType = sequentialMultipartType)
-        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
+        val parametersByType = params.splitByType()
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parametersByType
+        val queryStringParams = parametersByType.queryStringParams
         val multipartParams = params.filterIsInstance<MultipartParameter>()
         val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>()
         val formParams = params.filterIsInstance<FormParameter>()
@@ -218,7 +221,7 @@ class KtorControllerInterfaceGenerator(
         cookieParams.forEach { parameter ->
             builder.addParameter(parameter.toParameterSpecBuilder().build())
         }
-        (pathParams + queryParams).forEach { parameter ->
+        (pathParams + queryParams + queryStringParams).forEach { parameter ->
             builder.addParameter(parameter.toParameterSpecBuilder().build())
         }
         bodyParams.forEach { builder.addParameter(it.toParameterSpecBuilder().build()) }
@@ -268,11 +271,16 @@ class KtorControllerInterfaceGenerator(
         }
 
         val params = context.incomingParameters(operation, path.parameters, sequentialMultipartType = sequentialMultipartType)
-        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = params.splitByType()
+        val parametersByType = params.splitByType()
+        val (pathParams, queryParams, headerParams, cookieParams, bodyParams) = parametersByType
+        val queryStringParams = parametersByType.queryStringParams
         val multipartParams = params.filterIsInstance<MultipartParameter>()
         val sequentialMultipart = params.filterIsInstance<SequentialMultipartParameter>().singleOrNull()
         val formParams = params.filterIsInstance<FormParameter>()
-        val contentParameters = (pathParams + queryParams + headerParams + cookieParams).filter { it.contentType != null }
+        val contentParameters =
+            (pathParams + queryParams + headerParams + cookieParams).filter {
+                it.contentType != null && it.parameterLocation !is QueryStringParam
+            }
         val customMethod = operation.method.uppercase() !in STANDARD_HTTP_METHODS
         if (customMethod) {
             builder
@@ -294,6 +302,7 @@ class KtorControllerInterfaceGenerator(
                 ).indent()
         }
         builder.addParameterContentMapper(contentParameters)
+        queryStringParams.forEach { parameter -> builder.addQueryStringParameter(parameter) }
         pathParams.forEach { parameter ->
             if (parameter.contentType != null) {
                 builder.addContentParameter(
@@ -511,6 +520,7 @@ class KtorControllerInterfaceGenerator(
                 cookieParams,
                 pathParams,
                 queryParams,
+                queryStringParams,
                 bodyParams,
                 multipartParams,
                 listOfNotNull(sequentialMultipart),
@@ -587,6 +597,78 @@ class KtorControllerInterfaceGenerator(
             addStatement("}")
         }
     }
+
+    private fun CodeBlock.Builder.addQueryStringParameter(parameter: RequestParameter) {
+        parameter.objectProperties
+            .filter { it.typeInfo is KotlinTypeInfo.Array && !it.explode }
+            .forEach { property ->
+                val fieldsName = "${parameter.name}${property.propertyName.replaceFirstChar(Char::uppercase)}Fields"
+                addStatement("val %N = %M {", fieldsName, MemberName("io.ktor.http", "parameters"))
+                indent()
+                addStatement(
+                    "%M.request.queryParameters[%S]?.split(%S)?.forEach { append(%S, it) }",
+                    MemberName("io.ktor.server.application", "call"),
+                    property.fieldName,
+                    property.queryStringDelimiter(),
+                    property.fieldName,
+                )
+                unindent()
+                addStatement("}")
+            }
+
+        val presence = parameter.queryStringPresence()
+        if (parameter.isRequired) {
+            add("val %N = ", parameter.name)
+            addQueryStringConstructor(parameter)
+        } else {
+            addStatement("val %N = if (%L) {", parameter.name, presence)
+            indent()
+            addQueryStringConstructor(parameter)
+            unindent()
+            addStatement("} else { null }")
+        }
+    }
+
+    private fun CodeBlock.Builder.addQueryStringConstructor(parameter: RequestParameter) {
+        add("%T(\n", parameter.type.copy(nullable = false))
+        indent()
+        parameter.objectProperties.forEach { property ->
+            val fieldsName =
+                if (property.typeInfo is KotlinTypeInfo.Array && !property.explode) {
+                    "${parameter.name}${property.propertyName.replaceFirstChar(Char::uppercase)}Fields"
+                } else {
+                    "call.request.queryParameters"
+                }
+            add(
+                "%N = %L.%M<%T>(%S, call.application.%M),\n",
+                property.propertyName,
+                fieldsName,
+                MemberName(packages.controllers, if (property.nullable) "getTyped" else "getTypedOrFail"),
+                property.type.copy(nullable = false),
+                property.fieldName,
+                MemberName("io.ktor.server.plugins.dataconversion", "conversionService"),
+            )
+        }
+        unindent()
+        add(")\n")
+    }
+
+    private fun RequestParameter.queryStringPresence(): CodeBlock =
+        CodeBlock
+            .builder()
+            .apply {
+                objectProperties.forEachIndexed { index, property ->
+                    if (index > 0) add(" || ")
+                    add("call.request.queryParameters[%S] != null", property.fieldName)
+                }
+            }.build()
+
+    private fun FormObjectProperty.queryStringDelimiter(): String =
+        when (style) {
+            "spaceDelimited" -> " "
+            "pipeDelimited" -> "|"
+            else -> ","
+        }
 
     private fun CodeBlock.Builder.addCompactFormObjectFields(
         parameter: FormParameter,
