@@ -6,6 +6,30 @@ import org.junit.jupiter.api.Test
 
 class GeneratorOperationAdapterParityTest {
     @Test
+    fun `expands native server variables with their defaults`() {
+        listOf("3.0.4", "3.1.2", "3.2.0").forEach { version ->
+            val native =
+                OpenApiDocumentParser
+                    .parse(serverVariablesOpenApi(version, "https://{region}.example.com:{port}/{version}/"))
+                    .toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+
+            assertThat(native.serverUrl).isEqualTo("https://eu.example.com:8443/v1/")
+            assertThat(native.basePath).isEqualTo("/v1")
+        }
+    }
+
+    @Test
+    fun `expands variables in relative native server URLs`() {
+        val native =
+            OpenApiDocumentParser
+                .parse(serverVariablesOpenApi("3.2.0", "/{version}/"))
+                .toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+
+        assertThat(native.serverUrl).isEqualTo("/v1/")
+        assertThat(native.basePath).isEqualTo("/v1")
+    }
+
+    @Test
     fun `adapts common endpoints consistently in legacy and native modes`() {
         val parsed = OpenApiDocumentParser.parse(openApi)
         val legacy = parsed.toGeneratorOperationDocument(SchemaGenerationMode.LEGACY)
@@ -204,6 +228,27 @@ class GeneratorOperationAdapterParityTest {
                   tokenUrl: https://auth.example.com/token
                   scopes:
                     items:write: Write items
+        """.trimIndent()
+
+    private fun serverVariablesOpenApi(
+        version: String,
+        serverUrl: String,
+    ): String =
+        """
+        openapi: $version
+        info:
+          title: Test
+          version: "1.0"
+        servers:
+          - url: $serverUrl
+            variables:
+              region:
+                default: eu
+              port:
+                default: "8443"
+              version:
+                default: v1
+        paths: {}
         """.trimIndent()
 
     private val openApi32 =

@@ -1097,7 +1097,10 @@ class CodeGeneratorNativeClientModeTest {
           title: Native client
           version: "1.0"
         servers:
-          - url: https://example.test/api
+          - url: https://example.test/{basePath}
+            variables:
+              basePath:
+                default: api
         paths:
           /subjects/{id}:
             parameters:
