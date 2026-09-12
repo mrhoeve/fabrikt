@@ -156,10 +156,12 @@ class GeneratorOperationAdapterParityTest {
 
     @Test
     fun `preserves native operation examples links and extensions`() {
-        val operation =
+        val document =
             OpenApiDocumentParser
                 .parse(operationMetadataOpenApi)
                 .toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+        val operation =
+            document
                 .paths
                 .single()
                 .operations
@@ -217,6 +219,15 @@ class GeneratorOperationAdapterParityTest {
         assertThat(region.enumValues).containsExactly("eu", "us")
         assertThat(region.defaultValue).isEqualTo("eu")
         assertThat(region.extensions).containsOnlyKeys("x-variable")
+
+        val reusableExample = document.reusableExamples.getValue("ReusableAlias")
+        assertThat(reusableExample.name).isEqualTo("ReusableAlias")
+        assertThat(reusableExample.summary).isEqualTo("Reusable example")
+        assertThat(reusableExample.dataValue!!.path("id").intValue()).isEqualTo(42)
+        val reusableLink = document.reusableLinks.getValue("ItemByIdAlias")
+        assertThat(reusableLink.name).isEqualTo("ItemByIdAlias")
+        assertThat(reusableLink.operationId).isEqualTo("getItem")
+        assertThat(reusableLink.server!!.url).isEqualTo("https://{region}.example.com")
     }
 
     @Test
@@ -470,6 +481,8 @@ class GeneratorOperationAdapterParityTest {
               dataValue: { id: 42 }
               serializedValue: '{"id":42}'
               x-example: retained
+            ReusableAlias:
+              ${'$'}ref: '#/components/examples/Reusable'
           links:
             ItemById:
               operationId: getItem
@@ -487,6 +500,8 @@ class GeneratorOperationAdapterParityTest {
                     x-variable: retained
                 x-server: retained
               x-link: retained
+            ItemByIdAlias:
+              ${'$'}ref: '#/components/links/ItemById'
         """.trimIndent()
 
     private val apiMetadataOpenApi =
