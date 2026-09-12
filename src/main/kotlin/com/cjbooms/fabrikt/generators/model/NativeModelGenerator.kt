@@ -23,6 +23,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.util.NormalisedString.toEnumName
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
 import com.fasterxml.jackson.databind.JsonNode
+import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
@@ -79,7 +80,7 @@ internal class NativeModelGenerator(
 
     private fun GeneratorModelDescriptor.toScalarUnion(): TypeSpec {
         val unionType = modelType(name)
-        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
+        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED).addDeprecation(deprecated, DEPRECATED_SCHEMA_MESSAGE)
         description?.let { type.addKdoc("%L", it) }
         scalarUnionVariants.forEach { variant -> type.addType(variant.toScalarUnionVariant(unionType)) }
         NativeScalarUnionSerialization.apply(type, unionType, scalarUnionVariants, MutableSettings.serializationLibrary)
@@ -107,7 +108,7 @@ internal class NativeModelGenerator(
 
     private fun GeneratorModelDescriptor.toDataClass(unionMemberships: List<UnionMembership>): TypeSpec {
         val constructor = FunSpec.constructorBuilder()
-        val type = TypeSpec.classBuilder(name)
+        val type = TypeSpec.classBuilder(name).addDeprecation(deprecated, DEPRECATED_SCHEMA_MESSAGE)
         val usesKotlinxAdditionalProperties =
             additionalPropertiesType != null && MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION
         val declaredProperties = mutableListOf<NativeAdditionalPropertiesSerialization.DeclaredProperty>()
@@ -156,6 +157,7 @@ internal class NativeModelGenerator(
                 PropertySpec
                     .builder(propertyName, typeName)
                     .initializer(propertyName)
+                    .addDeprecation(property.deprecated, DEPRECATED_PROPERTY_MESSAGE)
                     .apply { property.description?.let { addKdoc("%L", it) } }
             serializationAnnotations.addParameter(generatedProperty, property.name, required, resolvedType.typeInfo)
             serializationAnnotations.addProperty(generatedProperty, property.name, resolvedType.typeInfo)
@@ -222,7 +224,7 @@ internal class NativeModelGenerator(
         val unionType = modelType(name)
         val objectMembers = members.filter { member -> member.schemaIdentity in objectModelIdentities }
         val scalarVariants = if (discriminator == null) members.mapNotNull { member -> member.scalarVariant() } else emptyList()
-        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
+        val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED).addDeprecation(deprecated, DEPRECATED_SCHEMA_MESSAGE)
         description?.let { type.addKdoc("%L", it) }
         scalarVariants.forEach { variant -> type.addType(scalarUnionVariant(variant.name, variant.kotlinType, unionType)) }
         when {
@@ -295,6 +297,7 @@ internal class NativeModelGenerator(
         val type =
             TypeSpec
                 .enumBuilder(enumType)
+                .addDeprecation(deprecated, DEPRECATED_SCHEMA_MESSAGE)
                 .primaryConstructor(
                     FunSpec
                         .constructorBuilder()
@@ -412,5 +415,26 @@ internal class NativeModelGenerator(
                 else -> typeInfo.isComplexType
             }
         if (validatesNestedValues) annotations.fieldValid()?.let(property::addAnnotation)
+    }
+
+    private fun TypeSpec.Builder.addDeprecation(
+        deprecated: Boolean,
+        message: String,
+    ): TypeSpec.Builder = apply { if (deprecated) addAnnotation(deprecationAnnotation(message)) }
+
+    private fun PropertySpec.Builder.addDeprecation(
+        deprecated: Boolean,
+        message: String,
+    ): PropertySpec.Builder = apply { if (deprecated) addAnnotation(deprecationAnnotation(message)) }
+
+    private fun deprecationAnnotation(message: String): AnnotationSpec =
+        AnnotationSpec
+            .builder(Deprecated::class)
+            .addMember("message = %S", message)
+            .build()
+
+    private companion object {
+        const val DEPRECATED_SCHEMA_MESSAGE = "This API schema is deprecated."
+        const val DEPRECATED_PROPERTY_MESSAGE = "This API property is deprecated."
     }
 }
