@@ -135,18 +135,19 @@ internal object GeneratorModelDescriptorBuilder {
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
     ): GeneratorKotlinTypeResolution.Resolved? {
+        val unmatchedProperties = additionalProperties ?: unevaluatedProperties
         if (patternProperties.isNotEmpty()) {
             val includesUnconstrainedValues =
-                additionalProperties == null ||
-                    (additionalProperties as? GeneratorBooleanSchema)?.allowsAnyValue == true
+                unmatchedProperties == null ||
+                    (unmatchedProperties as? GeneratorBooleanSchema)?.allowsAnyValue == true
             val constrainedSchemas =
                 patternProperties.values +
-                    listOfNotNull(additionalProperties?.takeUnless { it is GeneratorBooleanSchema })
+                    listOfNotNull(unmatchedProperties?.takeUnless { it is GeneratorBooleanSchema })
             return typeResolver.resolveCommonValueType(constrainedSchemas, includesUnconstrainedValues)
         }
-        val additionalProperties = additionalProperties ?: return null
-        if (additionalProperties is GeneratorBooleanSchema && !additionalProperties.allowsAnyValue) return null
-        val objectSchema = document.resolve(additionalProperties) as? GeneratorObjectSchema
+        unmatchedProperties ?: return null
+        if (unmatchedProperties is GeneratorBooleanSchema && !unmatchedProperties.allowsAnyValue) return null
+        val objectSchema = document.resolve(unmatchedProperties) as? GeneratorObjectSchema
         val resolution =
             if (
                 objectSchema != null &&
@@ -155,7 +156,7 @@ internal object GeneratorModelDescriptorBuilder {
             ) {
                 GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, false)
             } else {
-                typeResolver.resolve(additionalProperties).asResolvedFallback()
+                typeResolver.resolve(unmatchedProperties).asResolvedFallback()
             }
         return resolution?.let {
             if (it.typeInfo is KotlinTypeInfo.UntypedObject) it.copy(typeInfo = KotlinTypeInfo.AnyType) else it
@@ -274,6 +275,16 @@ internal object GeneratorModelDescriptorBuilder {
                         .replace("~0", "~")
                         .toModelClassName()
                 visit(additionalProperties, containerName + "Value", modelRootName)
+            }
+            objectSchema.unevaluatedProperties?.let { unevaluatedProperties ->
+                val containerName =
+                    objectSchema.location
+                        .substringBeforeLast("/unevaluatedProperties")
+                        .substringAfterLast('/')
+                        .replace("~1", "-")
+                        .replace("~0", "~")
+                        .toModelClassName()
+                visit(unevaluatedProperties, containerName + "UnevaluatedValue", modelRootName)
             }
         }
 
