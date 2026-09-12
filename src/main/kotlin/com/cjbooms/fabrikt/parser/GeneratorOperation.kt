@@ -12,6 +12,8 @@ internal data class GeneratorOperationDocument(
     val externalDocumentation: GeneratorExternalDocumentation? = null,
     val tags: List<GeneratorTag> = emptyList(),
     val servers: List<GeneratorServer> = emptyList(),
+    val reusableExamples: Map<String, GeneratorExample> = emptyMap(),
+    val reusableLinks: Map<String, GeneratorLink> = emptyMap(),
 )
 
 internal data class GeneratorTag(

@@ -30,6 +30,14 @@ internal class NativeGeneratorOperationAdapter(
             externalDocumentation = document.externalDocumentation?.toGeneratorExternalDocumentation(),
             tags = document.tags.map { it.toGeneratorTag() },
             servers = document.servers.toGeneratorServers(),
+            reusableExamples =
+                document.reusableExamples.mapValues { (name, example) ->
+                    example.resolve().toGeneratorExample(name)
+                },
+            reusableLinks =
+                document.reusableLinks.mapValues { (name, link) ->
+                    link.resolve().toGeneratorLink(name)
+                },
         )
     }
 
