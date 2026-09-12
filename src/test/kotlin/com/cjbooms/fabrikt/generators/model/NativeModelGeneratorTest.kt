@@ -84,6 +84,28 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `annotates deprecated native schemas and properties`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+            val generated = generateValueConstraints(deprecatedOpenApi.replace("VERSION", version))
+
+            assertThat(generated.getValue("LegacySubject"))
+                .contains("@Deprecated(message = \"This API schema is deprecated.\")")
+                .contains("@Deprecated(message = \"This API property is deprecated.\")")
+                .contains("public val legacyId: String?")
+            assertThat(generated.getValue("LegacyStatus"))
+                .contains("@Deprecated(message = \"This API schema is deprecated.\")")
+                .contains("public enum class LegacyStatus(")
+            assertThat(generated.getValue("LegacyChoice"))
+                .contains("@Deprecated(message = \"This API schema is deprecated.\")")
+                .contains("public sealed interface LegacyChoice")
+            assertThat(generated.getValue("ActiveSubject"))
+                .doesNotContain("@Deprecated")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `flattens referenced and inline allOf properties`(version: String) {
         val child = generate(version).getValue("Child").toString()
 
@@ -1171,6 +1193,35 @@ class NativeModelGeneratorTest {
                   const: 1.5
                 choice:
                   enum: [text, 1, null]
+        """.trimIndent()
+
+    private val deprecatedOpenApi =
+        """
+        openapi: VERSION
+        info: { title: Deprecated schemas, version: "1.0" }
+        paths: {}
+        components:
+          schemas:
+            LegacySubject:
+              type: object
+              deprecated: true
+              properties:
+                legacyId:
+                  type: string
+                  deprecated: true
+            LegacyStatus:
+              type: string
+              deprecated: true
+              enum: [active, retired]
+            LegacyChoice:
+              deprecated: true
+              oneOf:
+                - { type: string }
+                - { type: integer }
+            ActiveSubject:
+              type: object
+              properties:
+                id: { type: string }
         """.trimIndent()
 
     private val referenceSiblingOpenApi =
