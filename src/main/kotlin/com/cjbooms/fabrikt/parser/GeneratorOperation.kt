@@ -9,6 +9,19 @@ internal data class GeneratorOperationDocument(
     val securitySchemes: Map<String, GeneratorSecurityScheme>,
     val paths: List<GeneratorPathItem>,
     val webhooks: List<GeneratorPathItem>,
+    val externalDocumentation: GeneratorExternalDocumentation? = null,
+    val tags: List<GeneratorTag> = emptyList(),
+    val servers: List<GeneratorServer> = emptyList(),
+)
+
+internal data class GeneratorTag(
+    val name: String?,
+    val summary: String?,
+    val description: String?,
+    val externalDocumentation: GeneratorExternalDocumentation?,
+    val parent: String?,
+    val kind: String?,
+    val extensions: Map<String, JsonNode>,
 )
 
 internal data class GeneratorSecurityScheme(
@@ -41,6 +54,10 @@ internal data class GeneratorPathItem(
     val kind: GeneratorPathItemKind,
     val parameters: List<GeneratorParameter>,
     val operations: List<GeneratorOperation>,
+    val summary: String? = null,
+    val description: String? = null,
+    val servers: List<GeneratorServer> = emptyList(),
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal enum class GeneratorPathItemKind {
@@ -63,11 +80,13 @@ internal data class GeneratorOperation(
     val callbacks: List<GeneratorCallback>,
     val extensions: Map<String, JsonNode>,
     val externalDocumentation: GeneratorExternalDocumentation? = null,
+    val servers: List<GeneratorServer> = emptyList(),
 )
 
 internal data class GeneratorExternalDocumentation(
     val description: String?,
     val url: String?,
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal data class GeneratorCallback(

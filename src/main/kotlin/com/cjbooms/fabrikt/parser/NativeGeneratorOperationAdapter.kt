@@ -27,6 +27,9 @@ internal class NativeGeneratorOperationAdapter(
                 },
             paths = document.paths.map { path -> path.resolve().toGeneratorPathItem(path.key) },
             webhooks = document.webhooks.map { path -> path.resolve().toGeneratorPathItem(path.key) },
+            externalDocumentation = document.externalDocumentation?.toGeneratorExternalDocumentation(),
+            tags = document.tags.map { it.toGeneratorTag() },
+            servers = document.servers.toGeneratorServers(),
         )
     }
 
@@ -40,10 +43,14 @@ internal class NativeGeneratorOperationAdapter(
             path = path,
             kind = kind.toGeneratorPathItemKind(),
             parameters = parameters.map { it.resolve().toGeneratorParameter() },
-            operations = operations.map { it.toGeneratorOperation() },
+            operations = operations.map { operation -> operation.toGeneratorOperation(document.effectiveServersFor(this, operation)) },
+            summary = summary,
+            description = description,
+            servers = servers.toGeneratorServers(),
+            extensions = extensions,
         )
 
-    private fun SourceOperation.toGeneratorOperation(): GeneratorOperation =
+    private fun SourceOperation.toGeneratorOperation(effectiveServers: SourceServers?): GeneratorOperation =
         GeneratorOperation(
             method = method.wireName.lowercase(),
             operationId = operationId,
@@ -57,11 +64,25 @@ internal class NativeGeneratorOperationAdapter(
             security = security?.toGeneratorSecurityRequirements(),
             callbacks = callbacks.map { callback -> callback.resolve().toGeneratorCallback(callback.name) },
             extensions = extensions,
-            externalDocumentation =
-                externalDocumentation?.let { documentation ->
-                    GeneratorExternalDocumentation(documentation.description, documentation.url)
-                },
+            externalDocumentation = externalDocumentation?.toGeneratorExternalDocumentation(),
+            servers = effectiveServers.toGeneratorServers(),
         )
+
+    private fun SourceExternalDocumentation.toGeneratorExternalDocumentation(): GeneratorExternalDocumentation =
+        GeneratorExternalDocumentation(description, url, extensions)
+
+    private fun SourceTag.toGeneratorTag(): GeneratorTag =
+        GeneratorTag(
+            name = name,
+            summary = summary,
+            description = description,
+            externalDocumentation = externalDocumentation?.toGeneratorExternalDocumentation(),
+            parent = parent,
+            kind = kind,
+            extensions = extensions,
+        )
+
+    private fun SourceServers?.toGeneratorServers(): List<GeneratorServer> = this?.values.orEmpty().map { it.toGeneratorServer() }
 
     private fun SourceCallback.toGeneratorCallback(name: String): GeneratorCallback =
         GeneratorCallback(
