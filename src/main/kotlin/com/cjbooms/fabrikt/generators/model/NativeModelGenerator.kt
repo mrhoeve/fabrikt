@@ -41,12 +41,17 @@ internal class NativeModelGenerator(
             descriptors
                 .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
                 .mapTo(mutableSetOf(), GeneratorModelDescriptor::schemaIdentity)
-        val interfacesByMember =
+        val membershipsByMember =
             descriptors
                 .filter { descriptor -> descriptor.resolvedType() == OasType.Object }
                 .flatMap { descriptor ->
                     descriptor.oneOfMembers.map { member ->
-                        MemberDirection(member.schemaIdentity, descriptor.direction) to modelType(descriptor.name)
+                        MemberDirection(member.schemaIdentity, descriptor.direction) to
+                            UnionMembership(
+                                interfaceType = modelType(descriptor.name),
+                                discriminatorProperty = descriptor.discriminator?.propertyName,
+                                discriminatorMapping = descriptor.discriminatorMapping(member),
+                            )
                     }
                 }.groupBy({ it.first }, { it.second })
         return Models(
@@ -61,7 +66,7 @@ internal class NativeModelGenerator(
                             )
                         descriptor.resolvedType() == OasType.Object ->
                             descriptor.toDataClass(
-                                interfacesByMember[MemberDirection(descriptor.schemaIdentity, descriptor.direction)].orEmpty(),
+                                membershipsByMember[MemberDirection(descriptor.schemaIdentity, descriptor.direction)].orEmpty(),
                             )
                         descriptor.resolvedType() == OasType.Enum -> descriptor.toEnum()
                         else -> null
@@ -92,7 +97,7 @@ internal class NativeModelGenerator(
             .build()
     }
 
-    private fun GeneratorModelDescriptor.toDataClass(superInterfaces: List<TypeName>): TypeSpec {
+    private fun GeneratorModelDescriptor.toDataClass(unionMemberships: List<UnionMembership>): TypeSpec {
         val constructor = FunSpec.constructorBuilder()
         val type = TypeSpec.classBuilder(name)
         val usesKotlinxAdditionalProperties =
@@ -101,9 +106,22 @@ internal class NativeModelGenerator(
         var additionalPropertiesSerialization: Pair<String, TypeName>? = null
         description?.let { type.addKdoc("%L", it) }
         if (!usesKotlinxAdditionalProperties) serializationAnnotations.addClassAnnotation(type)
-        superInterfaces.forEach(type::addSuperinterface)
+        unionMemberships.map(UnionMembership::interfaceType).forEach(type::addSuperinterface)
+        if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+            val mappings = unionMemberships.mapNotNull(UnionMembership::discriminatorMapping).distinct()
+            require(mappings.size <= 1) {
+                "Kotlinx serialization cannot represent conflicting discriminator mappings for $name: ${mappings.joinToString()}."
+            }
+            mappings.singleOrNull()?.let { mapping -> serializationAnnotations.addSubtypeMappingAnnotation(type, mapping) }
+        }
+        val virtualDiscriminatorProperties =
+            if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
+                unionMemberships.mapNotNullTo(mutableSetOf(), UnionMembership::discriminatorProperty)
+            } else {
+                emptySet()
+            }
 
-        properties.forEach { property ->
+        properties.filterNot { property -> property.name in virtualDiscriminatorProperties }.forEach { property ->
             val resolvedType = property.kotlinType.asResolvedFallback() ?: return@forEach
             val defaultCode = property.defaultCode(resolvedType)
             val required = property.requiredInCombinedModel
@@ -212,21 +230,26 @@ internal class NativeModelGenerator(
     }
 
     private fun GeneratorModelDescriptor.discriminatorMappings(members: List<GeneratorUnionMemberDescriptor>): Map<String, TypeName> {
-        val mappings = discriminator?.mapping.orEmpty()
-        return if (mappings.isEmpty()) {
-            members.mapNotNull { member -> member.modelName()?.let { it to member.typeName() } }.toMap()
-        } else {
-            mappings
-                .mapNotNull { (key, reference) ->
-                    members
-                        .firstOrNull { member ->
-                            member.canonicalReference == reference ||
-                                member.canonicalReference?.endsWith(reference.substringAfterLast('/')) == true ||
-                                member.modelName() == reference.substringAfterLast('/')
-                        }?.let { key to it.typeName() }
-                }.toMap()
-        }
+        return members
+            .mapNotNull { member ->
+                val modelName = member.modelName() ?: return@mapNotNull null
+                val key = discriminatorMapping(member) ?: modelName
+                key to member.typeName()
+            }.toMap()
     }
+
+    private fun GeneratorModelDescriptor.discriminatorMapping(member: GeneratorUnionMemberDescriptor): String? {
+        val discriminator = discriminator ?: return null
+        return discriminator.mapping.entries
+            .firstOrNull { (_, reference) -> member.matchesDiscriminatorReference(reference) }
+            ?.key
+            ?: member.modelName()
+    }
+
+    private fun GeneratorUnionMemberDescriptor.matchesDiscriminatorReference(reference: String): Boolean =
+        canonicalReference == reference ||
+            canonicalReference?.endsWith(reference.substringAfterLast('/')) == true ||
+            modelName() == reference.substringAfterLast('/')
 
     private fun GeneratorModelDescriptor.toEnum(): TypeSpec {
         val enum = (kotlinType as GeneratorKotlinTypeResolution.Resolved).typeInfo as KotlinTypeInfo.Enum
@@ -313,6 +336,12 @@ internal class NativeModelGenerator(
     private data class MemberDirection(
         val identity: com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity,
         val direction: GeneratorModelDirection,
+    )
+
+    private data class UnionMembership(
+        val interfaceType: TypeName,
+        val discriminatorProperty: String?,
+        val discriminatorMapping: String?,
     )
 
     private fun GeneratorPropertyDescriptor.addValidationAnnotations(
