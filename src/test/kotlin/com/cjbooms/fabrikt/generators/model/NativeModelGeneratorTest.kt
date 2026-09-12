@@ -378,6 +378,27 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates native types for unevaluated array items`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+            val mixedType = if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "JsonElement" else "Any"
+
+            val generated = generateUnevaluatedItems(version)
+
+            assertThat(generated.keys).containsExactly("Subject", "SubjectNestedUnevaluatedItem")
+            assertThat(generated.getValue("Subject"))
+                .contains("public val homogeneous: List<String>? = null")
+                .contains("public val homogeneousTail: List<String>? = null")
+                .contains("public val mixedTail: List<$mixedType>? = null")
+                .contains("public val nested: List<SubjectNestedUnevaluatedItem>? = null")
+                .contains("public val explicitTail: List<Boolean>? = null")
+            assertThat(generated.getValue("SubjectNestedUnevaluatedItem"))
+                .contains("public val `value`: String")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates patterned properties as additional value maps`(version: String) {
         listOf(SerializationLibrary.JACKSON, SerializationLibrary.JACKSON_3).forEach { library ->
             MutableSettings.updateSettings(serializationLibrary = library)
@@ -741,6 +762,17 @@ class NativeModelGeneratorTest {
             ).files
             .single { it.name == "Subject" }
             .toString()
+
+    private fun generateUnevaluatedItems(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(unevaluatedItemsOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
 
     private fun generatePatternProperties(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -1137,6 +1169,49 @@ class NativeModelGeneratorTest {
                   properties:
                     value: { type: integer }
               additionalProperties: false
+        """.trimIndent()
+
+    private val unevaluatedItemsOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Unevaluated items
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                homogeneous:
+                  type: array
+                  unevaluatedItems: { type: string }
+                homogeneousTail:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                  unevaluatedItems: { type: string }
+                mixedTail:
+                  type: array
+                  prefixItems:
+                    - { type: string }
+                  unevaluatedItems: { type: integer }
+                nested:
+                  type: array
+                  unevaluatedItems:
+                    type: object
+                    required: [value]
+                    properties:
+                      value: { type: string }
+                explicitTail:
+                  type: array
+                  prefixItems:
+                    - { type: boolean }
+                  items: { type: boolean }
+                  unevaluatedItems:
+                    type: object
+                    properties:
+                      ignored: { type: string }
         """.trimIndent()
 
     private val unevaluatedPropertiesOpenApi =

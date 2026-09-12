@@ -29,6 +29,22 @@ class GeneratorArrayItemsTest {
                     schemas.objectSchema("TypedTail").items,
                 ),
             )
+        assertThat(schemas.objectSchema("Unevaluated").arrayItems())
+            .isEqualTo(GeneratorArrayItems.Homogeneous(schemas.objectSchema("Unevaluated").unevaluatedItems!!))
+        assertThat(schemas.objectSchema("UnevaluatedTail").arrayItems())
+            .isEqualTo(
+                GeneratorArrayItems.Tuple(
+                    schemas.objectSchema("UnevaluatedTail").prefixItems,
+                    schemas.objectSchema("UnevaluatedTail").unevaluatedItems,
+                ),
+            )
+        assertThat(schemas.objectSchema("ExplicitTail").arrayItems())
+            .isEqualTo(
+                GeneratorArrayItems.Tuple(
+                    schemas.objectSchema("ExplicitTail").prefixItems,
+                    schemas.objectSchema("ExplicitTail").items,
+                ),
+            )
     }
 
     private fun Map<String, SourceSchema>.objectSchema(name: String): SourceObjectSchema = getValue(name) as SourceObjectSchema
@@ -63,5 +79,22 @@ class GeneratorArrayItemsTest {
               prefixItems:
                 - { type: string }
               items: { type: integer }
+            Unevaluated:
+              type: array
+              unevaluatedItems: { type: string }
+            UnevaluatedTail:
+              type: array
+              prefixItems:
+                - { type: string }
+              unevaluatedItems: { type: integer }
+            ExplicitTail:
+              type: array
+              prefixItems:
+                - { type: string }
+              items: { type: boolean }
+              unevaluatedItems:
+                type: object
+                properties:
+                  ignored: { type: string }
         """.trimIndent()
 }
