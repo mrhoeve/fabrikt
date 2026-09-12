@@ -408,6 +408,9 @@ internal class NativeModelGenerator(
         if (restrictions.minItems != null || restrictions.maxItems != null) {
             annotations.lengthRestriction(restrictions.minItems, restrictions.maxItems)?.let(property::addAnnotation)
         }
+        if (type.typeInfo is KotlinTypeInfo.Map && (restrictions.minProperties != null || restrictions.maxProperties != null)) {
+            annotations.lengthRestriction(restrictions.minProperties, restrictions.maxProperties)?.let(property::addAnnotation)
+        }
         val validatesNestedValues =
             when (val typeInfo = type.typeInfo) {
                 is KotlinTypeInfo.Array -> typeInfo.parameterizedType.isComplexType
