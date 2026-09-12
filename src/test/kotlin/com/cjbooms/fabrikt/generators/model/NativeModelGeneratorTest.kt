@@ -1154,7 +1154,10 @@ class NativeModelGeneratorTest {
               properties:
                 id: { type: string }
               additionalProperties: { type: integer }
-              unevaluatedProperties: { type: string }
+              unevaluatedProperties:
+                type: object
+                properties:
+                  ignored: { type: string }
         """.trimIndent()
 
     private val contentEncodingOpenApi =

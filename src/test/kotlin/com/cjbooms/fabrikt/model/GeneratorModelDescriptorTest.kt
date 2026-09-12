@@ -387,7 +387,10 @@ class GeneratorModelDescriptorTest {
               properties:
                 id: { type: string }
               additionalProperties: { type: integer }
-              unevaluatedProperties: { type: string }
+              unevaluatedProperties:
+                type: object
+                properties:
+                  ignored: { type: string }
         """.trimIndent()
 
     private fun operationReferencesOpenApi(version: String) =

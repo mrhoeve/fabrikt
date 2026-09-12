@@ -276,16 +276,18 @@ internal object GeneratorModelDescriptorBuilder {
                         .toModelClassName()
                 visit(additionalProperties, containerName + "Value", modelRootName)
             }
-            objectSchema.unevaluatedProperties?.let { unevaluatedProperties ->
-                val containerName =
-                    objectSchema.location
-                        .substringBeforeLast("/unevaluatedProperties")
-                        .substringAfterLast('/')
-                        .replace("~1", "-")
-                        .replace("~0", "~")
-                        .toModelClassName()
-                visit(unevaluatedProperties, containerName + "UnevaluatedValue", modelRootName)
-            }
+            objectSchema.unevaluatedProperties
+                ?.takeIf { objectSchema.additionalProperties == null }
+                ?.let { unevaluatedProperties ->
+                    val containerName =
+                        objectSchema.location
+                            .substringBeforeLast("/unevaluatedProperties")
+                            .substringAfterLast('/')
+                            .replace("~1", "-")
+                            .replace("~0", "~")
+                            .toModelClassName()
+                    visit(unevaluatedProperties, containerName + "UnevaluatedValue", modelRootName)
+                }
         }
 
         val registeredRootIdentities = mutableSetOf<GeneratorSchemaIdentity>()
