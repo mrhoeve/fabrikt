@@ -228,6 +228,14 @@ class GeneratorOperationAdapterParityTest {
         assertThat(reusableLink.name).isEqualTo("ItemByIdAlias")
         assertThat(reusableLink.operationId).isEqualTo("getItem")
         assertThat(reusableLink.server!!.url).isEqualTo("https://{region}.example.com")
+        val reusableHeader = document.reusableHeaders.getValue("TraceAlias")
+        assertThat(reusableHeader.name).isEqualTo("TraceAlias")
+        assertThat(reusableHeader.description).isEqualTo("Trace identifier")
+        assertThat(reusableHeader.example!!.textValue()).isEqualTo("trace-123")
+        val reusableMediaType = document.reusableMediaTypes.getValue("ItemJsonAlias")
+        assertThat(reusableMediaType.key).isEqualTo("ItemJsonAlias")
+        assertThat(reusableMediaType.example!!.path("id").intValue()).isEqualTo(7)
+        assertThat(reusableMediaType.extensions).containsOnlyKeys("x-component-media")
     }
 
     @Test
@@ -502,6 +510,20 @@ class GeneratorOperationAdapterParityTest {
               x-link: retained
             ItemByIdAlias:
               ${'$'}ref: '#/components/links/ItemById'
+          headers:
+            Trace:
+              description: Trace identifier
+              schema: { type: string }
+              example: trace-123
+            TraceAlias:
+              ${'$'}ref: '#/components/headers/Trace'
+          mediaTypes:
+            ItemJson:
+              schema: { type: object }
+              example: { id: 7 }
+              x-component-media: retained
+            ItemJsonAlias:
+              ${'$'}ref: '#/components/mediaTypes/ItemJson'
         """.trimIndent()
 
     private val apiMetadataOpenApi =
