@@ -34,6 +34,26 @@ internal object SourceOpenApiDocumentGraphParser {
         val pendingDocumentUris = ArrayDeque<URI>()
         enqueueExternalDocuments(documents.values.single(), pendingDocumentUris)
 
+        while (true) {
+            loadPendingDocuments(documents, loadFailures, pendingDocumentUris, documentLoader)
+            materializeReferencedSchemas(documents, pendingDocumentUris)
+            if (pendingDocumentUris.isEmpty()) break
+        }
+
+        return SourceOpenApiDocumentGraph(
+            rootDocument = rootDocument,
+            documentsByUri = documents.toMap(),
+            schemaReferenceResolutions = resolveAcrossDocuments(documents.values),
+            loadFailures = loadFailures.toMap(),
+        )
+    }
+
+    private fun loadPendingDocuments(
+        documents: MutableMap<URI, SourceSchemaDocument>,
+        loadFailures: MutableMap<URI, SourceDocumentLoadFailure>,
+        pendingDocumentUris: ArrayDeque<URI>,
+        documentLoader: SourceDocumentLoader,
+    ) {
         while (pendingDocumentUris.isNotEmpty()) {
             val externalDocumentUri = pendingDocumentUris.removeFirst()
             if (externalDocumentUri in documents || externalDocumentUri in loadFailures) continue
@@ -51,13 +71,41 @@ internal object SourceOpenApiDocumentGraphParser {
                 loadFailures[externalDocumentUri] = SourceDocumentLoadFailure(externalDocumentUri, exception)
             }
         }
+    }
 
-        return SourceOpenApiDocumentGraph(
-            rootDocument = rootDocument,
-            documentsByUri = documents.toMap(),
-            schemaReferenceResolutions = resolveAcrossDocuments(documents.values),
-            loadFailures = loadFailures.toMap(),
-        )
+    private fun materializeReferencedSchemas(
+        documents: MutableMap<URI, SourceSchemaDocument>,
+        pendingDocumentUris: ArrayDeque<URI>,
+    ) {
+        var changed: Boolean
+        do {
+            changed = false
+            val targetUris =
+                documents.values
+                    .flatMap { document -> document.schemaReferenceIndex.resolutionsByLocation.values }
+                    .mapNotNull { resolution ->
+                        when (resolution) {
+                            is SourceSchemaReferenceResolution.External -> resolution.uri
+                            is SourceSchemaReferenceResolution.Missing -> resolution.uri
+                            else -> null
+                        }
+                    }
+            targetUris.forEach { targetUri ->
+                val targetBaseUri = targetUri.withoutFragment()
+                val documentEntry =
+                    documents.entries.firstOrNull { (documentUri, document) ->
+                        targetBaseUri == documentUri ||
+                            targetBaseUri in document.schemaReferenceIndex.resourceUris
+                    } ?: return@forEach
+                val document = documentEntry.value
+                val updated = document.materializeReferencedSchema(targetUri)
+                if (updated !== document) {
+                    documents[documentEntry.key] = updated
+                    enqueueExternalDocuments(updated, pendingDocumentUris)
+                    changed = true
+                }
+            }
+        } while (changed)
     }
 
     private fun enqueueExternalDocuments(

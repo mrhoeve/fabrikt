@@ -30,5 +30,6 @@ internal data class SourceSchemaReferenceIndex(
     val documentUri: URI,
     val schemasByUri: Map<URI, SourceSchema>,
     val resourceUris: Set<URI>,
+    val resourceUrisByRootLocation: Map<String, URI>,
     val resolutionsByLocation: Map<String, SourceSchemaReferenceResolution>,
 )

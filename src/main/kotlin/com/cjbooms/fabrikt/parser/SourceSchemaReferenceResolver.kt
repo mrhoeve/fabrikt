@@ -8,9 +8,10 @@ internal object SourceSchemaReferenceResolver {
         version: OpenApiVersion?,
         schemaEntryPoints: Collection<SourceSchema>,
         supportsSchemaResources: Boolean = version?.isAtLeast(3, 1) == true,
+        entryPointScopes: Map<String, SourceSchemaResourceScope> = emptyMap(),
     ): SourceSchemaReferenceIndex {
         val index = ReferenceIndex(baseUri.withoutFragment().toAsciiUri(), supportsSchemaResources)
-        schemaEntryPoints.forEach(index::index)
+        schemaEntryPoints.forEach { schema -> index.index(schema, entryPointScopes[schema.location]) }
         return index.build()
     }
 
@@ -22,9 +23,14 @@ internal object SourceSchemaReferenceResolver {
         private val baseUrisByLocation = linkedMapOf<String, URI>()
         private val schemasByLocation = linkedMapOf<String, SourceSchema>()
         private val resourceUris = linkedSetOf(documentUri)
+        private val resourceUrisByRootLocation = linkedMapOf("#" to documentUri)
 
-        fun index(schema: SourceSchema) {
-            index(schema, Scope(documentUri, documentUri, "#"))
+        fun index(
+            schema: SourceSchema,
+            resourceScope: SourceSchemaResourceScope?,
+        ) {
+            val scope = resourceScope?.let { Scope(it.uri, it.uri, it.rootLocation) } ?: Scope(documentUri, documentUri, "#")
+            index(schema, scope)
         }
 
         fun build(): SourceSchemaReferenceIndex =
@@ -32,6 +38,7 @@ internal object SourceSchemaReferenceResolver {
                 documentUri = documentUri,
                 schemasByUri = schemasByUri.toMap(),
                 resourceUris = resourceUris.toSet(),
+                resourceUrisByRootLocation = resourceUrisByRootLocation.toMap(),
                 resolutionsByLocation =
                     schemasByLocation.values
                         .asSequence()
@@ -67,6 +74,7 @@ internal object SourceSchemaReferenceResolver {
 
             val resourceUri = resolvedIdentifier.withoutFragment()
             resourceUris.add(resourceUri)
+            resourceUrisByRootLocation[location] = resourceUri
             return Scope(resourceUri, resourceUri, location)
         }
 
@@ -112,3 +120,8 @@ internal object SourceSchemaReferenceResolver {
 
     private val ANCHOR_PATTERN = Regex("^[A-Za-z_][-A-Za-z0-9._]*$")
 }
+
+internal data class SourceSchemaResourceScope(
+    val uri: URI,
+    val rootLocation: String,
+)
