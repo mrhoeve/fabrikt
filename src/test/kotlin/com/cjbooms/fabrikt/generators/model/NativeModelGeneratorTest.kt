@@ -354,6 +354,50 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates patterned properties as additional value maps`(version: String) {
+        listOf(SerializationLibrary.JACKSON, SerializationLibrary.JACKSON_3).forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generatePatternProperties(version)
+
+            assertThat(generated.getValue("TypedPatterns"))
+                .contains("public val properties: MutableMap<String, String?> = mutableMapOf()")
+                .contains("@JsonAnyGetter", "@JsonAnySetter")
+            assertThat(generated.getValue("OpenPatterns"))
+                .contains("public val properties: MutableMap<String, Any?> = mutableMapOf()")
+            assertThat(generated.getValue("MixedPatterns"))
+                .contains("public val properties: MutableMap<String, Any?> = mutableMapOf()")
+            assertThat(generated.getValue("ConstrainedPatterns"))
+                .contains("public val properties: MutableMap<String, String?> = mutableMapOf()")
+            assertThat(generated.getValue("NestedPatterns"))
+                .contains("MutableMap<String, NestedPatternsPattern1Value?>")
+            assertThat(generated.getValue("NestedPatternsPattern1Value"))
+                .contains("public val `value`: Int")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates serializable Kotlinx patterned properties`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val generated = generatePatternProperties(version)
+
+        assertThat(generated.getValue("TypedPatterns"))
+            .contains("public val additionalProperties: MutableMap<String, String?> = mutableMapOf()")
+            .contains("@Serializable(with = TypedPatterns.Serializer::class)")
+        assertThat(generated.getValue("OpenPatterns"))
+            .contains("public val additionalProperties: MutableMap<String, JsonElement?> = mutableMapOf()")
+        assertThat(generated.getValue("MixedPatterns"))
+            .contains("public val additionalProperties: MutableMap<String, JsonElement?> = mutableMapOf()")
+        assertThat(generated.getValue("ConstrainedPatterns"))
+            .contains("public val additionalProperties: MutableMap<String, String?> = mutableMapOf()")
+        assertThat(generated.getValue("NestedPatterns"))
+            .contains("MutableMap<String, NestedPatternsPattern1Value?>")
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates native models from enum values without declared types`(version: String) {
         val generated = generateValueConstraints(enumValueOpenApi.replace("VERSION", version))
@@ -582,6 +626,17 @@ class NativeModelGeneratorTest {
             ).files
             .single { it.name == "Subject" }
             .toString()
+
+    private fun generatePatternProperties(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(patternPropertiesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
 
     private fun generateValueConstraints(openApi: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -882,6 +937,46 @@ class NativeModelGeneratorTest {
                   prefixItems:
                     - { type: string }
                   items: { type: integer }
+        """.trimIndent()
+
+    private val patternPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Pattern properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            TypedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              additionalProperties: false
+            OpenPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+            MixedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+                '^I_': { type: integer }
+              additionalProperties: false
+            ConstrainedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              additionalProperties: { type: string }
+            NestedPatterns:
+              type: object
+              patternProperties:
+                '^entry-':
+                  type: object
+                  required: [value]
+                  properties:
+                    value: { type: integer }
+              additionalProperties: false
         """.trimIndent()
 
     private val enumValueOpenApi =

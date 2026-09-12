@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.model
 
+import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
 import com.cjbooms.fabrikt.parser.SchemaGenerationMode
@@ -7,6 +8,7 @@ import com.cjbooms.fabrikt.parser.toGeneratorSchemaDocument
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.function.ThrowingSupplier
 import org.junit.jupiter.params.ParameterizedTest
@@ -14,6 +16,11 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.time.Duration
 
 class GeneratorModelDescriptorTest {
+    @BeforeEach
+    fun resetSettings() {
+        MutableSettings.updateSettings()
+    }
+
     @Test
     fun `builds equal basic model descriptors from legacy and native schemas`() {
         val parsed = OpenApiDocumentParser.parse(openApi)
@@ -99,6 +106,34 @@ class GeneratorModelDescriptorTest {
         assertThat(models.map(GeneratorModelDescriptor::name)).contains("Composition$depth", "Leaf")
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `describes patterned object values without losing nested models`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(patternPropertiesOpenApi.replace("VERSION", version))
+
+        val models = GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
+
+        assertThat(models.map(GeneratorModelDescriptor::name))
+            .containsExactly(
+                "TypedPatterns",
+                "OpenPatterns",
+                "MixedPatterns",
+                "ConstrainedPatterns",
+                "NestedPatterns",
+                "NestedPatternsPattern1Value",
+            )
+        assertThat(models.single { it.name == "TypedPatterns" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Text)
+        assertThat(models.single { it.name == "OpenPatterns" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.AnyType)
+        assertThat(models.single { it.name == "MixedPatterns" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.AnyType)
+        assertThat(models.single { it.name == "ConstrainedPatterns" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Text)
+        assertThat(models.single { it.name == "NestedPatterns" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Object("NestedPatternsPattern1Value"))
+    }
+
     private fun List<GeneratorModelDescriptor>.withoutIdentities() =
         map { model ->
             model.copy(
@@ -160,6 +195,46 @@ class GeneratorModelDescriptorTest {
                   ${'$'}ref: '#/components/schemas/Never'
         """.trimIndent()
 
+    private val patternPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Pattern properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            TypedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              additionalProperties: false
+            OpenPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+            MixedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+                '^I_': { type: integer }
+              additionalProperties: false
+            ConstrainedPatterns:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              additionalProperties: { type: string }
+            NestedPatterns:
+              type: object
+              patternProperties:
+                '^entry-':
+                  type: object
+                  required: [value]
+                  properties:
+                    value: { type: integer }
+              additionalProperties: false
+        """.trimIndent()
+
     private val impossibleCompositionOpenApi =
         """
         openapi: 3.1.2
@@ -204,10 +279,10 @@ class GeneratorModelDescriptorTest {
                         ${'$'}ref: '#/components/schemas/Subject'
         components:
           schemas:
-             Subject:
-               type: object
-               properties:
-                 id: { type: string }
+            Subject:
+              type: object
+              properties:
+                id: { type: string }
         """.trimIndent()
 
     private fun compositionGraphOpenApi(depth: Int): String {
