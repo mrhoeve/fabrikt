@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.generators.controller
 import com.cjbooms.fabrikt.cli.ControllerCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.generators.GeneratorUtils.groupingStrategyFrom
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toIncomingParameters
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKdoc
@@ -201,6 +202,7 @@ class MicronautControllerInterfaceGenerator(
         val function =
             FunSpec
                 .builder(context.methodName(operation, path.path))
+                .addOperationDeprecation(operation)
                 .addModifiers(KModifier.ABSTRACT)
                 .addKdoc(context.toKdoc(operation, parameters))
                 .addMicronautFunAnnotation(operation, path.path, globalSecurity)

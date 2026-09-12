@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.client
 
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.parser.GeneratorCallback
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
@@ -55,6 +56,7 @@ internal class CallbackSenderGenerator(
         val destinationName = allocateDestinationName(parameters.map { it.name }.toSet())
         return FunSpec
             .builder(context.methodName(operation, path.path))
+            .addOperationDeprecation(operation)
             .addModifiers(KModifier.ABSTRACT)
             .apply { if (suspending) addModifiers(KModifier.SUSPEND) }
             .addKdoc("Sends this callback to the URL obtained by evaluating `%L`.\n", path.path)

@@ -14,6 +14,7 @@ import com.cjbooms.fabrikt.model.QueryParam
 import com.cjbooms.fabrikt.model.QueryStringParam
 import com.cjbooms.fabrikt.model.RequestParameter
 import com.cjbooms.fabrikt.model.SequentialMultipartParameter
+import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.util.GroupingStrategy
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.isSimpleType
 import com.cjbooms.fabrikt.util.KaizenParserExtensions.safeName
@@ -27,6 +28,7 @@ import com.reprezen.kaizen.oasparser.model3.Parameter
 import com.reprezen.kaizen.oasparser.model3.RequestBody
 import com.reprezen.kaizen.oasparser.model3.Response
 import com.reprezen.kaizen.oasparser.model3.Schema
+import com.squareup.kotlinpoet.AnnotationSpec
 import com.squareup.kotlinpoet.ClassName
 import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FunSpec
@@ -38,6 +40,18 @@ import com.squareup.kotlinpoet.asTypeName
 import java.util.function.Predicate
 
 object GeneratorUtils {
+    internal fun FunSpec.Builder.addOperationDeprecation(operation: GeneratorOperation): FunSpec.Builder =
+        apply {
+            if (operation.deprecated) {
+                addAnnotation(
+                    AnnotationSpec
+                        .builder(Deprecated::class)
+                        .addMember("message = %S", "This API operation is deprecated.")
+                        .build(),
+                )
+            }
+        }
+
     /**
      * It resolves the API operation body request to its body type. If multiple content medias are found, then it will
      * resolve to the schema reference of the first media type, otherwise it assumes no request body defined for

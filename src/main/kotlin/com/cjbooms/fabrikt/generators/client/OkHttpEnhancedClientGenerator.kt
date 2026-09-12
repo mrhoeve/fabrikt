@@ -3,6 +3,7 @@ package com.cjbooms.fabrikt.generators.client
 import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.generators.GeneratorUtils.functionName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toClassName
 import com.cjbooms.fabrikt.generators.GeneratorUtils.toKCodeName
@@ -122,6 +123,7 @@ class OkHttpEnhancedClientGenerator(
         val returnType = context.successResponseType(operation, packages.base)
         return FunSpec
             .builder(functionName)
+            .addOperationDeprecation(operation)
             .addModifiers(KModifier.PUBLIC)
             .addAnnotation(
                 AnnotationSpec.builder(Throws::class).addMember("%T::class", "ApiException".toClassName(packages.client)).build(),

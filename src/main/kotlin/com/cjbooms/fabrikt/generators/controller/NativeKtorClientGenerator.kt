@@ -4,6 +4,7 @@ import com.cjbooms.fabrikt.cli.ClientCodeGenOptionType
 import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.generators.GeneratorUtils.splitByType
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.generators.OasDefault
@@ -99,6 +100,7 @@ internal class NativeKtorClientGenerator(
         val function =
             FunSpec
                 .builder(clientRequestFunctionName(operation, pathParams))
+                .addOperationDeprecation(operation)
                 .addModifiers(KModifier.SUSPEND)
                 .returns(networkResult.parameterizedBy(responseType))
                 .addCode(

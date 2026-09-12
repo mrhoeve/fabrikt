@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
@@ -31,6 +32,7 @@ internal class WebhookHandlerGenerator(
         val parameters = context.incomingParameters(operation, webhook.parameters)
         return FunSpec
             .builder(context.methodName(operation, webhook.path))
+            .addOperationDeprecation(operation)
             .addModifiers(KModifier.ABSTRACT)
             .apply { if (suspending) addModifiers(KModifier.SUSPEND) }
             .addKdoc(context.toKdoc(operation, parameters))

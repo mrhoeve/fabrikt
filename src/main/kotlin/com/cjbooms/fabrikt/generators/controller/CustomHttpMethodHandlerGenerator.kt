@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.controller
 
 import com.cjbooms.fabrikt.configurations.Packages
 import com.cjbooms.fabrikt.generators.GeneratorEndpointContext
+import com.cjbooms.fabrikt.generators.GeneratorUtils.addOperationDeprecation
 import com.cjbooms.fabrikt.parser.GeneratorOperation
 import com.cjbooms.fabrikt.parser.GeneratorPathItem
 import com.squareup.kotlinpoet.FileSpec
@@ -33,6 +34,7 @@ internal class CustomHttpMethodHandlerGenerator(
         val parameters = context.incomingParameters(operation, path.parameters)
         return FunSpec
             .builder(context.methodName(operation, path.path))
+            .addOperationDeprecation(operation)
             .addModifiers(KModifier.ABSTRACT)
             .addKdoc("Handles the `%L %L` operation using application-defined routing.\n", operation.method.uppercase(), path.path)
             .apply {
