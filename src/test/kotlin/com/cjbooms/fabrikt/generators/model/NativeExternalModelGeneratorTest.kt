@@ -142,6 +142,51 @@ class NativeExternalModelGeneratorTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates recursive models from JSON Schema 2019-09 references`(version: String) {
+        Files.writeString(
+            tempDir.resolve("recursive-tree.yaml"),
+            """
+            ${'$'}schema: https://json-schema.org/draft/2019-09/schema
+            ${'$'}id: https://schemas.example.test/tree
+            ${'$'}recursiveAnchor: true
+            type: object
+            required: [id]
+            properties:
+              id: { type: string }
+              children:
+                type: array
+                items:
+                  ${'$'}recursiveRef: '#'
+            """.trimIndent(),
+        )
+
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated =
+                generate(
+                    """
+                    openapi: $version
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths: {}
+                    components:
+                      schemas:
+                        Tree:
+                          ${'$'}ref: './recursive-tree.yaml'
+                    """.trimIndent(),
+                )
+
+            assertThat(generated).containsOnlyKeys("Tree")
+            assertThat(generated.getValue("Tree"))
+                .contains("public val id: String")
+                .contains("public val children: List<Tree>? = null")
+        }
+    }
+
     @Test
     fun `keeps component names for identical pointers in different external documents`() {
         writeExternalDefinition("first.yaml", "left")

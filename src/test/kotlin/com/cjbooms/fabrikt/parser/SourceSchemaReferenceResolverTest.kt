@@ -128,6 +128,34 @@ class SourceSchemaReferenceResolverTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves initial recursive references against their schema resource`(version: String) {
+        val document =
+            parse(
+                version,
+                """
+                components:
+                  schemas:
+                    Tree:
+                      ${'$'}id: https://schemas.example.test/tree
+                      ${'$'}recursiveAnchor: true
+                      type: object
+                      properties:
+                        children:
+                          type: array
+                          items:
+                            ${'$'}recursiveRef: '#'
+                """,
+            )
+        val tree = document.componentSchemas.getValue("Tree") as SourceObjectSchema
+        val recursiveReference = document.resolvedReference("#/components/schemas/Tree/properties/children/items")
+
+        assertThat(tree.recursiveAnchor).isTrue()
+        assertThat(recursiveReference.dynamic).isTrue()
+        assertThat(recursiveReference.target).isSameAs(tree)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `classifies missing external and invalid schema references`(version: String) {
         val document =
             parse(
