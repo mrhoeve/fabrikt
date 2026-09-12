@@ -10,6 +10,7 @@ import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
+import com.squareup.kotlinpoet.TypeName
 import com.squareup.kotlinpoet.TypeSpec
 
 internal object NativeScalarUnionSerialization {
@@ -18,17 +19,45 @@ internal object NativeScalarUnionSerialization {
         unionType: ClassName,
         variants: List<GeneratorScalarUnionVariantDescriptor>,
         library: SerializationLibrary,
+        objectMembers: List<TypeName> = emptyList(),
     ) {
         when (library) {
-            SerializationLibrary.JACKSON -> type.addJacksonSerialization(unionType, variants, jackson3 = false)
-            SerializationLibrary.JACKSON_3 -> type.addJacksonSerialization(unionType, variants, jackson3 = true)
-            SerializationLibrary.KOTLINX_SERIALIZATION -> type.addKotlinxSerialization(unionType, variants)
+            SerializationLibrary.JACKSON -> type.addJacksonSerialization(unionType, variants, objectMembers, jackson3 = false)
+            SerializationLibrary.JACKSON_3 -> type.addJacksonSerialization(unionType, variants, objectMembers, jackson3 = true)
+            SerializationLibrary.KOTLINX_SERIALIZATION -> type.addKotlinxSerialization(unionType, variants, objectMembers)
         }
+    }
+
+    fun addJacksonMemberOverrides(
+        type: TypeSpec.Builder,
+        library: SerializationLibrary,
+    ) {
+        val databindPackage =
+            when (library) {
+                SerializationLibrary.JACKSON -> "com.fasterxml.jackson.databind"
+                SerializationLibrary.JACKSON_3 -> "tools.jackson.databind"
+                SerializationLibrary.KOTLINX_SERIALIZATION -> return
+            }
+        val serializerName = if (library == SerializationLibrary.JACKSON_3) "ValueSerializer" else "JsonSerializer"
+        val deserializerName = if (library == SerializationLibrary.JACKSON_3) "ValueDeserializer" else "JsonDeserializer"
+        type
+            .addAnnotation(
+                AnnotationSpec
+                    .builder(ClassName("$databindPackage.annotation", "JsonSerialize"))
+                    .addMember("using = %T::class", ClassName(databindPackage, serializerName, "None"))
+                    .build(),
+            ).addAnnotation(
+                AnnotationSpec
+                    .builder(ClassName("$databindPackage.annotation", "JsonDeserialize"))
+                    .addMember("using = %T::class", ClassName(databindPackage, deserializerName, "None"))
+                    .build(),
+            )
     }
 
     private fun TypeSpec.Builder.addJacksonSerialization(
         unionType: ClassName,
         variants: List<GeneratorScalarUnionVariantDescriptor>,
+        objectMembers: List<TypeName>,
         jackson3: Boolean,
     ) {
         val databindPackage = if (jackson3) "tools.jackson.databind" else "com.fasterxml.jackson.databind"
@@ -63,7 +92,7 @@ internal object NativeScalarUnionSerialization {
                         .addParameter("value", unionType)
                         .addParameter("generator", jsonGenerator)
                         .addParameter("serializers", serializationContext)
-                        .addCode(variants.jacksonSerializeCode(unionType))
+                        .addCode(variants.jacksonSerializeCode(unionType, objectMembers, jackson3))
                         .build(),
                 ).build(),
         )
@@ -78,13 +107,17 @@ internal object NativeScalarUnionSerialization {
                         .addParameter("parser", jsonParser)
                         .addParameter("context", deserializationContext)
                         .returns(unionType)
-                        .addCode(variants.jacksonDeserializeCode(unionType, jsonToken))
+                        .addCode(variants.jacksonDeserializeCode(unionType, objectMembers, jsonToken))
                         .build(),
                 ).build(),
         )
     }
 
-    private fun List<GeneratorScalarUnionVariantDescriptor>.jacksonSerializeCode(unionType: ClassName): CodeBlock =
+    private fun List<GeneratorScalarUnionVariantDescriptor>.jacksonSerializeCode(
+        unionType: ClassName,
+        objectMembers: List<TypeName>,
+        jackson3: Boolean,
+    ): CodeBlock =
         CodeBlock
             .builder()
             .beginControlFlow("when (value)")
@@ -96,11 +129,19 @@ internal object NativeScalarUnionSerialization {
                         variant.type.jacksonWriteMethod(),
                     )
                 }
+                objectMembers.forEach { member ->
+                    if (jackson3) {
+                        addStatement("is %T -> serializers.writeValue(generator, value)", member)
+                    } else {
+                        addStatement("is %T -> serializers.defaultSerializeValue(value, generator)", member)
+                    }
+                }
             }.endControlFlow()
             .build()
 
     private fun List<GeneratorScalarUnionVariantDescriptor>.jacksonDeserializeCode(
         unionType: ClassName,
+        objectMembers: List<TypeName>,
         jsonToken: ClassName,
     ): CodeBlock {
         val integerVariant = firstOrNull { it.type.isInteger() }
@@ -156,6 +197,24 @@ internal object NativeScalarUnionSerialization {
                         }
                     addStatement("$tokens -> %T(parser.%L)", *arguments)
                 }
+                if (objectMembers.isNotEmpty()) {
+                    beginControlFlow("%T.START_OBJECT ->", jsonToken)
+                    addStatement("val node = context.readTree(parser)")
+                    beginControlFlow("val matches = buildList<%T>", unionType)
+                    objectMembers.forEach { member ->
+                        addStatement(
+                            "runCatching { context.readTreeAsValue(node, %T::class.java) }.getOrNull()?.let(::add)",
+                            member,
+                        )
+                    }
+                    endControlFlow()
+                    addStatement(
+                        "matches.singleOrNull() ?: context.reportInputMismatch(%T::class.java, %S + matches.size)",
+                        unionType,
+                        "Expected exactly one ${unionType.simpleName} object variant but matched ",
+                    )
+                    endControlFlow()
+                }
                 addStatement(
                     "else -> context.reportInputMismatch(%T::class.java, %S)",
                     unionType,
@@ -168,6 +227,7 @@ internal object NativeScalarUnionSerialization {
     private fun TypeSpec.Builder.addKotlinxSerialization(
         unionType: ClassName,
         variants: List<GeneratorScalarUnionVariantDescriptor>,
+        objectMembers: List<TypeName>,
     ) {
         val serializer = unionType.nestedClass(SERIALIZER_NAME)
         val kSerializer = ClassName("kotlinx.serialization", "KSerializer")
@@ -200,7 +260,7 @@ internal object NativeScalarUnionSerialization {
                         .addModifiers(KModifier.OVERRIDE)
                         .addParameter("encoder", encoder)
                         .addParameter("value", unionType)
-                        .addCode(variants.kotlinxSerializeCode(unionType, jsonEncoder, jsonPrimitive))
+                        .addCode(variants.kotlinxSerializeCode(unionType, objectMembers, jsonEncoder, jsonPrimitive))
                         .build(),
                 ).addFunction(
                     FunSpec
@@ -208,7 +268,7 @@ internal object NativeScalarUnionSerialization {
                         .addModifiers(KModifier.OVERRIDE)
                         .addParameter("decoder", decoder)
                         .returns(unionType)
-                        .addCode(variants.kotlinxDeserializeCode(unionType, jsonDecoder, jsonPrimitive))
+                        .addCode(variants.kotlinxDeserializeCode(unionType, objectMembers, jsonDecoder, jsonPrimitive))
                         .build(),
                 ).build(),
         )
@@ -216,13 +276,14 @@ internal object NativeScalarUnionSerialization {
 
     private fun List<GeneratorScalarUnionVariantDescriptor>.kotlinxSerializeCode(
         unionType: ClassName,
+        objectMembers: List<TypeName>,
         jsonEncoder: ClassName,
         jsonPrimitive: ClassName,
     ): CodeBlock =
         CodeBlock
             .builder()
             .addStatement("val jsonEncoder = encoder as? %T ?: error(%S)", jsonEncoder, "Scalar unions require a JSON encoder")
-            .beginControlFlow("val primitive = when (value)")
+            .beginControlFlow("val %L = when (value)", if (objectMembers.isEmpty()) "primitive" else "element")
             .apply {
                 forEach { variant ->
                     addStatement(
@@ -231,23 +292,52 @@ internal object NativeScalarUnionSerialization {
                         jsonPrimitive,
                     )
                 }
+                objectMembers.forEach { member ->
+                    addStatement("is %T -> jsonEncoder.json.encodeToJsonElement(%T.serializer(), value)", member, member)
+                }
             }.endControlFlow()
-            .addStatement("jsonEncoder.encodeJsonElement(primitive)")
+            .addStatement("jsonEncoder.encodeJsonElement(%L)", if (objectMembers.isEmpty()) "primitive" else "element")
             .build()
 
     private fun List<GeneratorScalarUnionVariantDescriptor>.kotlinxDeserializeCode(
         unionType: ClassName,
+        objectMembers: List<TypeName>,
         jsonDecoder: ClassName,
         jsonPrimitive: ClassName,
     ): CodeBlock =
         CodeBlock
             .builder()
             .addStatement("val jsonDecoder = decoder as? %T ?: error(%S)", jsonDecoder, "Scalar unions require a JSON decoder")
-            .addStatement(
-                "val primitive = jsonDecoder.decodeJsonElement() as? %T ?: error(%S)",
-                jsonPrimitive,
-                "Expected a JSON scalar for ${unionType.simpleName}",
-            ).beginControlFlow("return when")
+            .apply {
+                if (objectMembers.isEmpty()) {
+                    addStatement(
+                        "val primitive = jsonDecoder.decodeJsonElement() as? %T ?: error(%S)",
+                        jsonPrimitive,
+                        "Expected a JSON scalar for ${unionType.simpleName}",
+                    )
+                } else {
+                    addStatement("val element = jsonDecoder.decodeJsonElement()")
+                    beginControlFlow("if (element is %T)", ClassName("kotlinx.serialization.json", "JsonObject"))
+                    beginControlFlow("val matches = buildList<%T>", unionType)
+                    objectMembers.forEach { member ->
+                        addStatement(
+                            "runCatching { jsonDecoder.json.decodeFromJsonElement(%T.serializer(), element) }.getOrNull()?.let(::add)",
+                            member,
+                        )
+                    }
+                    endControlFlow()
+                    addStatement(
+                        "return matches.singleOrNull() ?: error(%S + matches.size)",
+                        "Expected exactly one ${unionType.simpleName} object variant but matched ",
+                    )
+                    endControlFlow()
+                    addStatement(
+                        "val primitive = element as? %T ?: error(%S)",
+                        jsonPrimitive,
+                        "Expected a JSON scalar or object for ${unionType.simpleName}",
+                    )
+                }
+            }.beginControlFlow("return when")
             .apply {
                 firstOrNull { it.type == OasType.Text }?.let { variant ->
                     addStatement("primitive.isString -> %T(primitive.content)", unionType.nestedClass(variant.name))

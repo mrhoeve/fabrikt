@@ -18,6 +18,7 @@ import com.cjbooms.fabrikt.model.ModelType
 import com.cjbooms.fabrikt.model.Models
 import com.cjbooms.fabrikt.model.OasType
 import com.cjbooms.fabrikt.model.asResolvedFallback
+import com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.util.NormalisedString.toEnumName
 import com.cjbooms.fabrikt.util.NormalisedString.toKotlinParameterName
@@ -51,6 +52,8 @@ internal class NativeModelGenerator(
                                 interfaceType = modelType(descriptor.name),
                                 discriminatorProperty = descriptor.discriminator?.propertyName,
                                 discriminatorMapping = descriptor.discriminatorMapping(member),
+                                usesCustomSerialization =
+                                    descriptor.discriminator == null && descriptor.oneOfMembers.any { it.scalarVariant() != null },
                             )
                     }
                 }.groupBy({ it.first }, { it.second })
@@ -61,9 +64,7 @@ internal class NativeModelGenerator(
                         descriptor.scalarUnionVariants.isNotEmpty() -> descriptor.toScalarUnion()
                         descriptor.resolvedType() == null -> null
                         descriptor.oneOfMembers.isNotEmpty() ->
-                            descriptor.toUnionInterface(
-                                descriptor.oneOfMembers.all { member -> member.schemaIdentity in objectModelIdentities },
-                            )
+                            descriptor.toUnionInterface(objectModelIdentities)
                         descriptor.resolvedType() == OasType.Object ->
                             descriptor.toDataClass(
                                 membershipsByMember[MemberDirection(descriptor.schemaIdentity, descriptor.direction)].orEmpty(),
@@ -85,11 +86,18 @@ internal class NativeModelGenerator(
         return type.build()
     }
 
-    private fun GeneratorScalarUnionVariantDescriptor.toScalarUnionVariant(unionType: TypeName): TypeSpec {
+    private fun GeneratorScalarUnionVariantDescriptor.toScalarUnionVariant(unionType: TypeName): TypeSpec =
+        scalarUnionVariant(name, kotlinType, unionType)
+
+    private fun scalarUnionVariant(
+        variantName: String,
+        kotlinType: GeneratorKotlinTypeResolution.Resolved,
+        unionType: TypeName,
+    ): TypeSpec {
         val valueType = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
         val constructor = FunSpec.constructorBuilder().addParameter("value", valueType).build()
         return TypeSpec
-            .classBuilder(name)
+            .classBuilder(variantName)
             .addModifiers(KModifier.DATA)
             .addSuperinterface(unionType)
             .primaryConstructor(constructor)
@@ -106,6 +114,9 @@ internal class NativeModelGenerator(
         var additionalPropertiesSerialization: Pair<String, TypeName>? = null
         description?.let { type.addKdoc("%L", it) }
         if (!usesKotlinxAdditionalProperties) serializationAnnotations.addClassAnnotation(type)
+        if (unionMemberships.any(UnionMembership::usesCustomSerialization)) {
+            NativeScalarUnionSerialization.addJacksonMemberOverrides(type, MutableSettings.serializationLibrary)
+        }
         unionMemberships.map(UnionMembership::interfaceType).forEach(type::addSuperinterface)
         if (MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION) {
             val mappings = unionMemberships.mapNotNull(UnionMembership::discriminatorMapping).distinct()
@@ -206,27 +217,54 @@ internal class NativeModelGenerator(
         return generateSequence("additionalProperties") { it + "Extra" }.first(names::add)
     }
 
-    private fun GeneratorModelDescriptor.toUnionInterface(supportsKotlinxObjectUnionSerializer: Boolean): TypeSpec {
+    private fun GeneratorModelDescriptor.toUnionInterface(objectModelIdentities: Set<GeneratorSchemaIdentity>): TypeSpec {
         val members = oneOfMembers
         val unionType = modelType(name)
+        val objectMembers = members.filter { member -> member.schemaIdentity in objectModelIdentities }
+        val scalarVariants = if (discriminator == null) members.mapNotNull { member -> member.scalarVariant() } else emptyList()
         val type = TypeSpec.interfaceBuilder(name).addModifiers(KModifier.SEALED)
         description?.let { type.addKdoc("%L", it) }
-        if (
-            discriminator == null &&
-            MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION &&
-            supportsKotlinxObjectUnionSerializer
-        ) {
-            NativeObjectUnionSerialization.apply(type, unionType, members.map { it.typeName() })
-        } else {
-            serializationAnnotations.addClassAnnotation(type)
+        scalarVariants.forEach { variant -> type.addType(scalarUnionVariant(variant.name, variant.kotlinType, unionType)) }
+        when {
+            scalarVariants.isNotEmpty() ->
+                NativeScalarUnionSerialization.apply(
+                    type,
+                    unionType,
+                    scalarVariants,
+                    MutableSettings.serializationLibrary,
+                    objectMembers.map { member -> member.typeName() },
+                )
+            discriminator == null && MutableSettings.serializationLibrary == SerializationLibrary.KOTLINX_SERIALIZATION ->
+                NativeObjectUnionSerialization.apply(type, unionType, objectMembers.map { member -> member.typeName() })
+            else -> serializationAnnotations.addClassAnnotation(type)
         }
-        if (discriminator != null) {
+        if (scalarVariants.isEmpty() && discriminator != null) {
             serializationAnnotations.addBasePolymorphicTypeAnnotation(type, discriminator.propertyName)
             serializationAnnotations.addPolymorphicSubTypesAnnotation(type, discriminatorMappings(members))
-        } else if (MutableSettings.serializationLibrary != SerializationLibrary.KOTLINX_SERIALIZATION) {
+        } else if (
+            scalarVariants.isEmpty() &&
+            discriminator == null &&
+            MutableSettings.serializationLibrary != SerializationLibrary.KOTLINX_SERIALIZATION
+        ) {
             serializationAnnotations.addPolymorphicSubTypeDeductionAnnotation(type, members.map { it.typeName() })
         }
         return type.build()
+    }
+
+    private fun GeneratorUnionMemberDescriptor.scalarVariant(): GeneratorScalarUnionVariantDescriptor? {
+        val type = (classification as? GeneratorSchemaTypeClassification.Resolved)?.type ?: return null
+        val name =
+            when (type) {
+                OasType.Text -> "StringValue"
+                OasType.Boolean -> "BooleanValue"
+                OasType.Integer, OasType.Int32 -> "IntegerValue"
+                OasType.Int64 -> "LongValue"
+                OasType.Number -> "NumberValue"
+                OasType.Float -> "FloatValue"
+                OasType.Double -> "DoubleValue"
+                else -> return null
+            }
+        return GeneratorScalarUnionVariantDescriptor(name, type, kotlinType)
     }
 
     private fun GeneratorModelDescriptor.discriminatorMappings(members: List<GeneratorUnionMemberDescriptor>): Map<String, TypeName> {
@@ -310,7 +348,12 @@ internal class NativeModelGenerator(
         return type.build()
     }
 
-    private fun GeneratorModelDescriptor.resolvedType(): OasType? = (classification as? GeneratorSchemaTypeClassification.Resolved)?.type
+    private fun GeneratorModelDescriptor.resolvedType(): OasType? =
+        (classification as? GeneratorSchemaTypeClassification.Resolved)?.type
+            ?: (kotlinType as? GeneratorKotlinTypeResolution.Resolved)
+                ?.typeInfo
+                ?.takeIf { it is KotlinTypeInfo.Object }
+                ?.let { OasType.Object }
 
     private fun GeneratorUnionMemberDescriptor.typeName(): TypeName = ModelGenerator.toModelType(basePackage, kotlinType.typeInfo)
 
@@ -334,7 +377,7 @@ internal class NativeModelGenerator(
         }
 
     private data class MemberDirection(
-        val identity: com.cjbooms.fabrikt.parser.GeneratorSchemaIdentity,
+        val identity: GeneratorSchemaIdentity,
         val direction: GeneratorModelDirection,
     )
 
@@ -342,6 +385,7 @@ internal class NativeModelGenerator(
         val interfaceType: TypeName,
         val discriminatorProperty: String?,
         val discriminatorMapping: String?,
+        val usesCustomSerialization: Boolean,
     )
 
     private fun GeneratorPropertyDescriptor.addValidationAnnotations(
