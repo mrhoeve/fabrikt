@@ -125,28 +125,39 @@ internal object GeneratorModelDescriptorBuilder {
                     }.orEmpty(),
             discriminator = (resolvedSchema as? GeneratorObjectSchema)?.discriminator,
             additionalPropertiesType =
-                (resolvedSchema as? GeneratorObjectSchema)
-                    ?.additionalProperties
-                    ?.takeUnless { it is GeneratorBooleanSchema && !it.allowsAnyValue }
-                    ?.let { additionalProperties ->
-                        val objectSchema = document.resolve(additionalProperties) as? GeneratorObjectSchema
-                        if (
-                            objectSchema != null &&
-                            objectSchema.properties.isEmpty() &&
-                            (objectSchema.oneOf.isNotEmpty() || objectSchema.anyOf.isNotEmpty())
-                        ) {
-                            GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, false)
-                        } else {
-                            typeResolver.resolve(additionalProperties).asResolvedFallback()
-                        }
-                    }?.let { resolution ->
-                        if (resolution.typeInfo is KotlinTypeInfo.UntypedObject) {
-                            resolution.copy(typeInfo = KotlinTypeInfo.AnyType)
-                        } else {
-                            resolution
-                        }
-                    },
+                (resolvedSchema as? GeneratorObjectSchema)?.additionalPropertiesType(document, typeResolver),
         )
+    }
+
+    private fun GeneratorObjectSchema.additionalPropertiesType(
+        document: GeneratorSchemaDocument,
+        typeResolver: GeneratorKotlinTypeResolver,
+    ): GeneratorKotlinTypeResolution.Resolved? {
+        if (patternProperties.isNotEmpty()) {
+            val includesUnconstrainedValues =
+                additionalProperties == null ||
+                    (additionalProperties as? GeneratorBooleanSchema)?.allowsAnyValue == true
+            val constrainedSchemas =
+                patternProperties.values +
+                    listOfNotNull(additionalProperties?.takeUnless { it is GeneratorBooleanSchema })
+            return typeResolver.resolveCommonValueType(constrainedSchemas, includesUnconstrainedValues)
+        }
+        val additionalProperties = additionalProperties ?: return null
+        if (additionalProperties is GeneratorBooleanSchema && !additionalProperties.allowsAnyValue) return null
+        val objectSchema = document.resolve(additionalProperties) as? GeneratorObjectSchema
+        val resolution =
+            if (
+                objectSchema != null &&
+                objectSchema.properties.isEmpty() &&
+                (objectSchema.oneOf.isNotEmpty() || objectSchema.anyOf.isNotEmpty())
+            ) {
+                GeneratorKotlinTypeResolution.Resolved(KotlinTypeInfo.AnyType, false)
+            } else {
+                typeResolver.resolve(additionalProperties).asResolvedFallback()
+            }
+        return resolution?.let {
+            if (it.typeInfo is KotlinTypeInfo.UntypedObject) it.copy(typeInfo = KotlinTypeInfo.AnyType) else it
+        }
     }
 
     private fun collectModelSchemas(document: GeneratorSchemaDocument): List<RegisteredModel> {
@@ -214,6 +225,9 @@ internal object GeneratorModelDescriptorBuilder {
                 }
             objectSchema.properties.forEach { (propertyName, property) ->
                 visit(property, modelRootName + propertyName.toModelClassName(), modelRootName)
+            }
+            objectSchema.patternProperties.values.forEachIndexed { index, property ->
+                visit(property, parentName + "Pattern${index + 1}Value", modelRootName)
             }
 
             fun visitCompositionProperties(member: GeneratorSchema) {
@@ -323,6 +337,7 @@ internal object GeneratorModelDescriptorBuilder {
                     ?.supportsGeneratedScalarUnion() == true ||
                     (classification as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
+                    patternProperties.isNotEmpty() ||
                     allOf.isNotEmpty() ||
                     oneOf.isNotEmpty() ||
                     anyOf.isNotEmpty()

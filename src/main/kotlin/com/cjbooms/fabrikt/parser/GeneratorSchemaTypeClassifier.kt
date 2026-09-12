@@ -258,7 +258,9 @@ internal object GeneratorSchemaTypeClassifier {
         resolve: (GeneratorSchema) -> GeneratorSchema,
         classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
     ): SourceSchemaType? {
-        if (schema.properties.isNotEmpty() || schema.hasAdditionalProperties()) return SourceSchemaType.OBJECT
+        if (schema.properties.isNotEmpty() || schema.patternProperties.isNotEmpty() || schema.hasAdditionalProperties()) {
+            return SourceSchemaType.OBJECT
+        }
         if (schema.items != null || schema.prefixItems.isNotEmpty()) return SourceSchemaType.ARRAY
 
         return schema
@@ -309,6 +311,7 @@ internal object GeneratorSchemaTypeClassifier {
 
     private fun GeneratorObjectSchema.classifyObject(): OasType =
         when {
+            patternProperties.isNotEmpty() -> OasType.Object
             properties.isEmpty() && hasAdditionalProperties() -> OasType.Map
             properties.isEmpty() && additionalProperties == null && compositionSchemas().none() -> OasType.UntypedObject
             else -> OasType.Object

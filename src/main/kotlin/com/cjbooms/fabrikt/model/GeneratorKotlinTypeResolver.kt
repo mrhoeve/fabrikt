@@ -129,6 +129,17 @@ internal class GeneratorKotlinTypeResolver(
         )
     }
 
+    fun resolveCommonValueType(
+        schemas: Collection<GeneratorSchema>,
+        includesUnconstrainedValues: Boolean,
+    ): GeneratorKotlinTypeResolution.Resolved {
+        if (includesUnconstrainedValues) return fallbackValueType()
+        val candidates = schemas.mapNotNull { resolve(it).asResolvedFallback() }
+        if (candidates.size != schemas.size) return fallbackValueType()
+        val type = candidates.map { it.typeInfo }.distinct().singleOrNull() ?: return fallbackValueType()
+        return GeneratorKotlinTypeResolution.Resolved(type, candidates.any { it.nullable })
+    }
+
     fun resolveProperty(
         schema: GeneratorSchema,
         enclosingModelName: String,
@@ -279,6 +290,9 @@ internal class GeneratorKotlinTypeResolver(
         } else {
             KotlinTypeInfo.AnyType
         }
+
+    private fun fallbackValueType(): GeneratorKotlinTypeResolution.Resolved =
+        GeneratorKotlinTypeResolution.Resolved(unionFallback(), nullable = true)
 }
 
 internal fun GeneratorSchemaTypeClassification.Fallback.supportsGeneratedScalarUnion(): Boolean =
