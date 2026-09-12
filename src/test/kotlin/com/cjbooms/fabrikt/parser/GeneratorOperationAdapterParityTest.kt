@@ -57,6 +57,8 @@ class GeneratorOperationAdapterParityTest {
         assertThat(nativeOperation.description).isEqualTo(legacyOperation.description)
         assertThat(nativeOperation.tags).isEqualTo(legacyOperation.tags)
         assertThat(nativeOperation.deprecated).isEqualTo(legacyOperation.deprecated)
+        assertThat(nativeOperation.externalDocumentation?.description).isEqualTo("Migration guide")
+        assertThat(nativeOperation.externalDocumentation?.url).isEqualTo("https://docs.example.com/migrate")
         assertThat(nativeOperation.security).isEqualTo(legacyOperation.security)
         assertThat(nativeOperation.extensions.keys).isEqualTo(legacyOperation.extensions.keys)
 
@@ -172,6 +174,9 @@ class GeneratorOperationAdapterParityTest {
               description: Replaces one item.
               tags: [items]
               deprecated: true
+              externalDocs:
+                description: Migration guide
+                url: https://docs.example.com/migrate
               parameters:
                 - name: verbose
                   in: query

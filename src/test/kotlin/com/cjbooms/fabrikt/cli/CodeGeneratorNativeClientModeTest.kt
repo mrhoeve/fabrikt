@@ -73,6 +73,7 @@ class CodeGeneratorNativeClientModeTest {
 
         assertThat(generated)
             .contains("@Deprecated(message = \"This API operation is deprecated.\")")
+            .contains("[Migration guide](https://docs.example.com/migrate)")
             .contains("public data class Subject(")
             .contains("findSubject")
             .contains("id: Int")
@@ -1112,6 +1113,9 @@ class CodeGeneratorNativeClientModeTest {
             post:
               operationId: findSubject
               deprecated: true
+              externalDocs:
+                description: Migration guide
+                url: https://docs.example.com/migrate
               summary: Find a subject
               parameters:
                 - name: includeInactive

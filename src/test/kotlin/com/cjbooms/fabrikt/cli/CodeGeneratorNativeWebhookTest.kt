@@ -30,6 +30,7 @@ class CodeGeneratorNativeWebhookTest {
 
         assertThat(generated)
             .contains("@Deprecated(message = \"This API operation is deprecated.\")")
+            .contains("[Webhook guide](https://docs.example.com/webhooks)")
             .contains("public interface OrderChangedWebhookHandler")
             .contains("receiveOrderChange(")
             .contains("orderChange: OrderChange")
@@ -51,6 +52,9 @@ class CodeGeneratorNativeWebhookTest {
             post:
               operationId: receiveOrderChange
               deprecated: true
+              externalDocs:
+                description: Webhook guide
+                url: https://docs.example.com/webhooks
               parameters:
                 - name: trace-id
                   in: header

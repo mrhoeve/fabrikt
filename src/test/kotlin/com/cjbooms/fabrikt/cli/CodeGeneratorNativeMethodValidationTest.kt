@@ -31,6 +31,7 @@ class CodeGeneratorNativeMethodValidationTest {
 
         assertThat(generated)
             .contains("@Deprecated(message = \"This API operation is deprecated.\")")
+            .contains("[Query guide](https://docs.example.com/query)")
             .contains("public interface CustomHttpMethodHandler")
             .contains("Handles the `QUERY /subjects` operation using application-defined routing")
             .contains("querySubjects(")
@@ -196,6 +197,9 @@ class CodeGeneratorNativeMethodValidationTest {
             query:
               operationId: querySubjects
               deprecated: true
+              externalDocs:
+                description: Query guide
+                url: https://docs.example.com/query
               requestBody:
                 required: true
                 content:
