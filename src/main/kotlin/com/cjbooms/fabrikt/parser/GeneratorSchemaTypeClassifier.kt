@@ -305,6 +305,7 @@ internal object GeneratorSchemaTypeClassifier {
             metadata.format.equals("uuid", ignoreCase = true) -> OasType.Uuid
             metadata.format.equals("uri", ignoreCase = true) -> OasType.Uri
             metadata.format.equals("byte", ignoreCase = true) -> OasType.Base64String
+            metadata.contentEncoding.equals("base64", ignoreCase = true) -> OasType.Base64String
             metadata.format.equals("binary", ignoreCase = true) -> OasType.Binary
             else -> OasType.Text
         }
