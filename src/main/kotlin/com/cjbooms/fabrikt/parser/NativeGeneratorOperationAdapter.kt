@@ -6,18 +6,17 @@ internal class NativeGeneratorOperationAdapter(
     private val document: SourceOperationDocument,
     private val resolveSchema: (GeneratorSchema) -> GeneratorSchema = { it },
 ) {
-    fun adapt(): GeneratorOperationDocument =
-        GeneratorOperationDocument(
-            serverUrl =
-                document.servers
-                    ?.values
-                    ?.firstOrNull()
-                    ?.url,
+    fun adapt(): GeneratorOperationDocument {
+        val serverUrl =
+            document.servers
+                ?.values
+                ?.firstOrNull()
+                ?.resolvedUrl()
+
+        return GeneratorOperationDocument(
+            serverUrl = serverUrl,
             basePath =
-                document.servers
-                    ?.values
-                    ?.firstOrNull()
-                    ?.url
+                serverUrl
                     ?.let { url -> runCatching { URI.create(url).path }.getOrNull() }
                     .orEmpty()
                     .removeSuffix("/"),
@@ -29,6 +28,12 @@ internal class NativeGeneratorOperationAdapter(
             paths = document.paths.map { path -> path.resolve().toGeneratorPathItem(path.key) },
             webhooks = document.webhooks.map { path -> path.resolve().toGeneratorPathItem(path.key) },
         )
+    }
+
+    private fun SourceServer.resolvedUrl(): String? =
+        variables.entries.fold(url) { resolvedUrl, (name, variable) ->
+            resolvedUrl?.replace("{$name}", variable.defaultValue ?: return@fold resolvedUrl)
+        }
 
     private fun SourcePathItem.toGeneratorPathItem(path: String): GeneratorPathItem =
         GeneratorPathItem(
