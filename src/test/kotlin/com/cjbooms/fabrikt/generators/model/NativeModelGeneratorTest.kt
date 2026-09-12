@@ -1,5 +1,6 @@
 package com.cjbooms.fabrikt.generators.model
 
+import com.cjbooms.fabrikt.cli.CodeGenTypeOverride
 import com.cjbooms.fabrikt.cli.SerializationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
@@ -398,6 +399,30 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates byte arrays for base64 content encoding`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val subject = generateContentEncoding(version)
+
+            assertThat(subject)
+                .contains("public val encoded: ByteArray")
+                .contains("public val urlEncoded: String")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `honors byte as string for base64 content encoding`(version: String) {
+        MutableSettings.updateSettings(typeOverrides = setOf(CodeGenTypeOverride.BYTE_AS_STRING))
+
+        assertThat(generateContentEncoding(version))
+            .contains("public val encoded: String")
+            .contains("public val urlEncoded: String")
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates native models from enum values without declared types`(version: String) {
         val generated = generateValueConstraints(enumValueOpenApi.replace("VERSION", version))
@@ -637,6 +662,18 @@ class NativeModelGeneratorTest {
                 ),
             ).files
             .associate { it.name to it.toString() }
+
+    private fun generateContentEncoding(version: String): String =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(contentEncodingOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .single { it.name == "Subject" }
+            .toString()
 
     private fun generateValueConstraints(openApi: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -977,6 +1014,28 @@ class NativeModelGeneratorTest {
                   properties:
                     value: { type: integer }
               additionalProperties: false
+        """.trimIndent()
+
+    private val contentEncodingOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Content encoding
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [encoded, urlEncoded]
+              properties:
+                encoded:
+                  type: string
+                  contentEncoding: base64
+                  contentMediaType: application/octet-stream
+                urlEncoded:
+                  type: string
+                  contentEncoding: base64url
         """.trimIndent()
 
     private val enumValueOpenApi =

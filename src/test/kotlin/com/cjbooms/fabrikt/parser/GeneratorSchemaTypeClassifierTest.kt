@@ -112,6 +112,24 @@ class GeneratorSchemaTypeClassifierTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `classifies base64 content encoding as encoded bytes`(version: String) {
+        val schemas =
+            parseSchemas(
+                version,
+                """
+                Encoded: { type: string, contentEncoding: base64 }
+                EncodedUppercase: { type: string, contentEncoding: BASE64 }
+                UrlEncoded: { type: string, contentEncoding: base64url }
+                """.trimIndent(),
+            )
+
+        assertResolved(schemas, "Encoded", OasType.Base64String)
+        assertResolved(schemas, "EncodedUppercase", OasType.Base64String)
+        assertResolved(schemas, "UrlEncoded", OasType.Text)
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `infers native types from enum value constraints`(version: String) {
         val schemas = parseSchemas(version, enumValueSchemas)
