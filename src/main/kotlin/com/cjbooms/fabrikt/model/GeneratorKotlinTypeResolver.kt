@@ -220,7 +220,7 @@ internal class GeneratorKotlinTypeResolver(
         }
 
     private fun resolveMap(schema: GeneratorObjectSchema): KotlinTypeInfo {
-        val valueSchema = schema.additionalProperties
+        val valueSchema = schema.additionalProperties ?: schema.unevaluatedProperties
         val valueType = valueSchema?.let(::resolve)?.asResolvedFallback()
         return KotlinTypeInfo.Map(valueType?.typeInfo ?: anyType())
     }

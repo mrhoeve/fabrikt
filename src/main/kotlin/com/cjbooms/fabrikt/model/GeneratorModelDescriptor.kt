@@ -359,6 +359,10 @@ internal object GeneratorModelDescriptorBuilder {
                     (classification as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
                     patternProperties.isNotEmpty() ||
+                    (
+                        unevaluatedProperties != null &&
+                            (classification as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Object
+                    ) ||
                     dependentSchemas.isNotEmpty() ||
                     thenSchema != null ||
                     elseSchema != null ||

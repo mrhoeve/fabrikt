@@ -258,7 +258,7 @@ internal object GeneratorSchemaTypeClassifier {
         resolve: (GeneratorSchema) -> GeneratorSchema,
         classifications: MutableMap<ClassificationKey, GeneratorSchemaTypeClassification>,
     ): SourceSchemaType? {
-        if (schema.properties.isNotEmpty() || schema.patternProperties.isNotEmpty() || schema.hasAdditionalProperties()) {
+        if (schema.properties.isNotEmpty() || schema.patternProperties.isNotEmpty() || schema.hasUnmatchedProperties()) {
             return SourceSchemaType.OBJECT
         }
         if (schema.items != null || schema.prefixItems.isNotEmpty()) return SourceSchemaType.ARRAY
@@ -313,13 +313,14 @@ internal object GeneratorSchemaTypeClassifier {
     private fun GeneratorObjectSchema.classifyObject(): OasType =
         when {
             patternProperties.isNotEmpty() || dependentSchemas.isNotEmpty() || thenSchema != null || elseSchema != null -> OasType.Object
-            properties.isEmpty() && hasAdditionalProperties() -> OasType.Map
-            properties.isEmpty() && additionalProperties == null && compositionSchemas().none() -> OasType.UntypedObject
+            properties.isEmpty() && hasUnmatchedProperties() -> OasType.Map
+            properties.isEmpty() && additionalProperties == null && unevaluatedProperties == null && compositionSchemas().none() ->
+                OasType.UntypedObject
             else -> OasType.Object
         }
 
-    private fun GeneratorObjectSchema.hasAdditionalProperties(): Boolean =
-        when (val value = additionalProperties) {
+    private fun GeneratorObjectSchema.hasUnmatchedProperties(): Boolean =
+        when (val value = additionalProperties ?: unevaluatedProperties) {
             null -> false
             is GeneratorBooleanSchema -> value.allowsAnyValue
             else -> true
