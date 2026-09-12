@@ -97,6 +97,37 @@ class SourceSchemaReferenceResolverTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves dynamic references from their initial dynamic anchors`(version: String) {
+        val document =
+            parse(
+                version,
+                """
+                components:
+                  schemas:
+                    Tree:
+                      ${'$'}dynamicAnchor: node
+                      type: object
+                      properties:
+                        children:
+                          type: array
+                          items:
+                            ${'$'}dynamicRef: '#node'
+                    StaticReference:
+                      ${'$'}ref: '#node'
+                """,
+            )
+        val tree = document.componentSchemas.getValue("Tree") as SourceObjectSchema
+        val dynamicReference = document.resolvedReference("#/components/schemas/Tree/properties/children/items")
+
+        assertThat(tree.dynamicAnchor).isEqualTo("node")
+        assertThat(dynamicReference.dynamic).isTrue()
+        assertThat(dynamicReference.target).isSameAs(tree)
+        assertThat(document.reference("#/components/schemas/StaticReference"))
+            .isInstanceOf(SourceSchemaReferenceResolution.Missing::class.java)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `classifies missing external and invalid schema references`(version: String) {
         val document =
             parse(

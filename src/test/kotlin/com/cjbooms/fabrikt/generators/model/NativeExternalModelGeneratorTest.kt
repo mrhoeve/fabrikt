@@ -96,6 +96,52 @@ class NativeExternalModelGeneratorTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates recursive models from external dynamic references`(version: String) {
+        Files.writeString(
+            tempDir.resolve("trees.yaml"),
+            """
+            schemas:
+              Tree:
+                ${'$'}dynamicAnchor: node
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }
+                  children:
+                    type: array
+                    items:
+                      ${'$'}dynamicRef: '#node'
+            """.trimIndent(),
+        )
+
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated =
+                generate(
+                    """
+                    openapi: $version
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths: {}
+                    components:
+                      schemas:
+                        Tree:
+                          ${'$'}ref: './trees.yaml#/schemas/Tree'
+                    """.trimIndent(),
+                )
+
+            assertThat(generated).containsOnlyKeys("Tree")
+            assertThat(generated.getValue("Tree"))
+                .contains("public val id: String")
+                .contains("public val children: List<Tree>? = null")
+                .contains(if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "Serializable" else "JsonProperty")
+        }
+    }
+
     @Test
     fun `keeps component names for identical pointers in different external documents`() {
         writeExternalDefinition("first.yaml", "left")
