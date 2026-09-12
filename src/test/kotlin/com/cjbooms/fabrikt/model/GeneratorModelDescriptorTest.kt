@@ -136,6 +136,36 @@ class GeneratorModelDescriptorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `describes unevaluated object values without overriding explicit additional properties`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(unevaluatedPropertiesOpenApi.replace("VERSION", version))
+
+        val models = GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
+
+        assertThat(models.map(GeneratorModelDescriptor::name))
+            .containsExactly(
+                "TypedUnevaluated",
+                "OpenUnevaluated",
+                "ClosedUnevaluated",
+                "PatternedUnevaluated",
+                "NestedUnevaluated",
+                "ExplicitAdditional",
+                "NestedUnevaluatedUnevaluatedValue",
+            )
+        assertThat(models.single { it.name == "TypedUnevaluated" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Integer)
+        assertThat(models.single { it.name == "OpenUnevaluated" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.AnyType)
+        assertThat(models.single { it.name == "ClosedUnevaluated" }.additionalPropertiesType).isNull()
+        assertThat(models.single { it.name == "PatternedUnevaluated" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Text)
+        assertThat(models.single { it.name == "NestedUnevaluated" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Object("NestedUnevaluatedUnevaluatedValue"))
+        assertThat(models.single { it.name == "ExplicitAdditional" }.additionalPropertiesType?.typeInfo)
+            .isEqualTo(KotlinTypeInfo.Integer)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `projects conditional object properties as optional model fields`(version: String) {
         val parsed = OpenApiDocumentParser.parse(conditionalPropertiesOpenApi.replace("VERSION", version))
 
@@ -312,6 +342,52 @@ class GeneratorModelDescriptorTest {
                 required: [region]
                 properties:
                   region: { type: string }
+        """.trimIndent()
+
+    private val unevaluatedPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Unevaluated properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            TypedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: { type: integer }
+            OpenUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: true
+            ClosedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: false
+            PatternedUnevaluated:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              unevaluatedProperties: false
+            NestedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties:
+                type: object
+                required: [value]
+                properties:
+                  value: { type: string }
+            ExplicitAdditional:
+              type: object
+              properties:
+                id: { type: string }
+              additionalProperties: { type: integer }
+              unevaluatedProperties: { type: string }
         """.trimIndent()
 
     private fun operationReferencesOpenApi(version: String) =

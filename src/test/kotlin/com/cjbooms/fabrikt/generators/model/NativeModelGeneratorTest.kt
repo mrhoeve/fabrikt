@@ -422,6 +422,33 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates native unevaluated properties as additional value maps`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+            val propertyName = if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "additionalProperties" else "properties"
+            val anyType = if (library == SerializationLibrary.KOTLINX_SERIALIZATION) "JsonElement" else "Any"
+
+            val generated = generateUnevaluatedProperties(version)
+
+            assertThat(generated.getValue("TypedUnevaluated"))
+                .contains("public val $propertyName: MutableMap<String, Int?> = mutableMapOf()")
+            assertThat(generated.getValue("OpenUnevaluated"))
+                .contains("public val $propertyName: MutableMap<String, $anyType?> = mutableMapOf()")
+            assertThat(generated.getValue("ClosedUnevaluated"))
+                .doesNotContain("MutableMap<String,")
+            assertThat(generated.getValue("PatternedUnevaluated"))
+                .contains("public val $propertyName: MutableMap<String, String?> = mutableMapOf()")
+            assertThat(generated.getValue("NestedUnevaluated"))
+                .contains("MutableMap<String, NestedUnevaluatedUnevaluatedValue?>")
+            assertThat(generated.getValue("NestedUnevaluatedUnevaluatedValue"))
+                .contains("public val `value`: String")
+            assertThat(generated.getValue("ExplicitAdditional"))
+                .contains("public val $propertyName: MutableMap<String, Int?> = mutableMapOf()")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates byte arrays for base64 content encoding`(version: String) {
         SerializationLibrary.entries.forEach { library ->
             MutableSettings.updateSettings(serializationLibrary = library)
@@ -704,6 +731,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(patternPropertiesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateUnevaluatedProperties(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(unevaluatedPropertiesOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -1071,6 +1109,52 @@ class NativeModelGeneratorTest {
                   properties:
                     value: { type: integer }
               additionalProperties: false
+        """.trimIndent()
+
+    private val unevaluatedPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Unevaluated properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            TypedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: { type: integer }
+            OpenUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: true
+            ClosedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties: false
+            PatternedUnevaluated:
+              type: object
+              patternProperties:
+                '^S_': { type: string }
+              unevaluatedProperties: false
+            NestedUnevaluated:
+              type: object
+              properties:
+                id: { type: string }
+              unevaluatedProperties:
+                type: object
+                required: [value]
+                properties:
+                  value: { type: string }
+            ExplicitAdditional:
+              type: object
+              properties:
+                id: { type: string }
+              additionalProperties: { type: integer }
+              unevaluatedProperties: { type: string }
         """.trimIndent()
 
     private val contentEncodingOpenApi =
