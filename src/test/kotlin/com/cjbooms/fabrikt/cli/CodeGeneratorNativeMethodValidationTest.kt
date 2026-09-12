@@ -30,6 +30,7 @@ class CodeGeneratorNativeMethodValidationTest {
                 .joinToString("\n")
 
         assertThat(generated)
+            .contains("@Deprecated(message = \"This API operation is deprecated.\")")
             .contains("public interface CustomHttpMethodHandler")
             .contains("Handles the `QUERY /subjects` operation using application-defined routing")
             .contains("querySubjects(")
@@ -49,6 +50,8 @@ class CodeGeneratorNativeMethodValidationTest {
                 .filterIsInstance<KotlinSourceSet>()
                 .flatMap { it.files }
                 .joinToString("\n")
+
+        assertThat(generated).contains("@Deprecated(message = \"This API operation is deprecated.\")")
 
         when (target) {
             ControllerCodeGenTargetType.MICRONAUT ->
@@ -97,6 +100,8 @@ class CodeGeneratorNativeMethodValidationTest {
                 .filterIsInstance<KotlinSourceSet>()
                 .flatMap { it.files }
                 .joinToString("\n")
+
+        assertThat(generated).contains("@Deprecated(message = \"This API operation is deprecated.\")")
 
         when (target) {
             ClientCodeGenTargetType.OK_HTTP ->
@@ -190,6 +195,7 @@ class CodeGeneratorNativeMethodValidationTest {
           /subjects:
             query:
               operationId: querySubjects
+              deprecated: true
               requestBody:
                 required: true
                 content:

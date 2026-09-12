@@ -71,6 +71,7 @@ class CodeGeneratorNativeServerModeTest {
                 .joinToString("\n")
 
         assertThat(generated)
+            .contains("@Deprecated(message = \"This API operation is deprecated.\")")
             .contains("public data class Subject(")
             .contains("public val id: String")
             .contains("public interface SubjectsController")
@@ -673,6 +674,7 @@ class CodeGeneratorNativeServerModeTest {
                 schema: { type: integer }
             get:
               operationId: findSubject
+              deprecated: true
               summary: Find a subject
               parameters:
                 - name: includeInactive

@@ -30,6 +30,7 @@ class CodeGeneratorNativeCallbackTest {
                 .joinToString("\n")
 
         assertThat(generated)
+            .contains("@Deprecated(message = \"This API operation is deprecated.\")")
             .contains("public interface StatusCallbackSender")
             .contains("sendStatus(")
             .contains("callbackUrl2: String")
@@ -88,6 +89,7 @@ class CodeGeneratorNativeCallbackTest {
                   '{${'$'}request.body#/callbackUrl}':
                     post:
                       operationId: sendStatus
+                      deprecated: true
                       parameters:
                         - name: callback-url
                           in: header
