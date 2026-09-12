@@ -20,6 +20,7 @@ internal object SourceSchemaReferenceResolver {
         private val supportsSchemaResources: Boolean,
     ) {
         private val schemasByUri = linkedMapOf<URI, SourceSchema>()
+        private val dynamicSchemasByUri = linkedMapOf<URI, SourceSchema>()
         private val baseUrisByLocation = linkedMapOf<String, URI>()
         private val schemasByLocation = linkedMapOf<String, SourceSchema>()
         private val resourceUris = linkedSetOf(documentUri)
@@ -37,6 +38,7 @@ internal object SourceSchemaReferenceResolver {
             SourceSchemaReferenceIndex(
                 documentUri = documentUri,
                 schemasByUri = schemasByUri.toMap(),
+                dynamicSchemasByUri = dynamicSchemasByUri.toMap(),
                 resourceUris = resourceUris.toSet(),
                 resourceUrisByRootLocation = resourceUrisByRootLocation.toMap(),
                 resolutionsByLocation =
@@ -44,7 +46,9 @@ internal object SourceSchemaReferenceResolver {
                         .asSequence()
                         .filterIsInstance<SourceObjectSchema>()
                         .mapNotNull { schema ->
-                            schema.reference?.let { value -> schema.location to resolve(schema, value) }
+                            schema.reference?.let { value ->
+                                schema.location to resolve(schema, value, schema.staticReference == null)
+                            }
                         }.toMap(linkedMapOf()),
             )
 
@@ -62,6 +66,9 @@ internal object SourceSchemaReferenceResolver {
                 schema.anchor
                     ?.takeIf(ANCHOR_PATTERN::matches)
                     ?.let { anchor -> schemasByUri.putIfAbsent(scope.resourceUri.withFragment(anchor), schema) }
+                schema.dynamicAnchor
+                    ?.takeIf(ANCHOR_PATTERN::matches)
+                    ?.let { anchor -> dynamicSchemasByUri.putIfAbsent(scope.resourceUri.withFragment(anchor), schema) }
             }
 
             schema.childSchemas().forEach { child -> index(child, scope) }
@@ -81,18 +88,19 @@ internal object SourceSchemaReferenceResolver {
         private fun resolve(
             schema: SourceObjectSchema,
             value: String,
+            dynamic: Boolean,
         ): SourceSchemaReferenceResolution {
             val resolvedUri =
                 value.resolveAgainst(baseUrisByLocation.getValue(schema.location))
                     ?: return SourceSchemaReferenceResolution.Invalid(value)
             val canonicalUri = resolvedUri.withoutEmptyFragment()
-            val target = schemasByUri[canonicalUri]
-            if (target != null) return SourceSchemaReferenceResolution.Resolved(value, canonicalUri, target)
+            val target = if (dynamic) dynamicSchemasByUri[canonicalUri] ?: schemasByUri[canonicalUri] else schemasByUri[canonicalUri]
+            if (target != null) return SourceSchemaReferenceResolution.Resolved(value, canonicalUri, target, dynamic)
 
             return if (canonicalUri.withoutFragment() in resourceUris) {
-                SourceSchemaReferenceResolution.Missing(value, canonicalUri)
+                SourceSchemaReferenceResolution.Missing(value, canonicalUri, dynamic)
             } else {
-                SourceSchemaReferenceResolution.External(value, canonicalUri)
+                SourceSchemaReferenceResolution.External(value, canonicalUri, dynamic)
             }
         }
     }

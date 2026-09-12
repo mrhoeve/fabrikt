@@ -24,8 +24,10 @@ internal data class SourceObjectSchema(
     override val node: JsonNode,
     override val identifier: String?,
     override val anchor: String?,
+    val dynamicAnchor: String?,
     override val types: Set<SourceSchemaType>,
-    override val reference: String?,
+    val staticReference: String?,
+    val dynamicReference: String?,
     override val metadata: SourceSchemaMetadata,
     override val constraints: SourceSchemaConstraints,
     override val requiredProperties: Set<String>,
@@ -53,6 +55,7 @@ internal data class SourceObjectSchema(
 ) : SourceSchema,
     GeneratorObjectSchema {
     override val identity = GeneratorSchemaIdentity()
+    override val reference: String? = staticReference ?: dynamicReference
     override val canonicalReference: String = location
 }
 

@@ -9,16 +9,19 @@ internal sealed interface SourceSchemaReferenceResolution {
         override val value: String,
         val uri: URI,
         val target: SourceSchema,
+        val dynamic: Boolean = false,
     ) : SourceSchemaReferenceResolution
 
     data class Missing(
         override val value: String,
         val uri: URI,
+        val dynamic: Boolean = false,
     ) : SourceSchemaReferenceResolution
 
     data class External(
         override val value: String,
         val uri: URI,
+        val dynamic: Boolean = false,
     ) : SourceSchemaReferenceResolution
 
     data class Invalid(
@@ -29,6 +32,7 @@ internal sealed interface SourceSchemaReferenceResolution {
 internal data class SourceSchemaReferenceIndex(
     val documentUri: URI,
     val schemasByUri: Map<URI, SourceSchema>,
+    val dynamicSchemasByUri: Map<URI, SourceSchema>,
     val resourceUris: Set<URI>,
     val resourceUrisByRootLocation: Map<String, URI>,
     val resolutionsByLocation: Map<String, SourceSchemaReferenceResolution>,

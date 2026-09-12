@@ -122,9 +122,11 @@ internal object SourceOpenApiDocumentGraphParser {
         documents: Collection<SourceSchemaDocument>,
     ): Map<SourceSchemaReferenceLocation, SourceSchemaReferenceResolution> {
         val schemasByUri = linkedMapOf<URI, SourceSchema>()
+        val dynamicSchemasByUri = linkedMapOf<URI, SourceSchema>()
         val resourceUris = linkedSetOf<URI>()
         documents.forEach { document ->
             document.schemaReferenceIndex.schemasByUri.forEach(schemasByUri::putIfAbsent)
+            document.schemaReferenceIndex.dynamicSchemasByUri.forEach(dynamicSchemasByUri::putIfAbsent)
             resourceUris.addAll(document.schemaReferenceIndex.resourceUris)
         }
 
@@ -133,7 +135,7 @@ internal object SourceOpenApiDocumentGraphParser {
                 document.schemaReferenceIndex.resolutionsByLocation.forEach { (location, resolution) ->
                     put(
                         SourceSchemaReferenceLocation(document.documentUri, location),
-                        resolution.resolveAgainst(schemasByUri, resourceUris),
+                        resolution.resolveAgainst(schemasByUri, dynamicSchemasByUri, resourceUris),
                     )
                 }
             }
@@ -142,13 +144,14 @@ internal object SourceOpenApiDocumentGraphParser {
 
     private fun SourceSchemaReferenceResolution.resolveAgainst(
         schemasByUri: Map<URI, SourceSchema>,
+        dynamicSchemasByUri: Map<URI, SourceSchema>,
         resourceUris: Set<URI>,
     ): SourceSchemaReferenceResolution {
         if (this !is SourceSchemaReferenceResolution.External) return this
-        val target = schemasByUri[uri]
-        if (target != null) return SourceSchemaReferenceResolution.Resolved(value, uri, target)
+        val target = if (dynamic) dynamicSchemasByUri[uri] ?: schemasByUri[uri] else schemasByUri[uri]
+        if (target != null) return SourceSchemaReferenceResolution.Resolved(value, uri, target, dynamic)
         return if (uri.withoutFragment() in resourceUris) {
-            SourceSchemaReferenceResolution.Missing(value, uri)
+            SourceSchemaReferenceResolution.Missing(value, uri, dynamic)
         } else {
             this
         }
