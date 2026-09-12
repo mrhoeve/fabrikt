@@ -449,6 +449,23 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates references to map-only unevaluated property schemas`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generateUnevaluatedPropertyMaps(version)
+
+            assertThat(generated.keys).containsExactly("Subject", "NestedMapUnevaluatedValue")
+            assertThat(generated.getValue("Subject"))
+                .contains("public val typed: Map<String, Int?>? = null")
+                .contains("public val nested: Map<String, NestedMapUnevaluatedValue?>? = null")
+            assertThat(generated.getValue("NestedMapUnevaluatedValue"))
+                .contains("public val `value`: String")
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates byte arrays for base64 content encoding`(version: String) {
         SerializationLibrary.entries.forEach { library ->
             MutableSettings.updateSettings(serializationLibrary = library)
@@ -742,6 +759,17 @@ class NativeModelGeneratorTest {
                 GeneratorModelDescriptorBuilder.build(
                     OpenApiDocumentParser
                         .parse(unevaluatedPropertiesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
+    private fun generateUnevaluatedPropertyMaps(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(unevaluatedPropertyMapsOpenApi.replace("VERSION", version))
                         .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
                 ),
             ).files
@@ -1158,6 +1186,34 @@ class NativeModelGeneratorTest {
                 type: object
                 properties:
                   ignored: { type: string }
+        """.trimIndent()
+
+    private val unevaluatedPropertyMapsOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Unevaluated property maps
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                typed:
+                  ${'$'}ref: '#/components/schemas/TypedMap'
+                nested:
+                  ${'$'}ref: '#/components/schemas/NestedMap'
+            TypedMap:
+              type: object
+              unevaluatedProperties: { type: integer }
+            NestedMap:
+              type: object
+              unevaluatedProperties:
+                type: object
+                required: [value]
+                properties:
+                  value: { type: string }
         """.trimIndent()
 
     private val contentEncodingOpenApi =

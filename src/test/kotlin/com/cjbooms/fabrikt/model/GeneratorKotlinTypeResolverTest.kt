@@ -134,6 +134,17 @@ class GeneratorKotlinTypeResolverTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `resolves map schemas from unevaluated properties`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(unevaluatedPropertiesOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+        val resolver = GeneratorKotlinTypeResolver(document)
+
+        assertResolved(resolver, document, "TypedMap", KotlinTypeInfo.Map(KotlinTypeInfo.Integer))
+        assertResolved(resolver, document, "ExplicitMap", KotlinTypeInfo.Map(KotlinTypeInfo.Integer))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `uses serializable JSON elements for Kotlinx tuple fallbacks`(version: String) {
         MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
         val parsed = OpenApiDocumentParser.parse(tupleOpenApi.replace("VERSION", version))
@@ -333,6 +344,24 @@ class GeneratorKotlinTypeResolverTest {
               prefixItems:
                 - { type: string }
               items: { type: integer }
+        """.trimIndent()
+
+    private val unevaluatedPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Unevaluated property maps
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            TypedMap:
+              type: object
+              unevaluatedProperties: { type: integer }
+            ExplicitMap:
+              type: object
+              additionalProperties: { type: integer }
+              unevaluatedProperties: { type: string }
         """.trimIndent()
 
     private val valueConstrainedOpenApi =
