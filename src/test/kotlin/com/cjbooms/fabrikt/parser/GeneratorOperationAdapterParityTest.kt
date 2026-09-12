@@ -219,6 +219,52 @@ class GeneratorOperationAdapterParityTest {
         assertThat(region.extensions).containsOnlyKeys("x-variable")
     }
 
+    @Test
+    fun `preserves native API hierarchy metadata and effective servers`() {
+        val document =
+            OpenApiDocumentParser
+                .parse(apiMetadataOpenApi)
+                .toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+
+        assertThat(document.externalDocumentation!!.url).isEqualTo("https://docs.example.com")
+        assertThat(document.externalDocumentation!!.extensions).containsOnlyKeys("x-docs")
+        val tag = document.tags.single()
+        assertThat(tag.name).isEqualTo("items")
+        assertThat(tag.summary).isEqualTo("Items summary")
+        assertThat(tag.parent).isEqualTo("resources")
+        assertThat(tag.kind).isEqualTo("nav")
+        assertThat(tag.externalDocumentation!!.url).isEqualTo("https://docs.example.com/items")
+        assertThat(tag.extensions).containsOnlyKeys("x-tag")
+
+        assertThat(document.servers.map(GeneratorServer::url))
+            .containsExactly("https://{region}.example.com", "https://backup.example.com")
+        val documentRegion =
+            document.servers
+                .first()
+                .variables
+                .getValue("region")
+        assertThat(documentRegion.defaultValue).isEqualTo("eu")
+        assertThat(documentRegion.enumValues).containsExactly("eu", "us")
+
+        val path = document.paths.single()
+        assertThat(path.summary).isEqualTo("Items path")
+        assertThat(path.description).isEqualTo("Operations on items")
+        assertThat(path.extensions).containsOnlyKeys("x-path")
+        assertThat(path.servers.single().url).isEqualTo("https://path.example.com")
+        assertThat(
+            path.operations
+                .first { it.method == "get" }
+                .servers
+                .single()
+                .url,
+        ).isEqualTo("https://path.example.com")
+        val postServers = path.operations.first { it.method == "post" }.servers
+        assertThat(postServers.map(GeneratorServer::url))
+            .containsExactly("https://write.example.com", "https://write-backup.example.com")
+        assertThat(postServers.first().name).isEqualTo("primary-write")
+        assertThat(postServers.first().extensions).containsOnlyKeys("x-operation-server")
+    }
+
     private val openApi =
         """
         openapi: 3.0.4
@@ -441,5 +487,52 @@ class GeneratorOperationAdapterParityTest {
                     x-variable: retained
                 x-server: retained
               x-link: retained
+        """.trimIndent()
+
+    private val apiMetadataOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: API metadata
+          version: "1.0"
+        externalDocs:
+          description: API documentation
+          url: https://docs.example.com
+          x-docs: retained
+        tags:
+          - name: items
+            summary: Items summary
+            description: Item operations
+            parent: resources
+            kind: nav
+            externalDocs:
+              url: https://docs.example.com/items
+            x-tag: retained
+        servers:
+          - url: https://{region}.example.com
+            description: Primary API
+            variables:
+              region:
+                enum: [eu, us]
+                default: eu
+          - url: https://backup.example.com
+        paths:
+          /items:
+            summary: Items path
+            description: Operations on items
+            x-path: retained
+            servers:
+              - url: https://path.example.com
+            get:
+              responses:
+                '200': { description: ok }
+            post:
+              servers:
+                - url: https://write.example.com
+                  name: primary-write
+                  x-operation-server: retained
+                - url: https://write-backup.example.com
+              responses:
+                '201': { description: created }
         """.trimIndent()
 }
