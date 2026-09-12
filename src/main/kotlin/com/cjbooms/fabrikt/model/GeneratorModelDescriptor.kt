@@ -265,6 +265,9 @@ internal object GeneratorModelDescriptorBuilder {
                 visit(items, itemName, modelRootName)
             }
             objectSchema.prefixItems.forEachIndexed { index, item -> visit(item, parentName + "Item${index + 1}", modelRootName) }
+            objectSchema.unevaluatedItems
+                ?.takeIf { objectSchema.items == null }
+                ?.let { visit(it, parentName + "UnevaluatedItem", modelRootName) }
             objectSchema.oneOf.forEachIndexed { index, member -> visit(member, parentName + "Option${index + 1}", modelRootName) }
             objectSchema.additionalProperties?.let { additionalProperties ->
                 val containerName =

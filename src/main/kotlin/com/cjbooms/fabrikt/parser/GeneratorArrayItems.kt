@@ -15,7 +15,8 @@ internal sealed interface GeneratorArrayItems {
 
 internal fun GeneratorObjectSchema.arrayItems(): GeneratorArrayItems =
     when {
-        prefixItems.isNotEmpty() -> GeneratorArrayItems.Tuple(prefixItems, items)
+        prefixItems.isNotEmpty() -> GeneratorArrayItems.Tuple(prefixItems, items ?: unevaluatedItems)
         items != null -> GeneratorArrayItems.Homogeneous(requireNotNull(items))
+        unevaluatedItems != null -> GeneratorArrayItems.Homogeneous(requireNotNull(unevaluatedItems))
         else -> GeneratorArrayItems.Unconstrained
     }
