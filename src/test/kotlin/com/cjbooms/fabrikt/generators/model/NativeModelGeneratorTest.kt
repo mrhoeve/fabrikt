@@ -111,6 +111,26 @@ class NativeModelGeneratorTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates Kotlinx discriminator mappings without duplicate wire properties`(version: String) {
+        MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
+
+        val generated = generate(version)
+
+        assertThat(generated.getValue("Pet").toString())
+            .contains("@Serializable", "@JsonClassDiscriminator(\"kind\")", "public sealed interface Pet")
+        assertThat(generated.getValue("Cat").toString())
+            .contains("@Serializable", "@SerialName(\"cat\")", ") : Pet")
+            .doesNotContain("public val kind:")
+        assertThat(generated.getValue("Dog").toString())
+            .contains("@Serializable", "@SerialName(\"dog\")", ") : Pet")
+            .doesNotContain("public val kind:")
+        assertThat(generated.getValue("Bird").toString())
+            .contains("@Serializable", "@SerialName(\"Bird\")", ") : Pet")
+            .doesNotContain("public val kind:")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates Kotlinx serializers for discriminatorless oneOf unions`(version: String) {
         MutableSettings.updateSettings(serializationLibrary = SerializationLibrary.KOTLINX_SERIALIZATION)
 
@@ -619,10 +639,16 @@ class NativeModelGeneratorTest {
               required: [kind]
               properties:
                 kind: { type: string }
+            Bird:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
             Pet:
               oneOf:
                 - ${'$'}ref: '#/components/schemas/Cat'
                 - ${'$'}ref: '#/components/schemas/Dog'
+                - ${'$'}ref: '#/components/schemas/Bird'
               discriminator:
                 propertyName: kind
                 mapping:
