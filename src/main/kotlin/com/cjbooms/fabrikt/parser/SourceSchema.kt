@@ -25,9 +25,11 @@ internal data class SourceObjectSchema(
     override val identifier: String?,
     override val anchor: String?,
     val dynamicAnchor: String?,
+    val recursiveAnchor: Boolean,
     override val types: Set<SourceSchemaType>,
     val staticReference: String?,
     val dynamicReference: String?,
+    val recursiveReference: String?,
     override val metadata: SourceSchemaMetadata,
     override val constraints: SourceSchemaConstraints,
     override val requiredProperties: Set<String>,
@@ -55,8 +57,23 @@ internal data class SourceObjectSchema(
 ) : SourceSchema,
     GeneratorObjectSchema {
     override val identity = GeneratorSchemaIdentity()
-    override val reference: String? = staticReference ?: dynamicReference
+    override val reference: String? = staticReference ?: dynamicReference ?: recursiveReference
     override val canonicalReference: String = location
+
+    val referenceKind: SourceSchemaReferenceKind?
+        get() =
+            when {
+                staticReference != null -> SourceSchemaReferenceKind.STATIC
+                dynamicReference != null -> SourceSchemaReferenceKind.DYNAMIC
+                recursiveReference != null -> SourceSchemaReferenceKind.RECURSIVE
+                else -> null
+            }
+}
+
+internal enum class SourceSchemaReferenceKind {
+    STATIC,
+    DYNAMIC,
+    RECURSIVE,
 }
 
 internal data class SourceSchemaMetadata(

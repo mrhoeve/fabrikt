@@ -47,7 +47,7 @@ internal object SourceSchemaReferenceResolver {
                         .filterIsInstance<SourceObjectSchema>()
                         .mapNotNull { schema ->
                             schema.reference?.let { value ->
-                                schema.location to resolve(schema, value, schema.staticReference == null)
+                                schema.location to resolve(schema, value, requireNotNull(schema.referenceKind))
                             }
                         }.toMap(linkedMapOf()),
             )
@@ -59,7 +59,7 @@ internal object SourceSchemaReferenceResolver {
             val scope = schema.scope(inheritedScope)
             schemasByLocation.putIfAbsent(schema.location, schema)
             baseUrisByLocation.putIfAbsent(schema.location, scope.baseUri)
-            schemasByUri.putIfAbsent(documentUri.withFragment(schema.location.removePrefix("#")), schema)
+            schemasByUri.putIfAbsent(documentUri.withFragment(schema.location.removePrefix("#")).withoutEmptyFragment(), schema)
             schemasByUri.putIfAbsent(scope.uriFor(schema.location), schema)
 
             if (schema is SourceObjectSchema && supportsSchemaResources) {
@@ -88,13 +88,19 @@ internal object SourceSchemaReferenceResolver {
         private fun resolve(
             schema: SourceObjectSchema,
             value: String,
-            dynamic: Boolean,
+            kind: SourceSchemaReferenceKind,
         ): SourceSchemaReferenceResolution {
             val resolvedUri =
                 value.resolveAgainst(baseUrisByLocation.getValue(schema.location))
                     ?: return SourceSchemaReferenceResolution.Invalid(value)
             val canonicalUri = resolvedUri.withoutEmptyFragment()
-            val target = if (dynamic) dynamicSchemasByUri[canonicalUri] ?: schemasByUri[canonicalUri] else schemasByUri[canonicalUri]
+            val target =
+                if (kind == SourceSchemaReferenceKind.DYNAMIC) {
+                    dynamicSchemasByUri[canonicalUri] ?: schemasByUri[canonicalUri]
+                } else {
+                    schemasByUri[canonicalUri]
+                }
+            val dynamic = kind != SourceSchemaReferenceKind.STATIC
             if (target != null) return SourceSchemaReferenceResolution.Resolved(value, canonicalUri, target, dynamic)
 
             return if (canonicalUri.withoutFragment() in resourceUris) {
