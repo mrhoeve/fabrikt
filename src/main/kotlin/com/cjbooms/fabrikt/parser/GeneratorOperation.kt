@@ -87,12 +87,17 @@ internal data class GeneratorParameter(
     val allowReserved: Boolean?,
     val schema: GeneratorSchema?,
     val content: List<GeneratorMediaType>,
+    val allowEmptyValue: Boolean? = null,
+    val example: JsonNode? = null,
+    val examples: Map<String, GeneratorExample> = emptyMap(),
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal data class GeneratorRequestBody(
     val description: String?,
     val required: Boolean,
     val content: List<GeneratorMediaType>,
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal data class GeneratorResponse(
@@ -100,6 +105,8 @@ internal data class GeneratorResponse(
     val description: String?,
     val headers: Map<String, GeneratorHeader>,
     val content: List<GeneratorMediaType>,
+    val links: Map<String, GeneratorLink> = emptyMap(),
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal data class GeneratorHeader(
@@ -110,6 +117,11 @@ internal data class GeneratorHeader(
     val explode: Boolean?,
     val schema: GeneratorSchema?,
     val content: List<GeneratorMediaType>,
+    val allowEmptyValue: Boolean? = null,
+    val style: String? = null,
+    val example: JsonNode? = null,
+    val examples: Map<String, GeneratorExample> = emptyMap(),
+    val extensions: Map<String, JsonNode> = emptyMap(),
 )
 
 internal data class GeneratorMediaType(
@@ -119,6 +131,47 @@ internal data class GeneratorMediaType(
     val encoding: Map<String, GeneratorEncoding>,
     val prefixEncoding: List<GeneratorEncoding>,
     val itemEncoding: GeneratorEncoding?,
+    val example: JsonNode? = null,
+    val examples: Map<String, GeneratorExample> = emptyMap(),
+    val extensions: Map<String, JsonNode> = emptyMap(),
+)
+
+internal data class GeneratorExample(
+    val name: String,
+    val summary: String?,
+    val description: String?,
+    val value: JsonNode?,
+    val externalValue: String?,
+    val dataValue: JsonNode?,
+    val serializedValue: String?,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class GeneratorLink(
+    val name: String,
+    val operationReference: String?,
+    val operationId: String?,
+    val parameters: Map<String, JsonNode>,
+    val requestBody: JsonNode?,
+    val description: String?,
+    val server: GeneratorServer?,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class GeneratorServer(
+    val url: String?,
+    val description: String?,
+    val name: String?,
+    val variables: Map<String, GeneratorServerVariable>,
+    val extensions: Map<String, JsonNode>,
+)
+
+internal data class GeneratorServerVariable(
+    val name: String,
+    val enumValues: List<String>,
+    val defaultValue: String?,
+    val description: String?,
+    val extensions: Map<String, JsonNode>,
 )
 
 internal data class GeneratorEncoding(

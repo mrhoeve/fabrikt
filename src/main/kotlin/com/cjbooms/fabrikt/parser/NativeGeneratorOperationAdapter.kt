@@ -82,6 +82,10 @@ internal class NativeGeneratorOperationAdapter(
             allowReserved = allowReserved,
             schema = schema?.let(resolveSchema),
             content = content.map { mediaType -> mediaType.resolve().toGeneratorMediaType(mediaType.key) },
+            allowEmptyValue = allowEmptyValue,
+            example = example,
+            examples = examples.mapValues { (name, example) -> example.resolve().toGeneratorExample(name) },
+            extensions = extensions,
         )
 
     private fun SourceRequestBody.toGeneratorRequestBody(): GeneratorRequestBody =
@@ -89,6 +93,7 @@ internal class NativeGeneratorOperationAdapter(
             description = description,
             required = required,
             content = content.map { mediaType -> mediaType.resolve().toGeneratorMediaType(mediaType.key) },
+            extensions = extensions,
         )
 
     private fun SourceResponse.toGeneratorResponse(status: String): GeneratorResponse =
@@ -97,6 +102,8 @@ internal class NativeGeneratorOperationAdapter(
             description = description,
             headers = headers.mapValues { (name, header) -> header.resolve().toGeneratorHeader(name) },
             content = content.map { mediaType -> mediaType.resolve().toGeneratorMediaType(mediaType.key) },
+            links = links.mapValues { (name, link) -> link.resolve().toGeneratorLink(name) },
+            extensions = extensions,
         )
 
     private fun SourceHeader.toGeneratorHeader(name: String): GeneratorHeader =
@@ -108,6 +115,11 @@ internal class NativeGeneratorOperationAdapter(
             explode = explode,
             schema = schema?.let(resolveSchema),
             content = content.map { mediaType -> mediaType.resolve().toGeneratorMediaType(mediaType.key) },
+            allowEmptyValue = allowEmptyValue,
+            style = style,
+            example = example,
+            examples = examples.mapValues { (name, example) -> example.resolve().toGeneratorExample(name) },
+            extensions = extensions,
         )
 
     private fun SourceMediaType.toGeneratorMediaType(key: String): GeneratorMediaType =
@@ -118,6 +130,51 @@ internal class NativeGeneratorOperationAdapter(
             encoding = encoding.mapValues { (_, value) -> value.toGeneratorEncoding() },
             prefixEncoding = prefixEncoding.map { it.toGeneratorEncoding() },
             itemEncoding = itemEncoding?.toGeneratorEncoding(),
+            example = example,
+            examples = examples.mapValues { (name, example) -> example.resolve().toGeneratorExample(name) },
+            extensions = extensions,
+        )
+
+    private fun SourceExample.toGeneratorExample(name: String): GeneratorExample =
+        GeneratorExample(
+            name = name,
+            summary = summary,
+            description = description,
+            value = value,
+            externalValue = externalValue,
+            dataValue = dataValue,
+            serializedValue = serializedValue,
+            extensions = extensions,
+        )
+
+    private fun SourceLink.toGeneratorLink(name: String): GeneratorLink =
+        GeneratorLink(
+            name = name,
+            operationReference = operationReference,
+            operationId = operationId,
+            parameters = parameters,
+            requestBody = requestBody,
+            description = description,
+            server = server?.toGeneratorServer(),
+            extensions = extensions,
+        )
+
+    private fun SourceServer.toGeneratorServer(): GeneratorServer =
+        GeneratorServer(
+            url = url,
+            description = description,
+            name = name,
+            variables = variables.mapValues { (_, variable) -> variable.toGeneratorServerVariable() },
+            extensions = extensions,
+        )
+
+    private fun SourceServerVariable.toGeneratorServerVariable(): GeneratorServerVariable =
+        GeneratorServerVariable(
+            name = name,
+            enumValues = enumValues,
+            defaultValue = defaultValue,
+            description = description,
+            extensions = extensions,
         )
 
     private fun SourceEncoding.toGeneratorEncoding(): GeneratorEncoding =
@@ -183,6 +240,22 @@ internal class NativeGeneratorOperationAdapter(
 
     private fun SourceMediaType.resolve(): SourceMediaType =
         resolveLocal(this, "#/components/mediaTypes/", SourceMediaType::reference, document.reusableMediaTypes)
+
+    private fun SourceExample.resolve(): SourceExample =
+        resolveLocal(
+            this,
+            "#/components/examples/",
+            SourceExample::reference,
+            document.reusableExamples,
+        )
+
+    private fun SourceLink.resolve(): SourceLink =
+        resolveLocal(
+            this,
+            "#/components/links/",
+            SourceLink::reference,
+            document.reusableLinks,
+        )
 
     private fun SourceSecurityScheme.resolve(): SourceSecurityScheme =
         resolveLocal(this, "#/components/securitySchemes/", SourceSecurityScheme::reference, document.reusableSecuritySchemes)
