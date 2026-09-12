@@ -154,6 +154,71 @@ class GeneratorOperationAdapterParityTest {
             .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Text, false))
     }
 
+    @Test
+    fun `preserves native operation examples links and extensions`() {
+        val operation =
+            OpenApiDocumentParser
+                .parse(operationMetadataOpenApi)
+                .toGeneratorOperationDocument(SchemaGenerationMode.NATIVE)
+                .paths
+                .single()
+                .operations
+                .single()
+
+        val parameter = operation.parameters.single()
+        assertThat(parameter.allowEmptyValue).isTrue()
+        assertThat(parameter.example!!.textValue()).isEqualTo("compact")
+        assertThat(
+            parameter.examples
+                .getValue("expanded")
+                .value!!
+                .textValue(),
+        ).isEqualTo("full")
+        assertThat(parameter.extensions).containsOnlyKeys("x-parameter")
+
+        val requestBody = operation.requestBody!!
+        assertThat(requestBody.extensions).containsOnlyKeys("x-request")
+        val requestMediaType = requestBody.content.single()
+        assertThat(requestMediaType.example!!.path("id").intValue()).isEqualTo(1)
+        val sharedExample = requestMediaType.examples.getValue("shared")
+        assertThat(sharedExample.name).isEqualTo("shared")
+        assertThat(sharedExample.summary).isEqualTo("Reusable example")
+        assertThat(sharedExample.dataValue!!.path("id").intValue()).isEqualTo(42)
+        assertThat(sharedExample.serializedValue).isEqualTo("{\"id\":42}")
+        assertThat(sharedExample.extensions).containsOnlyKeys("x-example")
+        assertThat(requestMediaType.extensions).containsOnlyKeys("x-media")
+
+        val response = operation.responses.single()
+        assertThat(response.extensions).containsOnlyKeys("x-response")
+        val header = response.headers.getValue("X-Result")
+        assertThat(header.allowEmptyValue).isFalse()
+        assertThat(header.style).isEqualTo("simple")
+        assertThat(header.example!!.intValue()).isEqualTo(1)
+        assertThat(
+            header.examples
+                .getValue("two")
+                .value!!
+                .intValue(),
+        ).isEqualTo(2)
+        assertThat(header.extensions).containsOnlyKeys("x-header")
+
+        val link = response.links.getValue("createdItem")
+        assertThat(link.name).isEqualTo("createdItem")
+        assertThat(link.operationId).isEqualTo("getItem")
+        assertThat(link.parameters.getValue("path.id").textValue()).isEqualTo("${'$'}response.body#/id")
+        assertThat(link.requestBody!!.path("audit").booleanValue()).isTrue()
+        assertThat(link.description).isEqualTo("Fetch the created item")
+        assertThat(link.extensions).containsOnlyKeys("x-link")
+        assertThat(link.server!!.url).isEqualTo("https://{region}.example.com")
+        assertThat(link.server!!.name).isEqualTo("primary")
+        assertThat(link.server!!.extensions).containsOnlyKeys("x-server")
+        val region = link.server!!.variables.getValue("region")
+        assertThat(region.name).isEqualTo("region")
+        assertThat(region.enumValues).containsExactly("eu", "us")
+        assertThat(region.defaultValue).isEqualTo("eu")
+        assertThat(region.extensions).containsOnlyKeys("x-variable")
+    }
+
     private val openApi =
         """
         openapi: 3.0.4
@@ -306,5 +371,75 @@ class GeneratorOperationAdapterParityTest {
                     items:read: Read items
             Referenced:
               ${'$'}ref: '#/components/securitySchemes/Bearer'
+        """.trimIndent()
+
+    private val operationMetadataOpenApi =
+        """
+        openapi: 3.2.0
+        info:
+          title: Operation metadata
+          version: "1.0"
+        paths:
+          /items:
+            post:
+              parameters:
+                - name: mode
+                  in: query
+                  allowEmptyValue: true
+                  schema: { type: string }
+                  example: compact
+                  examples:
+                    expanded: { value: full }
+                  x-parameter: retained
+              requestBody:
+                x-request: retained
+                content:
+                  application/json:
+                    schema: { type: object }
+                    example: { id: 1 }
+                    examples:
+                      shared:
+                        ${'$'}ref: '#/components/examples/Reusable'
+                    x-media: retained
+              responses:
+                '201':
+                  description: created
+                  x-response: retained
+                  headers:
+                    X-Result:
+                      allowEmptyValue: false
+                      style: simple
+                      schema: { type: integer }
+                      example: 1
+                      examples:
+                        two: { value: 2 }
+                      x-header: retained
+                  links:
+                    createdItem:
+                      ${'$'}ref: '#/components/links/ItemById'
+        components:
+          examples:
+            Reusable:
+              summary: Reusable example
+              dataValue: { id: 42 }
+              serializedValue: '{"id":42}'
+              x-example: retained
+          links:
+            ItemById:
+              operationId: getItem
+              parameters:
+                path.id: '${'$'}response.body#/id'
+              requestBody: { audit: true }
+              description: Fetch the created item
+              server:
+                url: https://{region}.example.com
+                name: primary
+                variables:
+                  region:
+                    enum: [eu, us]
+                    default: eu
+                    x-variable: retained
+                x-server: retained
+              x-link: retained
         """.trimIndent()
 }
