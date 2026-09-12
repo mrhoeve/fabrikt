@@ -58,6 +58,44 @@ class NativeExternalModelGeneratorTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates models referenced through arbitrary external schema pointers`(version: String) {
+        writeArbitraryExternalSchemas()
+
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated =
+                generate(
+                    """
+                    openapi: $version
+                    info:
+                      title: Test
+                      version: "1.0"
+                    paths: {}
+                    components:
+                      schemas:
+                        ExternalSubject:
+                          ${'$'}ref: './container.yaml#/schemas/ExternalSubject'
+                        Envelope:
+                          type: object
+                          required: [subject]
+                          properties:
+                            subject:
+                              ${'$'}ref: '#/components/schemas/ExternalSubject'
+                    """.trimIndent(),
+                )
+
+            assertThat(generated).containsOnlyKeys("ExternalSubject", "ExternalSubjectAddress", "Envelope")
+            assertThat(generated.getValue("ExternalSubject"))
+                .contains("public val id: String")
+                .contains("public val address: ExternalSubjectAddress")
+            assertThat(generated.getValue("ExternalSubjectAddress")).contains("public val street: String")
+            assertThat(generated.getValue("Envelope")).contains("public val subject: ExternalSubject")
+        }
+    }
+
     @Test
     fun `keeps component names for identical pointers in different external documents`() {
         writeExternalDefinition("first.yaml", "left")
@@ -171,6 +209,33 @@ class NativeExternalModelGeneratorTest {
               id: { type: string }
               address:
                 ${'$'}ref: './address.yaml'
+            """.trimIndent(),
+        )
+    }
+
+    private fun writeArbitraryExternalSchemas() {
+        Files.writeString(
+            tempDir.resolve("container.yaml"),
+            """
+            schemas:
+              ExternalSubject:
+                type: object
+                required: [id, address]
+                properties:
+                  id: { type: string }
+                  address:
+                    ${'$'}ref: './nested.yaml#/types/Address'
+            """.trimIndent(),
+        )
+        Files.writeString(
+            tempDir.resolve("nested.yaml"),
+            """
+            types:
+              Address:
+                type: object
+                required: [street]
+                properties:
+                  street: { type: string }
             """.trimIndent(),
         )
     }

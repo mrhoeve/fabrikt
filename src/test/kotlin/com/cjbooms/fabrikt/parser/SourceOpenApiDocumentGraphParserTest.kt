@@ -167,6 +167,154 @@ class SourceOpenApiDocumentGraphParserTest {
     }
 
     @Test
+    fun `resolves arbitrary schema pointers and their external references`() {
+        val rootUri = URI("https://example.test/root.yaml")
+        val containerUri = URI("https://example.test/container.json")
+        val nestedUri = URI("https://schemas.example.test/nested.json")
+        val loader =
+            SourceDocumentLoader { uri ->
+                when (uri) {
+                    containerUri ->
+                        """
+                        {
+                          "${'$'}id": "https://schemas.example.test/container.json",
+                          "schemas": {
+                            "External": {
+                              "type": "object",
+                              "properties": {
+                                "nested": { "${'$'}ref": "nested.json#/types/Nested" }
+                              }
+                            }
+                          }
+                        }
+                        """.trimIndent()
+                    nestedUri ->
+                        """
+                        {
+                          "types": {
+                            "Nested": {
+                              "type": "object",
+                              "properties": {
+                                "value": { "type": "string" }
+                              }
+                            }
+                          }
+                        }
+                        """.trimIndent()
+                    else -> error("Unexpected document: $uri")
+                }
+            }
+
+        val graph =
+            SourceOpenApiDocumentGraphParser.parse(
+                openApiWithSchemas(
+                    """
+                    Alias:
+                      ${'$'}ref: 'container.json#/schemas/External'
+                    """,
+                ),
+                rootUri,
+                loader,
+            )
+        val externalTarget =
+            graph.documentsByUri
+                .getValue(containerUri)
+                .schemasByLocation
+                .getValue("#/schemas/External")
+        val nestedTarget =
+            graph.documentsByUri
+                .getValue(nestedUri)
+                .schemasByLocation
+                .getValue("#/types/Nested")
+
+        assertThat(graph.documentsByUri).containsOnlyKeys(rootUri, containerUri, nestedUri)
+        assertThat(graph.loadFailures).isEmpty()
+        assertThat(graph.resolvedReference(rootUri, "#/components/schemas/Alias").target)
+            .isSameAs(externalTarget)
+        assertThat(graph.resolvedReference(containerUri, "#/schemas/External/properties/nested").target)
+            .isSameAs(nestedTarget)
+    }
+
+    @Test
+    fun `resolves a local schema pointer outside OpenAPI schema locations`() {
+        val rootUri = URI("https://example.test/root.yaml")
+        val input =
+            openApiWithSchemas(
+                """
+                Alias:
+                  ${'$'}ref: '#/x-schemas/External'
+                """,
+            ) +
+                """
+
+                x-schemas:
+                  External:
+                    type: object
+                    properties:
+                      value:
+                        type: string
+                """.trimIndent()
+
+        val graph =
+            SourceOpenApiDocumentGraphParser.parse(
+                input,
+                rootUri,
+                SourceDocumentLoader { error("No load expected") },
+            )
+        val target =
+            graph.documentsByUri
+                .getValue(rootUri)
+                .schemasByLocation
+                .getValue("#/x-schemas/External")
+
+        assertThat(graph.resolvedReference(rootUri, "#/components/schemas/Alias").target)
+            .isSameAs(target)
+    }
+
+    @Test
+    fun `resolves arbitrary pointers relative to an embedded schema resource`() {
+        val rootUri = URI("https://example.test/root.yaml")
+        val containerUri = URI("https://example.test/container.json")
+        val resourceUri = URI("https://schemas.example.test/names.json")
+        val loader =
+            SourceDocumentLoader { uri ->
+                assertThat(uri).isEqualTo(containerUri)
+                """
+                ${'$'}defs:
+                  Names:
+                    ${'$'}id: $resourceUri
+                    x-schemas:
+                      Value:
+                        type: object
+                        properties:
+                          name: { type: string }
+                """.trimIndent()
+            }
+
+        val graph =
+            SourceOpenApiDocumentGraphParser.parse(
+                openApiWithSchemas(
+                    """
+                    Resource:
+                      ${'$'}ref: 'container.json#/${'$'}defs/Names'
+                    Value:
+                      ${'$'}ref: '$resourceUri#/x-schemas/Value'
+                    """,
+                ),
+                rootUri,
+                loader,
+            )
+        val target =
+            graph.documentsByUri
+                .getValue(containerUri)
+                .schemasByLocation
+                .getValue("#/${'$'}defs/Names/x-schemas/Value")
+
+        assertThat(graph.resolvedReference(rootUri, "#/components/schemas/Value").target)
+            .isSameAs(target)
+    }
+
+    @Test
     fun `records load failures once and reports missing targets in loaded documents`() {
         val rootUri = URI("https://example.test/root.yaml")
         val loadedUri = URI("https://example.test/loaded.yaml")
