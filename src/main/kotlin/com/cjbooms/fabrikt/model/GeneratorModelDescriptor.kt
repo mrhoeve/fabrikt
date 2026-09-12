@@ -11,6 +11,7 @@ import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassification
 import com.cjbooms.fabrikt.parser.GeneratorSchemaTypeClassifier
 import com.cjbooms.fabrikt.parser.SourceSchemaConstraints
 import com.cjbooms.fabrikt.parser.SourceSchemaDiscriminator
+import com.cjbooms.fabrikt.parser.SourceSchemaType
 import com.cjbooms.fabrikt.util.NormalisedString.toModelClassName
 import com.fasterxml.jackson.databind.JsonNode
 
@@ -43,6 +44,7 @@ internal data class GeneratorScalarUnionVariantDescriptor(
 
 internal data class GeneratorUnionMemberDescriptor(
     val schemaIdentity: GeneratorSchemaIdentity,
+    val classification: GeneratorSchemaTypeClassification,
     val kotlinType: GeneratorKotlinTypeResolution.Resolved,
     val canonicalReference: String?,
 )
@@ -347,9 +349,13 @@ internal object GeneratorModelDescriptorBuilder {
         val objectSchema = this as? GeneratorObjectSchema ?: return emptyList()
         return selector(objectSchema).mapNotNull { member ->
             val resolvedMember = document.resolve(member)
+            if ((resolvedMember as? GeneratorObjectSchema)?.types == setOf<SourceSchemaType>(SourceSchemaType.NULL)) {
+                return@mapNotNull null
+            }
             val type = typeResolver.resolve(resolvedMember) as? GeneratorKotlinTypeResolution.Resolved ?: return@mapNotNull null
             GeneratorUnionMemberDescriptor(
                 schemaIdentity = resolvedMember.identity,
+                classification = typeResolver.classify(resolvedMember),
                 kotlinType = type,
                 canonicalReference = (resolvedMember as? GeneratorObjectSchema)?.canonicalReference,
             )

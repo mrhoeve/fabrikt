@@ -61,7 +61,14 @@ internal class GeneratorKotlinTypeResolver(
             is GeneratorSchemaTypeClassification.Unsupported ->
                 GeneratorKotlinTypeResolution.Unsupported(classification.reason)
             is GeneratorSchemaTypeClassification.Fallback ->
-                if (classification.supportsGeneratedScalarUnion()) {
+                if (
+                    classification.supportsGeneratedScalarUnion() ||
+                    (
+                        classification.supportsGeneratedMixedOneOf() &&
+                            objectSchema?.oneOf?.isNotEmpty() == true &&
+                            objectSchema.discriminator == null
+                    )
+                ) {
                     GeneratorKotlinTypeResolution.Resolved(
                         KotlinTypeInfo.Object(modelName(resolvedSchema)),
                         classification.nullable,
@@ -280,6 +287,17 @@ internal fun GeneratorSchemaTypeClassification.Fallback.supportsGeneratedScalarU
         types.all(SCALAR_UNION_TYPES::contains) &&
         types.map(OasType::scalarUnionTokenKind).distinct().size == types.size &&
         !(this is GeneratorSchemaTypeClassification.CompositionUnion && types.hasOverlappingNumericTypes())
+
+internal fun GeneratorSchemaTypeClassification.Fallback.supportsGeneratedMixedOneOf(): Boolean =
+    if (this is GeneratorSchemaTypeClassification.CompositionUnion && OasType.Object in types) {
+        val scalarTypes = types - OasType.Object
+        scalarTypes.isNotEmpty() &&
+            scalarTypes.all(SCALAR_UNION_TYPES::contains) &&
+            scalarTypes.map(OasType::scalarUnionTokenKind).distinct().size == scalarTypes.size &&
+            !scalarTypes.hasOverlappingNumericTypes()
+    } else {
+        false
+    }
 
 private fun Set<OasType>.hasOverlappingNumericTypes(): Boolean = any(OasType::isIntegerScalar) && any(OasType::isNumberScalar)
 
