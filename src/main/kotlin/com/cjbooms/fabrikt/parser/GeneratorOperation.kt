@@ -14,6 +14,8 @@ internal data class GeneratorOperationDocument(
     val servers: List<GeneratorServer> = emptyList(),
     val reusableExamples: Map<String, GeneratorExample> = emptyMap(),
     val reusableLinks: Map<String, GeneratorLink> = emptyMap(),
+    val reusableHeaders: Map<String, GeneratorHeader> = emptyMap(),
+    val reusableMediaTypes: Map<String, GeneratorMediaType> = emptyMap(),
 )
 
 internal data class GeneratorTag(

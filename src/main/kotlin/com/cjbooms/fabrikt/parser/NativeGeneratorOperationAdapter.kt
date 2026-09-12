@@ -38,6 +38,14 @@ internal class NativeGeneratorOperationAdapter(
                 document.reusableLinks.mapValues { (name, link) ->
                     link.resolve().toGeneratorLink(name)
                 },
+            reusableHeaders =
+                document.reusableHeaders.mapValues { (name, header) ->
+                    header.resolve().toGeneratorHeader(name)
+                },
+            reusableMediaTypes =
+                document.reusableMediaTypes.mapValues { (name, mediaType) ->
+                    mediaType.resolve().toGeneratorMediaType(name)
+                },
         )
     }
 
