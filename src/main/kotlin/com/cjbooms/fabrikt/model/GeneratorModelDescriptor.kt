@@ -230,18 +230,24 @@ internal object GeneratorModelDescriptorBuilder {
                 visit(property, parentName + "Pattern${index + 1}Value", modelRootName)
             }
 
-            fun visitCompositionProperties(member: GeneratorSchema) {
+            fun visitProjectedProperties(member: GeneratorSchema) {
                 val composedObject = document.resolve(member) as? GeneratorObjectSchema ?: return
                 val compositionRootName = rootNamesByIdentity[composedObject.identity] ?: modelRootName
                 if (!visitedCompositionProperties.add(CompositionVisitKey(composedObject.identity, compositionRootName))) return
                 composedObject.properties.forEach { (propertyName, property) ->
                     visit(property, compositionRootName + propertyName.toModelClassName(), compositionRootName)
                 }
-                composedObject.allOf.forEach(::visitCompositionProperties)
-                composedObject.anyOf.forEach(::visitCompositionProperties)
+                composedObject.allOf.forEach(::visitProjectedProperties)
+                composedObject.anyOf.forEach(::visitProjectedProperties)
+                composedObject.dependentSchemas.values.forEach(::visitProjectedProperties)
+                composedObject.thenSchema?.let(::visitProjectedProperties)
+                composedObject.elseSchema?.let(::visitProjectedProperties)
             }
-            objectSchema.allOf.forEach(::visitCompositionProperties)
-            objectSchema.anyOf.forEach(::visitCompositionProperties)
+            objectSchema.allOf.forEach(::visitProjectedProperties)
+            objectSchema.anyOf.forEach(::visitProjectedProperties)
+            objectSchema.dependentSchemas.values.forEach(::visitProjectedProperties)
+            objectSchema.thenSchema?.let(::visitProjectedProperties)
+            objectSchema.elseSchema?.let(::visitProjectedProperties)
             objectSchema.items?.let { items ->
                 val itemType =
                     GeneratorSchemaTypeClassifier.classify(
@@ -338,6 +344,9 @@ internal object GeneratorModelDescriptorBuilder {
                     (classification as? GeneratorSchemaTypeClassification.Resolved)?.type == OasType.Enum ||
                     properties.isNotEmpty() ||
                     patternProperties.isNotEmpty() ||
+                    dependentSchemas.isNotEmpty() ||
+                    thenSchema != null ||
+                    elseSchema != null ||
                     allOf.isNotEmpty() ||
                     oneOf.isNotEmpty() ||
                     anyOf.isNotEmpty()
@@ -419,7 +428,16 @@ internal object GeneratorModelDescriptorBuilder {
             member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it }
         }
         objectSchema.anyOf.forEach { member ->
-            member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it }
+            member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it.copy(required = false) }
+        }
+        objectSchema.dependentSchemas.values.forEach { member ->
+            member.properties(modelName, document, typeResolver, visited).forEach { properties[it.name] = it.copy(required = false) }
+        }
+        objectSchema.thenSchema?.properties(modelName, document, typeResolver, visited)?.forEach {
+            properties[it.name] = it.copy(required = false)
+        }
+        objectSchema.elseSchema?.properties(modelName, document, typeResolver, visited)?.forEach {
+            properties[it.name] = it.copy(required = false)
         }
         objectSchema.ownProperties(modelName, document, typeResolver).forEach { properties[it.name] = it }
         return properties.values.map { property ->

@@ -312,7 +312,7 @@ internal object GeneratorSchemaTypeClassifier {
 
     private fun GeneratorObjectSchema.classifyObject(): OasType =
         when {
-            patternProperties.isNotEmpty() -> OasType.Object
+            patternProperties.isNotEmpty() || dependentSchemas.isNotEmpty() || thenSchema != null || elseSchema != null -> OasType.Object
             properties.isEmpty() && hasAdditionalProperties() -> OasType.Map
             properties.isEmpty() && additionalProperties == null && compositionSchemas().none() -> OasType.UntypedObject
             else -> OasType.Object
