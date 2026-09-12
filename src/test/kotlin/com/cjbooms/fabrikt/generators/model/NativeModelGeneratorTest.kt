@@ -2,6 +2,7 @@ package com.cjbooms.fabrikt.generators.model
 
 import com.cjbooms.fabrikt.cli.CodeGenTypeOverride
 import com.cjbooms.fabrikt.cli.SerializationLibrary
+import com.cjbooms.fabrikt.cli.ValidationLibrary
 import com.cjbooms.fabrikt.generators.MutableSettings
 import com.cjbooms.fabrikt.model.GeneratorModelDescriptorBuilder
 import com.cjbooms.fabrikt.parser.OpenApiDocumentParser
@@ -80,6 +81,32 @@ class NativeModelGeneratorTest {
             .contains("@get:Size(", "min = 2", "max = 20")
             .contains("@get:DecimalMin(", "value = \"1\"", "inclusive = true")
             .contains("@get:DecimalMax(", "value = \"10\"")
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates validation bounds for native map properties`(version: String) {
+        SerializationLibrary.entries.forEach { serializationLibrary ->
+            ValidationLibrary.entries.forEach { validationLibrary ->
+                MutableSettings.updateSettings(
+                    serializationLibrary = serializationLibrary,
+                    validationLibrary = validationLibrary,
+                )
+
+                val generated = generateMapPropertyConstraints(version)
+                val subject = generated.getValue("Subject")
+
+                assertThat(subject).contains("public val values: Map<String, String?>? = null")
+                when (validationLibrary) {
+                    ValidationLibrary.JAKARTA_VALIDATION ->
+                        assertThat(subject).contains("import jakarta.validation.constraints.Size", "@get:Size(", "min = 2", "max = 4")
+                    ValidationLibrary.JAVAX_VALIDATION ->
+                        assertThat(subject).contains("import javax.validation.constraints.Size", "@get:Size(", "min = 2", "max = 4")
+                    ValidationLibrary.NO_VALIDATION -> assertThat(subject).doesNotContain("Size")
+                }
+                assertThat(generated.getValue("ConstrainedRecord")).doesNotContain("Size")
+            }
+        }
     }
 
     @ParameterizedTest
@@ -839,6 +866,17 @@ class NativeModelGeneratorTest {
             ).files
             .associate { it.name to it.toString() }
 
+    private fun generateMapPropertyConstraints(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(mapPropertyConstraintsOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+
     private fun generateReferenceSiblings(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
             .generate(
@@ -975,6 +1013,33 @@ class NativeModelGeneratorTest {
               anyOf:
                 - ${'$'}ref: '#/components/schemas/Cat'
                 - ${'$'}ref: '#/components/schemas/Dog'
+        """.trimIndent()
+
+    private val mapPropertyConstraintsOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Map property constraints
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              properties:
+                values:
+                  type: object
+                  minProperties: 2
+                  maxProperties: 4
+                  additionalProperties: { type: string }
+                record:
+                  ${'$'}ref: '#/components/schemas/ConstrainedRecord'
+            ConstrainedRecord:
+              type: object
+              minProperties: 1
+              maxProperties: 2
+              properties:
+                name: { type: string }
         """.trimIndent()
 
     private val multiTypeOpenApi =
