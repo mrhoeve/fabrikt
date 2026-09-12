@@ -41,7 +41,15 @@ class NativeModelGoldenParityTest {
         val intentionallyChangedModels =
             when (example) {
                 "mapExamples" -> setOf("ContainsReferenceToPolymorphicMap", "PolymorphicMapDefinitionValue")
-                "anyOfOneOfAllOf" -> setOf("ContainsPrimitiveOneOf", "SimpleOneOfs")
+                "anyOfOneOfAllOf" ->
+                    setOf(
+                        "ComplexParent",
+                        "ComplexSecondOneA",
+                        "ContainsNestedOneOf",
+                        "ContainsPrimitiveOneOf",
+                        "FirstOneA",
+                        "SimpleOneOfs",
+                    )
                 else -> emptySet()
             }
         assertThat(native.filterKeys { it !in intentionallyChangedModels })
@@ -54,9 +62,16 @@ class NativeModelGoldenParityTest {
                     .contains("public val attributes: Map<String, PolymorphicMapDefinitionValue?>?")
             }
             "anyOfOneOfAllOf" -> {
-                assertThat(native.keys - legacy.keys).containsExactly("ContainsPrimitiveOneOf")
+                assertThat(native.keys - legacy.keys)
+                    .containsExactlyInAnyOrder("ContainsNestedOneOf", "ContainsPrimitiveOneOf")
                 assertThat(native.getValue("SimpleOneOfs"))
                     .contains("public val primitiveOneofProperty: ContainsPrimitiveOneOf? = null")
+                assertThat(native.getValue("ComplexParent"))
+                    .contains("public val oneOf: ContainsNestedOneOf? = null")
+                assertThat(native.getValue("ContainsNestedOneOf"))
+                    .contains("public sealed interface ContainsNestedOneOf")
+                    .contains("public data class StringValue(", "public data class IntegerValue(")
+                    .contains("is FirstOneA ->", "is ComplexSecondOneA ->")
             }
             else -> Unit
         }

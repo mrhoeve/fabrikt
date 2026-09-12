@@ -242,6 +242,63 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
+    fun `generates closed mixed oneOf unions for every serialization library`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generateMixedUnion(version)
+            val union = generated.getValue("MixedValue")
+            val cat = generated.getValue("Cat")
+
+            assertThat(generated.getValue("Subject"))
+                .contains(if (version == "3.0.4") "public val `value`: MixedValue" else "public val `value`: MixedValue?")
+            assertThat(union)
+                .contains("public sealed interface MixedValue")
+                .contains("public data class StringValue(", "public val `value`: String", ") : MixedValue")
+                .contains("public data class IntegerValue(", "public val `value`: Int", ") : MixedValue")
+            assertThat(cat).contains(") : MixedValue")
+            assertThat(generated.getValue("Dog")).contains(") : MixedValue")
+
+            when (library) {
+                SerializationLibrary.JACKSON -> {
+                    assertThat(union)
+                        .contains("@JsonSerialize(using = MixedValue.Serializer::class)")
+                        .contains("serializers.defaultSerializeValue(value, generator)")
+                        .contains(
+                            "context.readTreeAsValue(node, Cat::class.java)",
+                            "context.readTreeAsValue(node, Dog::class.java)",
+                        )
+                    assertThat(cat)
+                        .contains("@JsonSerialize(using = JsonSerializer.None::class)")
+                        .contains("@JsonDeserialize(using = JsonDeserializer.None::class)")
+                }
+                SerializationLibrary.JACKSON_3 -> {
+                    assertThat(union)
+                        .contains("@JsonSerialize(using = MixedValue.Serializer::class)")
+                        .contains("serializers.writeValue(generator, value)")
+                        .contains(
+                            "context.readTreeAsValue(node, Cat::class.java)",
+                            "context.readTreeAsValue(node, Dog::class.java)",
+                        )
+                    assertThat(cat)
+                        .contains("@JsonSerialize(using = ValueSerializer.None::class)")
+                        .contains("@JsonDeserialize(using = ValueDeserializer.None::class)")
+                }
+                SerializationLibrary.KOTLINX_SERIALIZATION ->
+                    assertThat(union)
+                        .contains("@Serializable(with = MixedValue.Serializer::class)")
+                        .contains(
+                            "jsonEncoder.json.encodeToJsonElement(Cat.serializer(), value)",
+                            "jsonEncoder.json.encodeToJsonElement(Dog.serializer(), value)",
+                            "jsonDecoder.json.decodeFromJsonElement(Cat.serializer(), element)",
+                            "jsonDecoder.json.decodeFromJsonElement(Dog.serializer(), element)",
+                        )
+            }
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.1.2", "3.2.0"])
     fun `generates closed scalar unions for native composition unions`(version: String) {
         val generated = generateCompositionUnions(version)
@@ -456,6 +513,19 @@ class NativeModelGeneratorTest {
                 ),
             ).files
             .associate { it.name to it.toString() }
+
+    private fun generateMixedUnion(version: String): Map<String, String> {
+        val nullMember = if (version == "3.0.4") "" else "        - type: 'null'"
+        return NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(mixedUnionOpenApi.replace("VERSION", version).replace("NULL_MEMBER", nullMember))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
+    }
 
     private fun generateComponentNames(version: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -683,6 +753,40 @@ class NativeModelGeneratorTest {
                   type: object
                   additionalProperties:
                     type: [string, integer, 'null']
+        """.trimIndent()
+
+    private val mixedUnionOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Mixed union
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  ${'$'}ref: '#/components/schemas/MixedValue'
+            MixedValue:
+              oneOf:
+                - type: string
+                - type: integer
+                - ${'$'}ref: '#/components/schemas/Cat'
+                - ${'$'}ref: '#/components/schemas/Dog'
+        NULL_MEMBER
+            Cat:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+            Dog:
+              type: object
+              required: [barks]
+              properties:
+                barks: { type: boolean }
         """.trimIndent()
 
     private val additionalPropertiesOpenApi =
