@@ -57,6 +57,10 @@ internal class NativeGeneratorOperationAdapter(
             security = security?.toGeneratorSecurityRequirements(),
             callbacks = callbacks.map { callback -> callback.resolve().toGeneratorCallback(callback.name) },
             extensions = extensions,
+            externalDocumentation =
+                externalDocumentation?.let { documentation ->
+                    GeneratorExternalDocumentation(documentation.description, documentation.url)
+                },
         )
 
     private fun SourceCallback.toGeneratorCallback(name: String): GeneratorCallback =

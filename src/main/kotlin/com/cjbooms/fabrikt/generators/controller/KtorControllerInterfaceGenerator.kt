@@ -1226,6 +1226,7 @@ class KtorControllerInterfaceGenerator(
                 MemberName(ClassName(packages.controllers, TYPED_APPLICATION_CALL_CLASS_NAME), "respondTyped"),
             )
         }
+        kdoc.add(context.externalDocumentationKdoc(operation))
         parameters.forEach { kdoc.add("@param %L %L\n", it.name.toKCodeName(), it.description?.trimIndent().orEmpty()) }
         parameters.filterIsInstance<MultipartParameter>().flatMap(MultipartParameter::headers).forEach { header ->
             kdoc.add("@param %L %L\n", header.name.toKCodeName(), header.description?.trimIndent().orEmpty())

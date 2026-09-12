@@ -62,6 +62,12 @@ internal data class GeneratorOperation(
     val security: GeneratorSecurityRequirements?,
     val callbacks: List<GeneratorCallback>,
     val extensions: Map<String, JsonNode>,
+    val externalDocumentation: GeneratorExternalDocumentation? = null,
+)
+
+internal data class GeneratorExternalDocumentation(
+    val description: String?,
+    val url: String?,
 )
 
 internal data class GeneratorCallback(

@@ -60,6 +60,7 @@ internal class CallbackSenderGenerator(
             .addModifiers(KModifier.ABSTRACT)
             .apply { if (suspending) addModifiers(KModifier.SUSPEND) }
             .addKdoc("Sends this callback to the URL obtained by evaluating `%L`.\n", path.path)
+            .addKdoc(context.externalDocumentationKdoc(operation))
             .addParameter(ParameterSpec.builder(destinationName, String::class).build())
             .apply {
                 parameters.forEach { parameter ->

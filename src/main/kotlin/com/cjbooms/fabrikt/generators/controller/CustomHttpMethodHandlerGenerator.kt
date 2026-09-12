@@ -37,6 +37,7 @@ internal class CustomHttpMethodHandlerGenerator(
             .addOperationDeprecation(operation)
             .addModifiers(KModifier.ABSTRACT)
             .addKdoc("Handles the `%L %L` operation using application-defined routing.\n", operation.method.uppercase(), path.path)
+            .addKdoc(context.externalDocumentationKdoc(operation))
             .apply {
                 parameters.forEach { parameter ->
                     addParameter(

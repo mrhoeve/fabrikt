@@ -193,8 +193,26 @@ internal class GeneratorEndpointContext(
     ): CodeBlock {
         val kdoc = CodeBlock.builder().add("%L\n%L\n", operation.summary.orEmpty(), operation.description.orEmpty())
         parameters.forEach { kdoc.add("@param %L %L\n", it.name.toKCodeName(), it.description.orEmpty()) }
+        kdoc.addExternalDocumentation(operation)
         return kdoc.build()
     }
+
+    fun externalDocumentationKdoc(operation: GeneratorOperation): CodeBlock =
+        CodeBlock
+            .builder()
+            .addExternalDocumentation(operation)
+            .build()
+
+    private fun CodeBlock.Builder.addExternalDocumentation(operation: GeneratorOperation): CodeBlock.Builder =
+        apply {
+            operation.externalDocumentation?.url?.let { url ->
+                add(
+                    "\n[%L](%L)\n",
+                    operation.externalDocumentation.description?.takeIf(String::isNotBlank) ?: "External documentation",
+                    url,
+                )
+            }
+        }
 
     fun incomingParameters(
         operation: GeneratorOperation,
