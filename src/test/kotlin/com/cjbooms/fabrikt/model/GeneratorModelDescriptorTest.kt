@@ -134,6 +134,21 @@ class GeneratorModelDescriptorTest {
             .isEqualTo(KotlinTypeInfo.Object("NestedPatternsPattern1Value"))
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `projects conditional object properties as optional model fields`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(conditionalPropertiesOpenApi.replace("VERSION", version))
+
+        val models = GeneratorModelDescriptorBuilder.build(parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE))
+        val subject = models.single { it.name == "Subject" }
+
+        assertThat(models.map(GeneratorModelDescriptor::name)).containsExactly("Subject", "SubjectCredentials", "SubjectConfig")
+        assertThat(subject.properties.map(GeneratorPropertyDescriptor::name))
+            .containsExactly("email", "phone", "clientId", "credentials", "tenant", "config", "region", "kind")
+        assertThat(subject.properties.single { it.name == "kind" }.required).isTrue()
+        assertThat(subject.properties.filterNot { it.name == "kind" }).allMatch { !it.required }
+    }
+
     private fun List<GeneratorModelDescriptor>.withoutIdentities() =
         map { model ->
             model.copy(
@@ -248,6 +263,55 @@ class GeneratorModelDescriptorTest {
               allOf:
                 - { type: object }
                 - false
+        """.trimIndent()
+
+    private val conditionalPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Conditional properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
+              anyOf:
+                - required: [email]
+                  properties:
+                    email: { type: string }
+                - required: [phone]
+                  properties:
+                    phone: { type: string }
+              dependentSchemas:
+                oauth:
+                  required: [clientId, credentials]
+                  properties:
+                    clientId: { type: string }
+                    credentials:
+                      type: object
+                      required: [secret]
+                      properties:
+                        secret: { type: string }
+              if:
+                properties:
+                  kind: { const: enterprise }
+              then:
+                required: [tenant, config]
+                properties:
+                  tenant: { type: string }
+                  config:
+                    type: object
+                    required: [enabled]
+                    properties:
+                      enabled: { type: boolean }
+              else:
+                required: [region]
+                properties:
+                  region: { type: string }
         """.trimIndent()
 
     private fun operationReferencesOpenApi(version: String) =

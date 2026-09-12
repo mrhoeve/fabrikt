@@ -423,6 +423,30 @@ class NativeModelGeneratorTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `generates optional fields for conditional object branches`(version: String) {
+        SerializationLibrary.entries.forEach { library ->
+            MutableSettings.updateSettings(serializationLibrary = library)
+
+            val generated = generateConditionalProperties(version)
+
+            assertThat(generated.getValue("Subject"))
+                .contains("public val email: String? = null")
+                .contains("public val phone: String? = null")
+                .contains("public val clientId: String? = null")
+                .contains("public val credentials: SubjectCredentials? = null")
+                .contains("public val tenant: String? = null")
+                .contains("public val config: SubjectConfig? = null")
+                .contains("public val region: String? = null")
+                .contains("public val kind: String")
+            assertThat(generated.getValue("SubjectCredentials"))
+                .contains("public val secret: String")
+            assertThat(generated.getValue("SubjectConfig"))
+                .contains("public val enabled: Boolean")
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["3.0.4", "3.1.2", "3.2.0"])
     fun `generates native models from enum values without declared types`(version: String) {
         val generated = generateValueConstraints(enumValueOpenApi.replace("VERSION", version))
@@ -674,6 +698,17 @@ class NativeModelGeneratorTest {
             ).files
             .single { it.name == "Subject" }
             .toString()
+
+    private fun generateConditionalProperties(version: String): Map<String, String> =
+        NativeModelGenerator("com.example")
+            .generate(
+                GeneratorModelDescriptorBuilder.build(
+                    OpenApiDocumentParser
+                        .parse(conditionalPropertiesOpenApi.replace("VERSION", version))
+                        .toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE),
+                ),
+            ).files
+            .associate { it.name to it.toString() }
 
     private fun generateValueConstraints(openApi: String): Map<String, String> =
         NativeModelGenerator("com.example")
@@ -1036,6 +1071,55 @@ class NativeModelGeneratorTest {
                 urlEncoded:
                   type: string
                   contentEncoding: base64url
+        """.trimIndent()
+
+    private val conditionalPropertiesOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Conditional properties
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Subject:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string }
+              anyOf:
+                - required: [email]
+                  properties:
+                    email: { type: string }
+                - required: [phone]
+                  properties:
+                    phone: { type: string }
+              dependentSchemas:
+                oauth:
+                  required: [clientId, credentials]
+                  properties:
+                    clientId: { type: string }
+                    credentials:
+                      type: object
+                      required: [secret]
+                      properties:
+                        secret: { type: string }
+              if:
+                properties:
+                  kind: { const: enterprise }
+              then:
+                required: [tenant, config]
+                properties:
+                  tenant: { type: string }
+                  config:
+                    type: object
+                    required: [enabled]
+                    properties:
+                      enabled: { type: boolean }
+              else:
+                required: [region]
+                properties:
+                  region: { type: string }
         """.trimIndent()
 
     private val enumValueOpenApi =
