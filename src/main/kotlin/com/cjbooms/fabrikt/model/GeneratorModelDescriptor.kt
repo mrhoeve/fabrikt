@@ -70,6 +70,8 @@ internal object GeneratorModelDescriptorBuilder {
                     } else {
                         resolution
                     }
+                is GeneratorKotlinTypeResolution.Uninhabitable ->
+                    throw IllegalArgumentException("Cannot generate model '$name' because its schema cannot accept any value")
                 is GeneratorKotlinTypeResolution.Unsupported -> resolution
             }
         return GeneratorModelDescriptor(
@@ -281,13 +283,20 @@ internal object GeneratorModelDescriptorBuilder {
         document: GeneratorSchemaDocument,
         typeResolver: GeneratorKotlinTypeResolver,
     ): List<GeneratorPropertyDescriptor> =
-        properties.map { (name, propertySchema) ->
+        properties.mapNotNull { (name, propertySchema) ->
             val resolvedProperty = document.resolve(propertySchema)
             val property = resolvedProperty as? GeneratorObjectSchema
+            val classification = typeResolver.classify(resolvedProperty)
+            if (classification is GeneratorSchemaTypeClassification.Uninhabitable) {
+                require(name !in requiredProperties) {
+                    "Cannot generate model '$modelName' because required property '$name' cannot accept any value"
+                }
+                return@mapNotNull null
+            }
             GeneratorPropertyDescriptor(
                 name = name,
                 schemaIdentity = resolvedProperty.identity,
-                classification = GeneratorSchemaTypeClassifier.classify(resolvedProperty),
+                classification = classification,
                 kotlinType = typeResolver.resolveProperty(propertySchema, modelName),
                 required = name in requiredProperties,
                 readOnly = property?.metadata?.readOnly == true,

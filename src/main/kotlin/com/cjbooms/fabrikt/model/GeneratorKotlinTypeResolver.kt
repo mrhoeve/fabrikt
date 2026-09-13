@@ -20,8 +20,10 @@ internal sealed interface GeneratorKotlinTypeResolution {
     ) : GeneratorKotlinTypeResolution
 
     data class Unsupported(
-        val reason: GeneratorSchemaTypeClassification.Reason,
+        val reason: GeneratorSchemaTypeClassification.UnsupportedReason,
     ) : GeneratorKotlinTypeResolution
+
+    data object Uninhabitable : GeneratorKotlinTypeResolution
 }
 
 internal class GeneratorKotlinTypeResolver(
@@ -39,8 +41,11 @@ internal class GeneratorKotlinTypeResolver(
     fun resolve(schema: GeneratorSchema): GeneratorKotlinTypeResolution {
         val resolvedSchema = document.resolve(schema)
         val classification = classify(resolvedSchema)
-        if (classification is GeneratorSchemaTypeClassification.Unsupported) {
-            return GeneratorKotlinTypeResolution.Unsupported(classification.reason)
+        when (classification) {
+            is GeneratorSchemaTypeClassification.Uninhabitable -> return GeneratorKotlinTypeResolution.Uninhabitable
+            is GeneratorSchemaTypeClassification.Unsupported ->
+                return GeneratorKotlinTypeResolution.Unsupported(classification.reason)
+            is GeneratorSchemaTypeClassification.Resolved -> Unit
         }
 
         classification as GeneratorSchemaTypeClassification.Resolved
@@ -112,6 +117,7 @@ internal class GeneratorKotlinTypeResolver(
     private fun resolvePropertyFallback(schema: GeneratorSchema): GeneratorKotlinTypeResolution =
         when (val resolution = resolve(schema)) {
             is GeneratorKotlinTypeResolution.Resolved -> resolution
+            is GeneratorKotlinTypeResolution.Uninhabitable -> resolution
             is GeneratorKotlinTypeResolution.Unsupported -> {
                 val nullable =
                     (document.resolve(schema) as? GeneratorObjectSchema)?.types?.contains(SourceSchemaType.NULL) == true

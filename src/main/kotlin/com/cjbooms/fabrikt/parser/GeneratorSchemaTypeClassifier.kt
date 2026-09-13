@@ -3,17 +3,18 @@ package com.cjbooms.fabrikt.parser
 import com.cjbooms.fabrikt.model.OasType
 
 internal sealed interface GeneratorSchemaTypeClassification {
+    data object Uninhabitable : GeneratorSchemaTypeClassification
+
     data class Resolved(
         val type: OasType,
         val nullable: Boolean,
     ) : GeneratorSchemaTypeClassification
 
     data class Unsupported(
-        val reason: Reason,
+        val reason: UnsupportedReason,
     ) : GeneratorSchemaTypeClassification
 
-    enum class Reason {
-        NEVER_SCHEMA,
+    enum class UnsupportedReason {
         MULTIPLE_NON_NULL_TYPES,
         INCONSISTENT_COMPOSITION_TYPES,
     }
@@ -29,7 +30,7 @@ internal object GeneratorSchemaTypeClassifier {
                 if (schema.allowsAnyValue) {
                     GeneratorSchemaTypeClassification.Resolved(OasType.Any, false)
                 } else {
-                    GeneratorSchemaTypeClassification.Unsupported(GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA)
+                    GeneratorSchemaTypeClassification.Uninhabitable
                 }
             is GeneratorObjectSchema -> classifyObjectSchema(schema, resolve)
             else -> error("Unknown generator schema implementation: ${schema::class.qualifiedName}")
@@ -39,18 +40,32 @@ internal object GeneratorSchemaTypeClassifier {
         schema: GeneratorObjectSchema,
         resolve: (GeneratorSchema) -> GeneratorSchema,
     ): GeneratorSchemaTypeClassification {
+        if (schema.allOf.any { classify(resolve(it), resolve) is GeneratorSchemaTypeClassification.Uninhabitable }) {
+            return GeneratorSchemaTypeClassification.Uninhabitable
+        }
+        if (schema.anyOf.isNotEmpty() &&
+            schema.anyOf.all { classify(resolve(it), resolve) is GeneratorSchemaTypeClassification.Uninhabitable }
+        ) {
+            return GeneratorSchemaTypeClassification.Uninhabitable
+        }
+        if (schema.oneOf.isNotEmpty() &&
+            schema.oneOf.all { classify(resolve(it), resolve) is GeneratorSchemaTypeClassification.Uninhabitable }
+        ) {
+            return GeneratorSchemaTypeClassification.Uninhabitable
+        }
+
         val nullable = SourceSchemaType.NULL in schema.types
         val nonNullTypes = schema.types - SourceSchemaType.NULL
         if (nonNullTypes.size > 1) {
             return GeneratorSchemaTypeClassification.Unsupported(
-                GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+                GeneratorSchemaTypeClassification.UnsupportedReason.MULTIPLE_NON_NULL_TYPES,
             )
         }
 
         val type = nonNullTypes.singleOrNull() ?: inferType(schema, resolve)
         if (type == null && schema.hasInconsistentCompositionTypes(resolve)) {
             return GeneratorSchemaTypeClassification.Unsupported(
-                GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+                GeneratorSchemaTypeClassification.UnsupportedReason.INCONSISTENT_COMPOSITION_TYPES,
             )
         }
 
