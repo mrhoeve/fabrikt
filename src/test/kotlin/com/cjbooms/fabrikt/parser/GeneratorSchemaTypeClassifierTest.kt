@@ -81,23 +81,24 @@ class GeneratorSchemaTypeClassifierTest {
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("Union")))
             .isEqualTo(
                 GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+                    GeneratorSchemaTypeClassification.UnsupportedReason.MULTIPLE_NON_NULL_TYPES,
                 ),
             )
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("Never")))
-            .isEqualTo(
-                GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.NEVER_SCHEMA,
-                ),
-            )
+            .isEqualTo(GeneratorSchemaTypeClassification.Uninhabitable)
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("Any")))
             .isEqualTo(GeneratorSchemaTypeClassification.Resolved(OasType.Any, false))
         assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("MixedComposition")))
             .isEqualTo(
                 GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.INCONSISTENT_COMPOSITION_TYPES,
+                    GeneratorSchemaTypeClassification.UnsupportedReason.INCONSISTENT_COMPOSITION_TYPES,
                 ),
             )
+        assertResolved(schemas, "PossibleOneOf", OasType.Text)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("ImpossibleAnyOf")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Uninhabitable)
+        assertThat(GeneratorSchemaTypeClassifier.classify(schemas.getValue("ImpossibleAllOf")))
+            .isEqualTo(GeneratorSchemaTypeClassification.Uninhabitable)
     }
 
     private fun assertResolved(
@@ -164,5 +165,15 @@ class GeneratorSchemaTypeClassifierTest {
           oneOf:
             - { type: string }
             - { type: integer }
+        PossibleOneOf:
+          oneOf:
+            - false
+            - { type: string }
+        ImpossibleAnyOf:
+          anyOf: [false, false]
+        ImpossibleAllOf:
+          allOf:
+            - { type: object }
+            - false
         """.trimIndent()
 }

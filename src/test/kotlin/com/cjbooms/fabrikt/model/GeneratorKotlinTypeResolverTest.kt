@@ -34,6 +34,16 @@ class GeneratorKotlinTypeResolverTest {
         assertResolved(resolver, document, "Map", KotlinTypeInfo.Map(KotlinTypeInfo.Integer))
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["3.1.2", "3.2.0"])
+    fun `does not resolve schemas that cannot accept a value to a Kotlin fallback`(version: String) {
+        val parsed = OpenApiDocumentParser.parse(neverSchemaOpenApi.replace("VERSION", version))
+        val document = parsed.toGeneratorSchemaDocument(SchemaGenerationMode.NATIVE)
+
+        assertThat(GeneratorKotlinTypeResolver(document).resolve(document.componentSchemas.getValue("Never")))
+            .isEqualTo(GeneratorKotlinTypeResolution.Uninhabitable)
+    }
+
     private fun assertResolved(
         resolver: GeneratorKotlinTypeResolver,
         document: com.cjbooms.fabrikt.parser.GeneratorSchemaDocument,
@@ -70,5 +80,17 @@ class GeneratorKotlinTypeResolverTest {
                 ${'$'}ref: '#/components/schemas/Uuid'
             Set: { type: array, uniqueItems: true, items: { type: string } }
             Map: { type: object, additionalProperties: { type: integer } }
+        """.trimIndent()
+
+    private val neverSchemaOpenApi =
+        """
+        openapi: VERSION
+        info:
+          title: Test
+          version: "1.0"
+        paths: {}
+        components:
+          schemas:
+            Never: false
         """.trimIndent()
 }

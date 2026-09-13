@@ -26,7 +26,7 @@ class SchemaGenerationModeTest {
         assertThat(GeneratorSchemaTypeClassifier.classify(value))
             .isEqualTo(
                 GeneratorSchemaTypeClassification.Unsupported(
-                    GeneratorSchemaTypeClassification.Reason.MULTIPLE_NON_NULL_TYPES,
+                    GeneratorSchemaTypeClassification.UnsupportedReason.MULTIPLE_NON_NULL_TYPES,
                 ),
             )
 
